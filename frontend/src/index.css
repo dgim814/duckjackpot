@@ -1,0 +1,109 @@
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Unbounded:wght@500;600;700;800&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-display: "Unbounded", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Manrope", ui-sans-serif, system-ui, sans-serif;
+  --color-night: #09080c;
+  --color-panel: #141218;
+  --color-panel-2: #1c1814;
+  --color-gold: #ffc107;
+  --color-gold-2: #ffb300;
+  --color-flame: #ff6b00;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background: #09080c;
+  color: #f7f3ea;
+  font-family: var(--font-sans);
+}
+
+#root {
+  background:
+    radial-gradient(1200px 500px at 50% -10%, rgba(255, 107, 0, 0.18), transparent 55%),
+    radial-gradient(800px 400px at 100% 20%, rgba(255, 193, 7, 0.08), transparent 45%),
+    #09080c;
+}
+
+.gold-text {
+  background: linear-gradient(180deg, #fff3c4 0%, #ffc107 42%, #ff6b00 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.progress-fill {
+  background: linear-gradient(90deg, #ff6b00 0%, #ffc107 55%, #ffe082 100%);
+  box-shadow: 0 0 18px rgba(255, 193, 7, 0.45);
+}
+
+.buy-btn {
+  background: linear-gradient(180deg, #ffd54f 0%, #ffb300 40%, #ff6b00 100%);
+  box-shadow:
+    0 10px 30px rgba(255, 107, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+.buy-btn:active {
+  transform: scale(0.98);
+}
+
+.card-foil {
+  background:
+    radial-gradient(80% 60% at 50% 0%, rgba(255, 193, 7, 0.18), transparent 55%),
+    #050406;
+}
+
+.card-shine {
+  background: linear-gradient(
+    115deg,
+    transparent 20%,
+    rgba(255, 255, 255, 0.08) 40%,
+    rgba(255, 214, 64, 0.16) 50%,
+    transparent 62%
+  );
+  background-size: 220% 220%;
+  animation: foil 4.5s ease-in-out infinite;
+}
+
+@keyframes foil {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+.admin-btn {
+  border-radius: 0.6rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: #18181b;
+  padding: 0.45rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #e4e4e7;
+}
+
+.admin-btn-danger {
+  border-color: rgba(251, 113, 133, 0.35);
+  color: #fda4af;
+}
