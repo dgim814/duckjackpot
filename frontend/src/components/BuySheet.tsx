@@ -5,7 +5,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useAdmin } from '../admin/AdminProvider'
 import { formatSerial, formatUsdtExact, useCards, type OwnedCard, type PayAsset } from '../cards/CardsProvider'
 import { formatCardPrice, useUsdtRate } from '../hooks/useUsdtRate'
-import { getRaffle } from '../constants'
+import { DEFAULT_TON_WALLET, DEFAULT_USDT_TRC20, getRaffle, walletOrDefault } from '../constants'
 import { useI18n } from '../i18n/LanguageProvider'
 import type { MessageKey } from '../i18n/messages'
 import { RAFFLE_TITLE_KEY } from '../i18n/raffleLabels'
@@ -61,6 +61,8 @@ export function BuySheet({ open, onClose }: BuySheetProps) {
   const { mintCard, createPendingUsdt, confirmCardPayment, raffleId, remaining } = useCards()
   const { testPayMode, merchantWallet, usdtTrc20Address } = useAdmin()
   const raffle = getRaffle(raffleId)
+  const payTonWallet = walletOrDefault(merchantWallet, DEFAULT_TON_WALLET)
+  const payUsdtWallet = walletOrDefault(usdtTrc20Address, DEFAULT_USDT_TRC20)
   const { rate } = useUsdtRate()
   const navigate = useNavigate()
   const [tonConnectUI] = useTonConnectUI()
@@ -74,7 +76,7 @@ export function BuySheet({ open, onClose }: BuySheetProps) {
   const [pendingCard, setPendingCard] = useState<OwnedCard | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const preAmlOk = hasCompletedPreAml()
-  const trc20Ready = isTronAddress(usdtTrc20Address)
+  const trc20Ready = isTronAddress(payUsdtWallet)
 
   const tonAmount = tonRub ? estimateTonAmount(raffle.priceRub, tonRub) : null
   const usdtAmount = estimateUsdtAmount(raffle.priceRub, rate)
@@ -134,13 +136,13 @@ export function BuySheet({ open, onClose }: BuySheetProps) {
         return
       }
 
-      if (!merchantWallet.trim()) throw new Error('no_merchant')
+      if (!payTonWallet) throw new Error('no_merchant')
       if (!tonAmount) throw new Error('ton_rate')
 
       const connected = await ensureWallet()
       const comment = paymentComment(raffleId, connected.account.address.slice(-6))
       const tx = buildTonTransaction({
-        merchant: merchantWallet,
+        merchant: payTonWallet,
         tonAmount,
         comment,
       })
@@ -201,7 +203,7 @@ export function BuySheet({ open, onClose }: BuySheetProps) {
       }
       const expected = pendingCard.usdtExact ?? usdtAmount
       const txHash = await waitForTrc20Usdt({
-        to: usdtTrc20Address,
+        to: payUsdtWallet,
         amount: expected,
         sinceMs: pendingCard.purchasedAt,
         signal: controller.signal,
@@ -219,7 +221,7 @@ export function BuySheet({ open, onClose }: BuySheetProps) {
 
   const copyAddress = async () => {
     try {
-      await navigator.clipboard.writeText(usdtTrc20Address)
+      await navigator.clipboard.writeText(payUsdtWallet)
       setCopied('address')
     } catch {
       setCopied(null)
@@ -319,7 +321,7 @@ export function BuySheet({ open, onClose }: BuySheetProps) {
               <p className="text-[10px] font-extrabold uppercase tracking-[0.14em] text-zinc-500">
                 {t('adminMerchantUsdt')}
               </p>
-              <p className="mt-2 break-all font-mono text-sm text-amber-100">{usdtTrc20Address}</p>
+              <p className="mt-2 break-all font-mono text-sm text-amber-100">{payUsdtWallet}</p>
             </div>
             {pendingCard ? (
               <div className="mt-3 rounded-2xl border border-amber-400/30 bg-black/30 px-4 py-4 text-center">

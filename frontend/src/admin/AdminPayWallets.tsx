@@ -1,4 +1,5 @@
 import type { CSSProperties } from 'react'
+import { DEFAULT_TON_WALLET, DEFAULT_USDT_TRC20 } from '../constants'
 import { useAdmin } from './AdminProvider'
 import { useI18n } from '../i18n/LanguageProvider'
 
@@ -64,7 +65,7 @@ export function AdminPayWallets({ idPrefix = 'admin' }: { idPrefix?: string }) {
           data-testid={`${idPrefix}-ton-wallet`}
           type="text"
           value={merchantWallet}
-          placeholder="EQ…"
+          placeholder={DEFAULT_TON_WALLET}
           autoComplete="off"
           spellCheck={false}
           onChange={(e) => setMerchantWallet(e.target.value)}
@@ -86,7 +87,7 @@ export function AdminPayWallets({ idPrefix = 'admin' }: { idPrefix?: string }) {
           data-testid={`${idPrefix}-usdt-trc20`}
           type="text"
           value={usdtTrc20Address}
-          placeholder="T…"
+          placeholder={DEFAULT_USDT_TRC20}
           autoComplete="off"
           spellCheck={false}
           onChange={(e) => setUsdtTrc20Address(e.target.value)}

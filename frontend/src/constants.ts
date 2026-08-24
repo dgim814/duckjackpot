@@ -84,6 +84,15 @@ export const USDT_RUB_DEFAULT = 95
 export const CARD_ART = '/duck-jackpot.jpg'
 export const ADMIN_PASSWORD = 'duckadmin2026'
 
+/** Fallback receiving wallets when admin settings / localStorage are empty. */
+export const DEFAULT_USDT_TRC20 = 'TQVrB6XACMwhAJXh1eJUVw5cEgEL3ZfML'
+export const DEFAULT_TON_WALLET = 'UQAdc1niAN8M0GQoFp_v_F53iA50HzoPf'
+
+export function walletOrDefault(value: string | undefined, fallback: string) {
+  const trimmed = typeof value === 'string' ? value.trim() : ''
+  return trimmed || fallback
+}
+
 /** Official Tether USDT jetton master on TON */
 export const USDT_MASTER =
   'EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs'

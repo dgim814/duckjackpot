@@ -2,11 +2,14 @@ import { createContext, useContext, useMemo, useState, type ReactNode } from 're
 import {
   ADMIN_PASSWORD,
   CARD_ART,
+  DEFAULT_TON_WALLET,
+  DEFAULT_USDT_TRC20,
   getRaffle,
   RAFFLE_ORDER,
   RAFFLES,
   STORAGE_KEYS,
   USDT_RUB_DEFAULT,
+  walletOrDefault,
   type RaffleId,
 } from '../constants'
 import type { Lang } from '../i18n/messages'
@@ -100,8 +103,8 @@ function defaultState(): AdminState {
     content: {},
     rateOverride: null,
     testPayMode: false,
-    merchantWallet: '',
-    usdtTrc20Address: '',
+    merchantWallet: DEFAULT_TON_WALLET,
+    usdtTrc20Address: DEFAULT_USDT_TRC20,
   }
 }
 
@@ -144,8 +147,8 @@ function readState(): AdminState {
       content: parsed.content ?? {},
       rateOverride: override ?? null,
       testPayMode: parsed.testPayMode === true,
-      merchantWallet: typeof parsed.merchantWallet === 'string' ? parsed.merchantWallet : '',
-      usdtTrc20Address: typeof parsed.usdtTrc20Address === 'string' ? parsed.usdtTrc20Address : '',
+      merchantWallet: walletOrDefault(parsed.merchantWallet, DEFAULT_TON_WALLET),
+      usdtTrc20Address: walletOrDefault(parsed.usdtTrc20Address, DEFAULT_USDT_TRC20),
     }
   } catch {
     return fallback
@@ -243,6 +246,8 @@ export function AdminProvider({ children }: { children: ReactNode }) {
         patch((prev) => ({ ...prev, rateOverride }))
       },
       setTestPayMode: (enabled) => patch((prev) => ({ ...prev, testPayMode: enabled })),
+      merchantWallet: walletOrDefault(state.merchantWallet, DEFAULT_TON_WALLET),
+      usdtTrc20Address: walletOrDefault(state.usdtTrc20Address, DEFAULT_USDT_TRC20),
       setMerchantWallet: (address) => patch((prev) => ({ ...prev, merchantWallet: address.trim() })),
       setUsdtTrc20Address: (address) => patch((prev) => ({ ...prev, usdtTrc20Address: address.trim() })),
       setContent: (lang, key, value) =>
