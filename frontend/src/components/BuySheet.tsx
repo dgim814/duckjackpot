@@ -18,7 +18,7 @@ import {
   paymentComment,
   waitForTonTransaction,
 } from '../ton/pay'
-import { isTronAddress, waitForTrc20Usdt } from '../tron/trc20'
+import { waitForTrc20Usdt } from '../tron/trc20'
 
 type Step = 'choose' | 'trc20' | 'success'
 
@@ -76,7 +76,7 @@ export function BuySheet({ open, onClose }: BuySheetProps) {
   const [pendingCard, setPendingCard] = useState<OwnedCard | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const preAmlOk = hasCompletedPreAml()
-  const trc20Ready = isTronAddress(payUsdtWallet)
+  const payUsdtReady = payUsdtWallet.length > 0
 
   const tonAmount = tonRub ? estimateTonAmount(raffle.priceRub, tonRub) : null
   const usdtAmount = estimateUsdtAmount(raffle.priceRub, rate)
@@ -92,6 +92,30 @@ export function BuySheet({ open, onClose }: BuySheetProps) {
       setCopied(null)
       setPendingCard(null)
       return
+    }
+    console.log('[DuckJackpot] USDT TRC-20 address:', payUsdtWallet)
+    console.log('[DuckJackpot] USDT TRC-20 source:', {
+      settings: usdtTrc20Address,
+      used: payUsdtWallet,
+      fallback: DEFAULT_USDT_TRC20,
+    })
+    if (hasCompletedPreAml()) {
+      try {
+        tonConnectUI.closeModal()
+      } catch {
+        /* ignore */
+      }
+      try {
+        const card = createPendingUsdt(usdtAmount)
+        setPendingCard(card)
+        setError(null)
+        setCopied(null)
+        setStep('trc20')
+      } catch (err) {
+        const code = err instanceof Error ? err.message : String(err)
+        setError(payErrorMessage(code, t))
+        setStep('choose')
+      }
     }
     let cancelled = false
     void fetchTonRubRate()
@@ -164,7 +188,7 @@ export function BuySheet({ open, onClose }: BuySheetProps) {
       setError(t('payNeedPreAml'))
       return
     }
-    if (!trc20Ready) {
+    if (!payUsdtWallet) {
       setError(t('payUsdtUnavailable'))
       return
     }
@@ -173,6 +197,7 @@ export function BuySheet({ open, onClose }: BuySheetProps) {
     } catch {
       /* ignore */
     }
+    console.log('[DuckJackpot] USDT TRC-20 address:', payUsdtWallet)
     try {
       const card = createPendingUsdt(usdtAmount)
       setPendingCard(card)
@@ -186,7 +211,7 @@ export function BuySheet({ open, onClose }: BuySheetProps) {
   }
 
   const confirmUsdt = async () => {
-    if (busy || !trc20Ready || !pendingCard) return
+    if (busy || !payUsdtWallet || !pendingCard) return
     setError(null)
     setBusy(true)
     abortRef.current?.abort()
@@ -401,7 +426,7 @@ export function BuySheet({ open, onClose }: BuySheetProps) {
             <div className="mt-4 space-y-3">
               <button
                 type="button"
-                disabled={busy || remaining <= 0 || !preAmlOk || !trc20Ready}
+                disabled={busy || remaining <= 0 || !preAmlOk || !payUsdtReady}
                 onClick={openUsdt}
                 className="w-full rounded-2xl border-2 border-amber-400/40 bg-amber-400/10 px-3 py-4 text-left disabled:opacity-50"
               >
@@ -410,9 +435,7 @@ export function BuySheet({ open, onClose }: BuySheetProps) {
                   <Coins className="text-orange-400" size={20} />
                   <p className="font-display text-base font-bold text-amber-100">USDT TRC-20</p>
                 </div>
-                <p className="mt-1 text-xs text-zinc-300">
-                  {trc20Ready ? (testPayMode ? raffle.testUsdt : usdtLabel) : t('payUsdtUnavailable')}
-                </p>
+                <p className="mt-1 text-xs text-zinc-300">{testPayMode ? raffle.testUsdt : usdtLabel}</p>
               </button>
               <button
                 type="button"
@@ -428,10 +451,6 @@ export function BuySheet({ open, onClose }: BuySheetProps) {
                 <p className="mt-1 text-xs text-zinc-400">{testPayMode ? raffle.testTon : tonLabel}</p>
               </button>
             </div>
-
-            {!trc20Ready ? (
-              <p className="mt-3 text-center text-xs leading-relaxed text-orange-400">{t('payUsdtUnavailable')}</p>
-            ) : null}
 
             {busy ? (
               <p className="mt-4 text-center text-sm font-semibold text-amber-200">{t('payProcessing')}</p>
