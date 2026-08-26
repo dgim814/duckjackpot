@@ -37,9 +37,9 @@ export function HomePage() {
           <h2 className="font-display text-sm font-bold text-amber-200">{t('prizePool')}</h2>
           <p className="text-[10px] text-zinc-500">{t('prizePoolHint', { total: raffle.total })}</p>
         </div>
-        <ul className="mt-2 space-y-1">
+        <ul className="mt-1.5 space-y-0.5">
           {raffle.prizes.map((prize) => (
-            <li key={prize.place} className="flex items-center justify-between rounded-lg bg-black/25 px-2.5 py-1.5">
+            <li key={prize.place} className="flex items-center justify-between rounded-lg bg-black/25 px-2.5 py-1">
               <span className="flex items-center gap-1.5 text-xs text-zinc-300">
                 <span
                   className={[
@@ -67,7 +67,7 @@ export function HomePage() {
         <CollectibleCard raffleId={raffleId} compact />
       </section>
 
-      <section className="mt-3 rounded-2xl border border-amber-400/20 bg-[#141218] px-3 py-3">
+      <section className="mt-3 rounded-2xl border border-amber-400/20 bg-[#141218] px-3 py-2.5">
         <div className="flex items-end justify-between gap-3">
           <div>
             <p className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-amber-300">
@@ -93,7 +93,7 @@ export function HomePage() {
         type="button"
         onClick={() => setBuyOpen(true)}
         disabled={!isRunning}
-        className="buy-btn mt-4 w-full rounded-2xl px-4 py-3.5 text-zinc-950 disabled:opacity-50"
+        className="buy-btn sticky bottom-[calc(4.85rem+env(safe-area-inset-bottom))] z-20 mt-3 w-full rounded-2xl px-4 py-3.5 text-zinc-950 shadow-[0_8px_24px_rgba(0,0,0,0.45)] disabled:opacity-50"
       >
         <span className="block font-display text-lg font-extrabold leading-tight">
           {isRunning ? t('buyCta') : t('buyPaused')}
