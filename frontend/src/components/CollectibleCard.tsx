@@ -22,7 +22,7 @@ export function CollectibleCard({ card, raffleId, compact = false }: Collectible
       className={[
         'card-foil relative overflow-hidden border border-amber-400/35 bg-black',
         compact
-          ? 'mx-auto w-[76%] max-w-[270px] rounded-[22px] shadow-[0_12px_32px_rgba(255,107,0,0.2)]'
+          ? 'mx-auto w-[91%] max-w-[324px] rounded-[22px] shadow-[0_12px_32px_rgba(255,107,0,0.2)]'
           : 'rounded-[28px] shadow-[0_20px_50px_rgba(255,107,0,0.22)]',
       ].join(' ')}
     >
