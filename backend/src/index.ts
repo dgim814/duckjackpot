@@ -11,7 +11,42 @@ dotenv.config()
 const app = express()
 const port = Number(process.env.PORT ?? 3001)
 
-app.use(cors())
+const DEFAULT_CORS_ORIGINS = [
+  'https://duckjackpot.vercel.app',
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+  'http://localhost:4173',
+  'http://127.0.0.1:4173',
+]
+
+function corsOrigins() {
+  const extra = (process.env.CORS_ORIGINS ?? '')
+    .split(',')
+    .map((value) => value.trim().replace(/\/$/, ''))
+    .filter(Boolean)
+  return new Set([...DEFAULT_CORS_ORIGINS, ...extra])
+}
+
+const allowedOrigins = corsOrigins()
+
+app.use(
+  cors({
+    origin(origin, callback) {
+      if (!origin) {
+        callback(null, true)
+        return
+      }
+      if (allowedOrigins.has(origin.replace(/\/$/, ''))) {
+        callback(null, true)
+        return
+      }
+      callback(new Error(`CORS blocked origin: ${origin}`))
+    },
+    credentials: true,
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-admin-password'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  }),
+)
 app.use(express.json({ limit: '1mb' }))
 
 function requireAdmin(req: express.Request, res: express.Response) {
