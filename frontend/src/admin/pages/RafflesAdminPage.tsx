@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useAdmin } from '../AdminProvider'
 import { useCards } from '../../cards/CardsProvider'
-import { RAFFLE_ORDER, RAFFLES } from '../../constants'
+import { RAFFLE_ORDER, RAFFLES, type RaffleId } from '../../constants'
 import { useI18n } from '../../i18n/LanguageProvider'
 import { RAFFLE_TITLE_KEY } from '../../i18n/raffleLabels'
 
@@ -40,6 +40,7 @@ export function RafflesAdminPage() {
               <button type="button" className="admin-btn" onClick={() => admin.setStatus(id, 'stopped')}>
                 {t('adminStop')}
               </button>
+              <DrawButton raffleId={id} />
               <button
                 type="button"
                 className="admin-btn admin-btn-danger"
@@ -53,6 +54,7 @@ export function RafflesAdminPage() {
                 {t('adminReset')}
               </button>
             </div>
+            <p className="mt-2 text-[11px] text-zinc-500">{t('adminDrawHint')}</p>
             <label className="mt-4 block text-xs text-zinc-500">{t('adminSoldEdit')}</label>
             <div className="mt-1 flex gap-2">
               <input
@@ -82,5 +84,36 @@ export function RafflesAdminPage() {
         )
       })}
     </div>
+  )
+}
+
+function DrawButton({ raffleId }: { raffleId: RaffleId }) {
+  const { t } = useI18n()
+  const { drawRaffle } = useAdmin()
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  return (
+    <span className="inline-flex flex-col gap-1">
+      <button
+        type="button"
+        className="admin-btn"
+        disabled={busy}
+        onClick={() => {
+          if (!window.confirm(t('adminDrawConfirm'))) return
+          setBusy(true)
+          setError(null)
+          void drawRaffle(raffleId)
+            .then((result) => {
+              if (!result.winners.length) setError(t('adminDrawEmpty'))
+            })
+            .catch(() => setError(t('adminDrawError')))
+            .finally(() => setBusy(false))
+        }}
+      >
+        {busy ? '…' : t('adminDraw')}
+      </button>
+      {error ? <span className="text-[11px] text-orange-400">{error}</span> : null}
+    </span>
   )
 }

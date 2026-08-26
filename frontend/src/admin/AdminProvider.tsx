@@ -12,6 +12,7 @@ import {
   walletOrDefault,
   type RaffleId,
 } from '../constants'
+import { api } from '../api/client'
 import type { Lang } from '../i18n/messages'
 
 export type RaffleStatus = 'running' | 'stopped'
@@ -22,6 +23,8 @@ export type RaffleRuntime = {
   image: string | null
 }
 
+export type NotifyStatus = 'sent' | 'no_chat' | 'failed' | 'pending'
+
 export type Winner = {
   id: string
   raffleId: RaffleId
@@ -30,6 +33,10 @@ export type Winner = {
   amount: string
   paid: boolean
   note: string
+  telegramId?: number
+  telegramUsername?: string
+  payCode?: string
+  notifyStatus: NotifyStatus
 }
 
 export const CONTENT_KEYS = [
@@ -75,16 +82,17 @@ type AdminContextValue = AdminState & {
   setContent: (lang: Lang, key: ContentKey, value: string) => void
   markPaid: (id: string, paid: boolean, note?: string) => void
   updateWinnerNote: (id: string, note: string) => void
+  drawRaffle: (id: RaffleId) => Promise<{ winners: Winner[]; eligible: number }>
 }
 
 const AdminContext = createContext<AdminContextValue | null>(null)
 
 function defaultWinners(): Winner[] {
   return [
-    { id: 'w1', raffleId: 'classic', place: 1, name: 'Test User A', amount: '5000 USDT', paid: false, note: '' },
-    { id: 'w2', raffleId: 'classic', place: 2, name: 'Test User B', amount: '2000 USDT', paid: false, note: '' },
-    { id: 'w3', raffleId: 'fast200', place: 1, name: 'Test User C', amount: '400 USDT', paid: false, note: '' },
-    { id: 'w4', raffleId: 'fast100', place: 1, name: 'Test User D', amount: '300 USDT', paid: true, note: 'demo-hash' },
+    { id: 'w1', raffleId: 'classic', place: 1, name: 'Test User A', amount: '5000 USDT', paid: false, note: '', notifyStatus: 'pending' },
+    { id: 'w2', raffleId: 'classic', place: 2, name: 'Test User B', amount: '2000 USDT', paid: false, note: '', notifyStatus: 'pending' },
+    { id: 'w3', raffleId: 'fast200', place: 1, name: 'Test User C', amount: '400 USDT', paid: false, note: '', notifyStatus: 'pending' },
+    { id: 'w4', raffleId: 'fast100', place: 1, name: 'Test User D', amount: '300 USDT', paid: true, note: 'demo-hash', notifyStatus: 'pending' },
   ]
 }
 
@@ -105,6 +113,31 @@ function defaultState(): AdminState {
     testPayMode: false,
     merchantWallet: DEFAULT_TON_WALLET,
     usdtTrc20Address: DEFAULT_USDT_TRC20,
+  }
+}
+
+function isRaffleId(value: unknown): value is RaffleId {
+  return value === 'classic' || value === 'fast200' || value === 'fast100'
+}
+
+function isNotifyStatus(value: unknown): value is NotifyStatus {
+  return value === 'sent' || value === 'no_chat' || value === 'failed' || value === 'pending'
+}
+
+function normalizeWinner(winner: Partial<Winner> & { id?: string; place?: number }): Winner | null {
+  if (!winner || typeof winner.place !== 'number') return null
+  return {
+    id: String(winner.id ?? crypto.randomUUID()),
+    raffleId: isRaffleId(winner.raffleId) ? winner.raffleId : 'classic',
+    place: winner.place,
+    name: typeof winner.name === 'string' ? winner.name : 'Winner',
+    amount: typeof winner.amount === 'string' ? winner.amount : '',
+    paid: winner.paid === true,
+    note: typeof winner.note === 'string' ? winner.note : '',
+    telegramId: typeof winner.telegramId === 'number' ? winner.telegramId : undefined,
+    telegramUsername: typeof winner.telegramUsername === 'string' ? winner.telegramUsername : undefined,
+    payCode: typeof winner.payCode === 'string' ? winner.payCode : undefined,
+    notifyStatus: isNotifyStatus(winner.notifyStatus) ? winner.notifyStatus : 'pending',
   }
 }
 
@@ -143,7 +176,10 @@ function readState(): AdminState {
         fast200: { ...fallback.raffles.fast200, ...parsed.raffles?.fast200 },
         fast100: { ...fallback.raffles.fast100, ...parsed.raffles?.fast100 },
       },
-      winners: Array.isArray(parsed.winners) && parsed.winners.length ? parsed.winners : fallback.winners,
+      winners:
+        Array.isArray(parsed.winners) && parsed.winners.length
+          ? parsed.winners.map((winner) => normalizeWinner(winner)).filter((winner): winner is Winner => Boolean(winner))
+          : fallback.winners,
       content: parsed.content ?? {},
       rateOverride: override ?? null,
       testPayMode: parsed.testPayMode === true,
@@ -270,6 +306,25 @@ export function AdminProvider({ children }: { children: ReactNode }) {
           ...prev,
           winners: prev.winners.map((winner) => (winner.id === id ? { ...winner, note } : winner)),
         })),
+      drawRaffle: async (id) => {
+        const { data } = await api.post<{ winners: Winner[]; eligible: number }>(
+          `/admin/raffles/${id}/draw`,
+          {},
+          { headers: { 'x-admin-password': ADMIN_PASSWORD } },
+        )
+        const drawn = (data.winners ?? [])
+          .map((winner) => normalizeWinner({ ...winner, raffleId: id }))
+          .filter((winner): winner is Winner => Boolean(winner))
+        patch((prev) => ({
+          ...prev,
+          raffles: {
+            ...prev.raffles,
+            [id]: { ...prev.raffles[id], status: 'stopped' },
+          },
+          winners: [...drawn, ...prev.winners.filter((winner) => winner.raffleId !== id)],
+        }))
+        return { winners: drawn, eligible: data.eligible ?? 0 }
+      },
     }),
     [authed, state],
   )

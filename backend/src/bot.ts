@@ -1,3 +1,4 @@
+import { getChat, rememberChat } from './chatStore.js'
 import { getUserCards, type StoredCard } from './cardStore.js'
 import { getTelegramSettings } from './config.js'
 
@@ -79,6 +80,14 @@ async function sendMessage(token: string, chatId: number, text: string, path?: s
 }
 
 async function handleMessage(token: string, message: TelegramMessage) {
+  if (message.from?.id && !message.from.is_bot) {
+    rememberChat({
+      telegramId: message.from.id,
+      chatId: message.chat.id,
+      username: message.from.username,
+      firstName: message.from.first_name,
+    })
+  }
   const text = (message.text ?? '').trim()
   const chatId = message.chat.id
   const command = text.split(/\s+/)[0]?.split('@')[0]
@@ -195,6 +204,27 @@ export async function startBot() {
       }
     }
   })()
+}
+
+export async function notifyTelegramUser(
+  telegramId: number,
+  text: string,
+): Promise<'sent' | 'no_chat' | 'failed'> {
+  const { token } = getTelegramSettings()
+  if (!token) return 'failed'
+  const chat = getChat(telegramId)
+  if (!chat) return 'no_chat'
+  try {
+    await sendMessage(token, chat.chatId, text)
+    return 'sent'
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    if (/forbidden|chat not found|blocked|can't initiate|deactivated/i.test(message)) {
+      return 'no_chat'
+    }
+    console.error('[telegram notify]', err)
+    return 'failed'
+  }
 }
 
 export async function botIdentity() {

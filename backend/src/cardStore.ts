@@ -45,3 +45,16 @@ export function saveUserCards(telegramId: number, cards: StoredCard[]) {
 export function getUserCards(telegramId: number): StoredCard[] {
   return readStore()[String(telegramId)]?.cards ?? []
 }
+
+export function getActiveCardsForRaffle(raffleId: string): StoredCard[] {
+  const store = readStore()
+  const cards: StoredCard[] = []
+  for (const entry of Object.values(store)) {
+    for (const card of entry.cards) {
+      if (card.raffleId === raffleId && card.status !== 'pending' && typeof card.telegramId === 'number') {
+        cards.push(card)
+      }
+    }
+  }
+  return cards
+}

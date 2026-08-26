@@ -4,6 +4,7 @@ import express from 'express'
 import { botIdentity, startBot } from './bot.js'
 import { saveUserCards, type StoredCard } from './cardStore.js'
 import { adminPassword, getTelegramSettings, maskToken, saveTelegramSettings } from './config.js'
+import { drawRaffle } from './draw.js'
 import { verifyInitData } from './verifyInitData.js'
 
 dotenv.config()
@@ -116,6 +117,19 @@ app.post('/api/me/cards', (req, res) => {
   const cards = incoming.filter((card) => card && typeof card.id === 'string' && typeof card.serial === 'number')
   saveUserCards(user.id, cards)
   res.json({ ok: true, count: cards.length, telegramId: user.id })
+})
+
+app.post('/api/admin/raffles/:raffleId/draw', async (req, res) => {
+  if (!requireAdmin(req, res)) return
+  const raffleId = String(req.params.raffleId ?? '')
+  try {
+    const result = await drawRaffle(raffleId)
+    res.json(result)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'draw_failed'
+    const status = message === 'unknown_raffle' ? 400 : 500
+    res.status(status).json({ error: message })
+  }
 })
 
 app.listen(port, () => {

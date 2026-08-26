@@ -17,68 +17,33 @@ export function HomePage() {
   const [buyOpen, setBuyOpen] = useState(false)
   const locale = lang === 'ru' ? 'ru-RU' : 'en-US'
   const progress = Math.min(100, (soldCount / raffle.total) * 100)
-
-  const onBuy = () => {
-    setBuyOpen(true)
-  }
+  const jackpot = raffle.prizes[0]?.amount ?? '—'
 
   return (
-    <div className="px-4 pb-6">
-      <ScreenHeader
-        kicker={t('homeKicker')}
-        title={t('homeTitle')}
-        subtitle={t('homeSubtitle')}
-      />
-
-      <p className="mt-4 rounded-full border border-amber-400/35 bg-gradient-to-r from-amber-400/15 to-orange-500/10 px-3 py-2 text-center text-[11px] font-extrabold uppercase tracking-[0.12em] text-amber-200">
-        {t('homePrizeBadge')}
-      </p>
+    <div className="px-4 pb-4">
+      <ScreenHeader kicker={t('homeKicker')} title={t('homeTitle')} />
 
       <RafflePicker />
 
-      <section className="mt-5">
-        <CollectibleCard raffleId={raffleId} />
-      </section>
+      <p className="mt-3 text-center text-[12px] leading-snug text-zinc-400">
+        {t('homePrizeHint')}
+      </p>
+      <p className="mt-1 text-center font-display text-base font-extrabold text-amber-200">
+        {t('homeJackpot', { amount: jackpot })}
+      </p>
 
-      <section className="mt-5 rounded-2xl border border-amber-400/20 bg-[#141218] p-4">
-        <p className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-amber-300">
-          {t('limitedDrop')}
-        </p>
-        <div className="mt-2 flex items-end justify-between gap-3">
-          <div>
-            <p className="text-sm font-semibold text-zinc-200">
-              {t('soldProgress', {
-                sold: soldCount.toLocaleString(locale),
-                total: raffle.total.toLocaleString(locale),
-              })}
-            </p>
-            <p className="mt-1 font-display text-lg font-extrabold text-amber-200">
-              {t('cardsLeft', { count: (raffle.total - soldCount).toLocaleString(locale) })}
-            </p>
-          </div>
-          <span className="text-xs font-bold text-amber-300">{Math.round(progress)}%</span>
+      <section className="mt-3 rounded-2xl border border-white/8 bg-[#1c1814] px-3 py-3">
+        <div className="flex items-baseline justify-between gap-2">
+          <h2 className="font-display text-sm font-bold text-amber-200">{t('prizePool')}</h2>
+          <p className="text-[10px] text-zinc-500">{t('prizePoolHint', { total: raffle.total })}</p>
         </div>
-        <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-zinc-800">
-          <div className="progress-fill h-full rounded-full" style={{ width: `${progress}%` }} />
-        </div>
-      </section>
-
-      <section className="mt-5 rounded-2xl border border-white/8 bg-[#1c1814] p-4">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-          {t('prizeBonusKicker')}
-        </p>
-        <h2 className="font-display mt-1 text-lg font-bold text-amber-200">{t('prizePool')}</h2>
-        <p className="mt-1 text-xs text-zinc-400">{t('prizePoolHint', { total: raffle.total })}</p>
-        <ul className="mt-4 space-y-2">
+        <ul className="mt-2 space-y-1">
           {raffle.prizes.map((prize) => (
-            <li
-              key={prize.place}
-              className="flex items-center justify-between rounded-xl bg-black/25 px-3 py-2.5"
-            >
-              <span className="flex items-center gap-2 text-sm text-zinc-300">
+            <li key={prize.place} className="flex items-center justify-between rounded-lg bg-black/25 px-2.5 py-1.5">
+              <span className="flex items-center gap-1.5 text-xs text-zinc-300">
                 <span
                   className={[
-                    'inline-flex h-6 min-w-6 items-center justify-center rounded-full text-[11px] font-extrabold',
+                    'inline-flex h-5 min-w-5 items-center justify-center rounded-full text-[10px] font-extrabold',
                     prize.place === 1
                       ? 'bg-amber-400 text-zinc-950'
                       : prize.place === 2
@@ -92,18 +57,43 @@ export function HomePage() {
                 </span>
                 {t('placeN', { n: prize.place })}
               </span>
-              <span className="text-sm font-extrabold text-amber-300">{prize.amount}</span>
+              <span className="text-xs font-extrabold text-amber-300">{prize.amount}</span>
             </li>
           ))}
         </ul>
-        <UsdtRateNote />
       </section>
+
+      <section className="mt-3">
+        <CollectibleCard raffleId={raffleId} compact />
+      </section>
+
+      <section className="mt-3 rounded-2xl border border-amber-400/20 bg-[#141218] px-3 py-3">
+        <div className="flex items-end justify-between gap-3">
+          <div>
+            <p className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-amber-300">
+              {t('limitedDrop')}
+            </p>
+            <p className="mt-1 text-xs font-semibold text-zinc-200">
+              {t('soldProgress', {
+                sold: soldCount.toLocaleString(locale),
+                total: raffle.total.toLocaleString(locale),
+              })}
+            </p>
+          </div>
+          <span className="text-xs font-bold text-amber-300">{Math.round(progress)}%</span>
+        </div>
+        <div className="mt-2 h-2 overflow-hidden rounded-full bg-zinc-800">
+          <div className="progress-fill h-full rounded-full" style={{ width: `${progress}%` }} />
+        </div>
+      </section>
+
+      <UsdtRateNote />
 
       <button
         type="button"
-        onClick={onBuy}
+        onClick={() => setBuyOpen(true)}
         disabled={!isRunning}
-        className="buy-btn mt-6 w-full rounded-2xl px-4 py-4 text-zinc-950 disabled:opacity-50"
+        className="buy-btn mt-4 w-full rounded-2xl px-4 py-3.5 text-zinc-950 disabled:opacity-50"
       >
         <span className="block font-display text-lg font-extrabold leading-tight">
           {isRunning ? t('buyCta') : t('buyPaused')}
