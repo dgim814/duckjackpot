@@ -45,7 +45,7 @@ export function IssuedCardsPage() {
   const act = async (id: string, action: 'confirm' | 'reject') => {
     setBusyId(id)
     try {
-      await api.post(`/admin/payments/${id}/${action}`, {}, { headers: adminHeaders })
+      await api.post(`/admin/payments/${encodeURIComponent(id)}/${action}`, {}, { headers: adminHeaders })
       await load()
       setError(null)
     } catch (err) {

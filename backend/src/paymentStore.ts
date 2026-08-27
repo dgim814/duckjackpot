@@ -53,7 +53,9 @@ export function listPayments(filter?: { status?: string; raffleId?: string }) {
 }
 
 export function getPayment(id: string) {
-  return readAll().find((item) => item.id === id)
+  const raw = decodeURIComponent(String(id ?? '')).trim()
+  if (!raw) return undefined
+  return readAll().find((item) => item.id === raw || item.payCode === raw)
 }
 
 export function upsertClaim(input: Omit<Payment, 'status' | 'claimedAt' | 'resolvedAt'> & { status?: PaymentStatus }) {

@@ -2,7 +2,7 @@ import cors from 'cors'
 import dotenv from 'dotenv'
 import express from 'express'
 import { botIdentity, notifyTelegramUser, startBot } from './bot.js'
-import { getUserCards, listAllCards, mergeUserCards, setUserCardStatus, upsertUserCard, type StoredCard } from './cardStore.js'
+import { findCardById, getUserCards, listAllCards, mergeUserCards, setCardStatusById, setUserCardStatus, upsertUserCard, type StoredCard } from './cardStore.js'
 import { adminPassword, DATA_DIR, getTelegramSettings, maskToken, saveTelegramSettings } from './config.js'
 import { deleteNftFile, getNftFile, isNftRaffleId, listNftMeta, saveNftFile } from './nftStore.js'
 import { getPayWallets, isTonPayAddress, isTronPayAddress, savePayWallets } from './walletsStore.js'
@@ -290,43 +290,76 @@ app.get('/api/admin/cards', (req, res) => {
   res.json({ cards: listAllCards() })
 })
 
-app.post('/api/admin/payments/:id/confirm', async (req, res) => {
-  if (!requireAdmin(req, res)) return
-  const id = String(req.params.id ?? '')
-  const before = getPayment(id)
-  if (!before) {
-    res.status(404).json({ error: 'not_found' })
-    return
+function paymentFromCard(card: StoredCard): Parameters<typeof upsertClaim>[0] {
+  return {
+    id: card.id,
+    payCode: card.payCode,
+    usdtExact: card.usdtExact,
+    raffleId: card.raffleId,
+    serial: card.serial,
+    telegramId: card.telegramId,
+    telegramUsername: card.telegramUsername,
+    createdAt: card.purchasedAt,
+    paidWith: card.paidWith || 'USDT',
   }
-  const changed = before.status === 'pending'
-  const payment = setPaymentStatus(id, 'confirmed') ?? before
-  if (changed && payment.telegramId) {
-    setUserCardStatus(payment.telegramId, payment.id, 'active')
-    const serial = String(payment.serial).padStart(4, '0')
-    const notifyStatus = await notifyTelegramUser(
-      payment.telegramId,
-      `Оплата подтверждена, карточка №${serial} добавлена.`,
-    )
-    setPaymentNotify(payment.id, notifyStatus)
-  }
-  res.json({ ok: true, changed, payment: getPayment(id) ?? payment })
-})
+}
 
-app.post('/api/admin/payments/:id/reject', (req, res) => {
+function resolvePayment(rawId: unknown) {
+  const id = decodeURIComponent(String(rawId ?? '')).trim()
+  if (!id) return null
+  const existing = getPayment(id)
+  if (existing) return existing
+  const card = findCardById(id)
+  if (!card) return null
+  return upsertClaim(paymentFromCard(card))
+}
+
+async function confirmPayment(req: express.Request, res: express.Response) {
   if (!requireAdmin(req, res)) return
-  const id = String(req.params.id ?? '')
-  const before = getPayment(id)
+  const before = resolvePayment(req.params.id)
   if (!before) {
     res.status(404).json({ error: 'not_found' })
     return
   }
   const changed = before.status === 'pending'
-  const payment = setPaymentStatus(id, 'rejected') ?? before
-  if (changed && payment.telegramId) {
-    setUserCardStatus(payment.telegramId, payment.id, 'rejected')
+  const payment = setPaymentStatus(before.id, 'confirmed') ?? before
+  if (changed) {
+    setCardStatusById(payment.id, 'active')
+    if (payment.telegramId) {
+      setUserCardStatus(payment.telegramId, payment.id, 'active')
+      const serial = String(payment.serial).padStart(4, '0')
+      const notifyStatus = await notifyTelegramUser(
+        payment.telegramId,
+        `Оплата подтверждена, карточка №${serial} добавлена.`,
+      )
+      setPaymentNotify(payment.id, notifyStatus)
+    }
   }
-  res.json({ ok: true, changed, payment })
+  res.json({ ok: true, changed, payment: getPayment(payment.id) ?? payment })
+}
+
+function rejectPayment(req: express.Request, res: express.Response) {
+  if (!requireAdmin(req, res)) return
+  const before = resolvePayment(req.params.id)
+  if (!before) {
+    res.status(404).json({ error: 'not_found' })
+    return
+  }
+  const changed = before.status === 'pending'
+  const payment = setPaymentStatus(before.id, 'rejected') ?? before
+  if (changed) {
+    setCardStatusById(payment.id, 'rejected')
+    if (payment.telegramId) {
+      setUserCardStatus(payment.telegramId, payment.id, 'rejected')
+    }
+  }
+  res.json({ ok: true, changed, payment: getPayment(payment.id) ?? payment })
+}
+
+app.post('/api/admin/payments/:id/confirm', (req, res) => {
+  void confirmPayment(req, res)
 })
+app.post('/api/admin/payments/:id/reject', rejectPayment)
 
 app.post('/api/admin/raffles/:raffleId/draw', async (req, res) => {
   if (!requireAdmin(req, res)) return

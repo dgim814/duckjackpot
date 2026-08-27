@@ -56,7 +56,11 @@ export function PaymentsPage() {
     setBusyId(id)
     setError(null)
     try {
-      const { data } = await api.post<{ changed?: boolean }>(`/admin/payments/${id}/${action}`, {}, { headers: adminHeaders })
+      const { data } = await api.post<{ changed?: boolean }>(
+        `/admin/payments/${encodeURIComponent(id)}/${action}`,
+        {},
+        { headers: adminHeaders },
+      )
       if (action === 'confirm' && data.changed !== false) {
         const payment = payments.find((item) => item.id === id)
         if (payment && (payment.raffleId === 'classic' || payment.raffleId === 'fast200' || payment.raffleId === 'fast100')) {

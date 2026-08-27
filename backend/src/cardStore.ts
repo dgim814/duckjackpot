@@ -109,3 +109,28 @@ export function listAllCards(): StoredCard[] {
   }
   return cards.sort((a, b) => b.purchasedAt - a.purchasedAt)
 }
+
+export function findCardById(cardId: string): StoredCard | null {
+  const id = cardId.trim()
+  if (!id) return null
+  for (const entry of Object.values(readStore())) {
+    const card = entry.cards.find((item) => item.id === id || item.payCode === id)
+    if (card) return card
+  }
+  return null
+}
+
+export function setCardStatusById(cardId: string, status: string): StoredCard | null {
+  const id = cardId.trim()
+  const store = readStore()
+  for (const key of Object.keys(store)) {
+    const entry = store[key]
+    const index = entry.cards.findIndex((item) => item.id === id || item.payCode === id)
+    if (index < 0) continue
+    entry.cards[index] = { ...entry.cards[index], status }
+    store[key] = { ...entry, updatedAt: Date.now() }
+    writeStore(store)
+    return entry.cards[index]
+  }
+  return null
+}
