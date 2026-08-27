@@ -1,4 +1,5 @@
 import { Layers } from 'lucide-react'
+import { useEffect } from 'react'
 import { CollectibleCard } from '../components/CollectibleCard'
 import { ScreenHeader } from '../components/ScreenHeader'
 import { formatSerial, formatUsdtExact, useCards } from '../cards/CardsProvider'
@@ -8,8 +9,12 @@ import { RAFFLE_TITLE_KEY } from '../i18n/raffleLabels'
 
 export function MyCardsPage() {
   const { t, lang } = useI18n()
-  const { cards, cardsFor } = useCards()
+  const { cards, cardsFor, refreshFromServer } = useCards()
   const locale = lang === 'ru' ? 'ru-RU' : 'en-US'
+
+  useEffect(() => {
+    void refreshFromServer()
+  }, [refreshFromServer])
 
   return (
     <section className="px-4 pb-6">
@@ -64,10 +69,18 @@ export function MyCardsPage() {
                               className={`rounded-full px-2 py-0.5 text-xs font-bold ${
                                 card.status === 'pending'
                                   ? 'bg-orange-400/15 text-orange-300'
-                                  : 'bg-amber-400/15 text-amber-300'
+                                  : card.status === 'rejected'
+                                    ? 'bg-zinc-700 text-zinc-400'
+                                    : 'bg-amber-400/15 text-amber-300'
                               }`}
                             >
-                              {t(card.status === 'pending' ? 'cardStatusPending' : 'cardStatusActive')}
+                              {t(
+                                card.status === 'pending'
+                                  ? 'cardStatusPending'
+                                  : card.status === 'rejected'
+                                    ? 'cardStatusRejected'
+                                    : 'cardStatusActive',
+                              )}
                             </dd>
                           </div>
                           {card.txHash ? (

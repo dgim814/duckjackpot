@@ -1,10 +1,11 @@
 import cors from 'cors'
 import dotenv from 'dotenv'
 import express from 'express'
-import { botIdentity, startBot } from './bot.js'
-import { saveUserCards, type StoredCard } from './cardStore.js'
+import { botIdentity, notifyTelegramUser, startBot } from './bot.js'
+import { getUserCards, mergeUserCards, setUserCardStatus, upsertUserCard, type StoredCard } from './cardStore.js'
 import { adminPassword, getTelegramSettings, maskToken, saveTelegramSettings } from './config.js'
 import { drawRaffle } from './draw.js'
+import { getPayment, listPayments, setPaymentNotify, setPaymentStatus, upsertClaim } from './paymentStore.js'
 import { verifyInitData } from './verifyInitData.js'
 
 dotenv.config()
@@ -49,6 +50,30 @@ app.use(
   }),
 )
 app.use(express.json({ limit: '1mb' }))
+
+function resolveTelegramUser(body: { initData?: string; telegramId?: number; telegramUsername?: string }) {
+  const { token } = getTelegramSettings()
+  const verified = typeof body.initData === 'string' ? verifyInitData(body.initData, token) : null
+  const telegramId = verified?.id ?? (typeof body.telegramId === 'number' ? body.telegramId : undefined)
+  const telegramUsername = verified?.username ?? (typeof body.telegramUsername === 'string' ? body.telegramUsername : undefined)
+  return { telegramId, telegramUsername }
+}
+
+function asStoredCard(raw: Partial<StoredCard>, telegramId?: number): StoredCard | null {
+  if (!raw || typeof raw.id !== 'string' || typeof raw.serial !== 'number') return null
+  return {
+    id: raw.id,
+    raffleId: String(raw.raffleId ?? 'classic'),
+    serial: raw.serial,
+    paidWith: typeof raw.paidWith === 'string' ? raw.paidWith : 'USDT',
+    purchasedAt: typeof raw.purchasedAt === 'number' ? raw.purchasedAt : Date.now(),
+    status: typeof raw.status === 'string' ? raw.status : 'pending',
+    payCode: typeof raw.payCode === 'string' ? raw.payCode : '',
+    usdtExact: typeof raw.usdtExact === 'number' ? raw.usdtExact : undefined,
+    telegramId,
+    telegramUsername: typeof raw.telegramUsername === 'string' ? raw.telegramUsername : undefined,
+  }
+}
 
 function requireAdmin(req: express.Request, res: express.Response) {
   const password = String(req.header('x-admin-password') ?? req.body?.adminPassword ?? '')
@@ -106,17 +131,102 @@ app.post('/api/admin/telegram', async (req, res) => {
 })
 
 app.post('/api/me/cards', (req, res) => {
-  const initData = typeof req.body?.initData === 'string' ? req.body.initData : ''
-  const { token } = getTelegramSettings()
-  const user = verifyInitData(initData, token)
-  if (!user) {
+  const { telegramId, telegramUsername } = resolveTelegramUser(req.body ?? {})
+  if (!telegramId) {
     res.status(401).json({ error: 'invalid_init_data' })
     return
   }
   const incoming = Array.isArray(req.body?.cards) ? (req.body.cards as StoredCard[]) : []
-  const cards = incoming.filter((card) => card && typeof card.id === 'string' && typeof card.serial === 'number')
-  saveUserCards(user.id, cards)
-  res.json({ ok: true, count: cards.length, telegramId: user.id })
+  const cards = mergeUserCards(
+    telegramId,
+    incoming
+      .map((card) => asStoredCard(card, telegramId))
+      .filter((card): card is StoredCard => Boolean(card))
+      .map((card) => ({ ...card, telegramUsername: card.telegramUsername ?? telegramUsername })),
+  )
+  res.json({ ok: true, count: cards.length, telegramId, cards })
+})
+
+app.post('/api/me/cards/fetch', (req, res) => {
+  const { telegramId } = resolveTelegramUser(req.body ?? {})
+  if (!telegramId) {
+    res.status(401).json({ error: 'invalid_init_data' })
+    return
+  }
+  res.json({ telegramId, cards: getUserCards(telegramId) })
+})
+
+app.post('/api/payments/claim', (req, res) => {
+  const { telegramId, telegramUsername } = resolveTelegramUser(req.body ?? {})
+  const card = asStoredCard(req.body?.card ?? {}, telegramId)
+  if (!card) {
+    res.status(400).json({ error: 'invalid_card' })
+    return
+  }
+  const payment = upsertClaim({
+    id: card.id,
+    payCode: card.payCode,
+    usdtExact: card.usdtExact,
+    raffleId: card.raffleId,
+    serial: card.serial,
+    telegramId,
+    telegramUsername,
+    createdAt: card.purchasedAt,
+    paidWith: card.paidWith || 'USDT',
+  })
+  if (telegramId) {
+    upsertUserCard(telegramId, {
+      ...card,
+      status: payment.status === 'pending' ? 'pending' : card.status,
+      telegramUsername,
+    })
+  }
+  res.json({ ok: true, payment })
+})
+
+app.get('/api/admin/payments', (req, res) => {
+  if (!requireAdmin(req, res)) return
+  const status = typeof req.query.status === 'string' ? req.query.status : 'pending'
+  const raffleId = typeof req.query.raffleId === 'string' ? req.query.raffleId : 'all'
+  res.json({ payments: listPayments({ status, raffleId }) })
+})
+
+app.post('/api/admin/payments/:id/confirm', async (req, res) => {
+  if (!requireAdmin(req, res)) return
+  const id = String(req.params.id ?? '')
+  const before = getPayment(id)
+  if (!before) {
+    res.status(404).json({ error: 'not_found' })
+    return
+  }
+  const changed = before.status === 'pending'
+  const payment = setPaymentStatus(id, 'confirmed') ?? before
+  if (changed && payment.telegramId) {
+    setUserCardStatus(payment.telegramId, payment.id, 'active')
+    const serial = String(payment.serial).padStart(4, '0')
+    const notifyStatus = await notifyTelegramUser(
+      payment.telegramId,
+      `Оплата подтверждена, карточка №${serial} добавлена.`,
+    )
+    setPaymentNotify(payment.id, notifyStatus)
+  }
+  res.json({ ok: true, changed, payment: getPayment(id) ?? payment })
+})
+
+app.post('/api/admin/payments/:id/reject', (req, res) => {
+  if (!requireAdmin(req, res)) return
+  const id = String(req.params.id ?? '')
+  const before = getPayment(id)
+  if (!before) {
+    res.status(404).json({ error: 'not_found' })
+    return
+  }
+  const changed = before.status === 'pending'
+  const payment = setPaymentStatus(id, 'rejected') ?? before
+  if (changed && payment.telegramId) {
+    setUserCardStatus(payment.telegramId, payment.id, 'rejected')
+  }
+  res.json({ ok: true, changed, payment })
 })
 
 app.post('/api/admin/raffles/:raffleId/draw', async (req, res) => {

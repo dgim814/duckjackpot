@@ -55,10 +55,18 @@ export function IssuedCardsPage() {
                     className={`rounded-full px-2 py-0.5 text-xs font-bold ${
                       card.status === 'pending'
                         ? 'bg-orange-400/15 text-orange-300'
-                        : 'bg-emerald-400/15 text-emerald-300'
+                        : card.status === 'rejected'
+                          ? 'bg-zinc-700 text-zinc-400'
+                          : 'bg-emerald-400/15 text-emerald-300'
                     }`}
                   >
-                    {t(card.status === 'pending' ? 'adminPayStatusPending' : 'adminPayStatusConfirmed')}
+                    {t(
+                      card.status === 'pending'
+                        ? 'adminPayStatusPending'
+                        : card.status === 'rejected'
+                          ? 'adminPayStatusRejected'
+                          : 'adminPayStatusConfirmed',
+                    )}
                   </span>
                 </td>
                 <td className="px-3 py-2 text-zinc-400">{new Date(card.purchasedAt).toLocaleString(locale)}</td>

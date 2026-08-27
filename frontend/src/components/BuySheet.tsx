@@ -18,9 +18,9 @@ import {
   paymentComment,
   waitForTonTransaction,
 } from '../ton/pay'
-import { waitForTrc20Usdt } from '../tron/trc20'
+import { claimUsdtPayment } from '../telegram/syncCards'
 
-type Step = 'choose' | 'trc20' | 'success'
+type Step = 'choose' | 'trc20' | 'success' | 'claimed'
 
 type BuySheetProps = {
   open: boolean
@@ -58,7 +58,7 @@ function payErrorMessage(code: string, t: (key: MessageKey) => string) {
 
 export function BuySheet({ open, onClose }: BuySheetProps) {
   const { t, lang } = useI18n()
-  const { mintCard, createPendingUsdt, confirmCardPayment, raffleId, remaining } = useCards()
+  const { mintCard, createPendingUsdt, raffleId, remaining } = useCards()
   const { testPayMode, merchantWallet, usdtTrc20Address } = useAdmin()
   const raffle = getRaffle(raffleId)
   const payTonWallet = walletOrDefault(merchantWallet, DEFAULT_TON_WALLET)
@@ -215,27 +215,11 @@ export function BuySheet({ open, onClose }: BuySheetProps) {
     setError(null)
     setBusy(true)
     abortRef.current?.abort()
-    const controller = new AbortController()
-    abortRef.current = controller
 
     try {
-      if (testPayMode) {
-        await new Promise((resolve) => setTimeout(resolve, 400))
-        const card = confirmCardPayment(pendingCard.id)
-        setBought(card)
-        setStep('success')
-        return
-      }
-      const expected = pendingCard.usdtExact ?? usdtAmount
-      const txHash = await waitForTrc20Usdt({
-        to: payUsdtWallet,
-        amount: expected,
-        sinceMs: pendingCard.purchasedAt,
-        signal: controller.signal,
-      })
-      const card = confirmCardPayment(pendingCard.id, { txHash })
-      setBought(card)
-      setStep('success')
+      await claimUsdtPayment(pendingCard)
+      setBought(pendingCard)
+      setStep('claimed')
     } catch (err) {
       const code = err instanceof Error ? err.message : String(err)
       setError(payErrorMessage(code, t))
@@ -286,7 +270,27 @@ export function BuySheet({ open, onClose }: BuySheetProps) {
         onClick={onClose}
       />
       <div className="relative w-full max-w-lg rounded-3xl border border-amber-400/25 bg-[#141218] p-5 shadow-2xl">
-        {step === 'success' && bought ? (
+        {step === 'claimed' && bought ? (
+          <div className="text-center">
+            <CheckCircle2 className="mx-auto text-amber-300" size={40} />
+            <p className="mt-3 font-display text-xl font-bold text-amber-200">{t('payClaimedTitle')}</p>
+            <p className="mt-2 text-sm text-zinc-300">{t('payClaimedBody')}</p>
+            <p className="mt-3 font-mono text-lg font-extrabold tracking-wide text-amber-200">{bought.payCode}</p>
+            {typeof bought.usdtExact === 'number' ? (
+              <p className="mt-1 text-sm text-amber-100">{formatUsdtExact(bought.usdtExact, locale)}</p>
+            ) : null}
+            <button
+              type="button"
+              onClick={goToCards}
+              className="buy-btn mt-5 w-full rounded-2xl px-4 py-3 font-display text-sm font-extrabold text-zinc-950"
+            >
+              {t('payGoToCards')}
+            </button>
+            <button type="button" onClick={onClose} className="mt-3 text-xs font-semibold text-zinc-500">
+              {t('close')}
+            </button>
+          </div>
+        ) : step === 'success' && bought ? (
           <div className="text-center">
             <CheckCircle2 className="mx-auto text-amber-300" size={40} />
             <p className="mt-3 font-display text-xl font-bold text-amber-200">{t('paySuccessTitle')}</p>

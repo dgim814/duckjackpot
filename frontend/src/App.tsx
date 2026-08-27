@@ -9,6 +9,7 @@ import { AdminDashboardPage } from './admin/pages/AdminDashboardPage'
 import { RafflesAdminPage } from './admin/pages/RafflesAdminPage'
 import { NftUploadPage } from './admin/pages/NftUploadPage'
 import { IssuedCardsPage } from './admin/pages/IssuedCardsPage'
+import { PaymentsPage } from './admin/pages/PaymentsPage'
 import { PayoutsPage } from './admin/pages/PayoutsPage'
 import { AdminSettingsPage } from './admin/pages/AdminSettingsPage'
 import { CardsProvider } from './cards/CardsProvider'
@@ -55,6 +56,7 @@ export default function App() {
                   <Route path="raffles" element={<RafflesAdminPage />} />
                   <Route path="nft" element={<NftUploadPage />} />
                   <Route path="cards" element={<IssuedCardsPage />} />
+                  <Route path="payments" element={<PaymentsPage />} />
                   <Route path="payouts" element={<PayoutsPage />} />
                   <Route path="settings" element={<AdminSettingsPage />} />
                 </Route>

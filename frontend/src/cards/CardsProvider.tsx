@@ -1,11 +1,11 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useAdmin } from '../admin/AdminProvider'
 import { getRaffle, RAFFLES, STORAGE_KEYS, type RaffleId } from '../constants'
-import { syncCardsToBot } from '../telegram/syncCards'
+import { fetchMyServerCards, syncCardsToBot } from '../telegram/syncCards'
 import { captureTelegramUser } from '../telegram/user'
 
 export type PayAsset = 'TON' | 'USDT'
-export type CardStatus = 'pending' | 'active'
+export type CardStatus = 'pending' | 'active' | 'rejected'
 
 export type OwnedCard = {
   id: string
@@ -34,6 +34,7 @@ type CardsContextValue = {
   mintCard: (paidWith: PayAsset, extra?: { txHash?: string }) => OwnedCard
   createPendingUsdt: (baseUsdt: number) => OwnedCard
   confirmCardPayment: (id: string, extra?: { txHash?: string }) => OwnedCard
+  refreshFromServer: () => Promise<void>
   clearRaffleCards: (id: RaffleId) => void
 }
 
@@ -100,7 +101,8 @@ function readCards(): OwnedCard[] {
         serial: card.serial as number,
         paidWith: card.paidWith === 'USDT' ? 'USDT' : 'TON',
         purchasedAt: typeof card.purchasedAt === 'number' ? card.purchasedAt : Date.now(),
-        status: card.status === 'pending' ? 'pending' : 'active',
+        status:
+          card.status === 'pending' ? 'pending' : card.status === 'rejected' ? 'rejected' : 'active',
         payCode:
           typeof card.payCode === 'string' && card.payCode
             ? card.payCode
@@ -132,6 +134,29 @@ function persist(cards: OwnedCard[]) {
     /* ignore */
   }
   syncCardsToBot(cards)
+}
+
+function mergeRemoteCards(local: OwnedCard[], remote: OwnedCard[]): OwnedCard[] {
+  const map = new Map(local.map((card) => [card.id, card]))
+  for (const card of remote) {
+    if (!card?.id || typeof card.serial !== 'number') continue
+    const raffleId = isRaffleId(card.raffleId) ? card.raffleId : 'classic'
+    const prev = map.get(card.id)
+    map.set(card.id, {
+      id: card.id,
+      raffleId,
+      serial: card.serial,
+      paidWith: card.paidWith === 'TON' ? 'TON' : 'USDT',
+      purchasedAt: typeof card.purchasedAt === 'number' ? card.purchasedAt : prev?.purchasedAt ?? Date.now(),
+      status: card.status === 'pending' || card.status === 'rejected' || card.status === 'active' ? card.status : prev?.status ?? 'pending',
+      payCode: card.payCode || prev?.payCode || formatPayCode(raffleId, card.serial),
+      usdtExact: typeof card.usdtExact === 'number' ? card.usdtExact : prev?.usdtExact,
+      txHash: card.txHash ?? prev?.txHash,
+      telegramId: card.telegramId ?? prev?.telegramId,
+      telegramUsername: card.telegramUsername ?? prev?.telegramUsername,
+    })
+  }
+  return [...map.values()].sort((a, b) => b.purchasedAt - a.purchasedAt)
 }
 
 function withBuyer(card: OwnedCard): OwnedCard {
@@ -271,6 +296,19 @@ export function CardsProvider({ children }: { children: ReactNode }) {
         admin.incrementSold(current.raffleId)
         return updated
       },
+      refreshFromServer: async () => {
+        try {
+          const remote = await fetchMyServerCards()
+          if (!remote.length) return
+          setCards((prev) => {
+            const next = mergeRemoteCards(prev, remote)
+            persist(next)
+            return next
+          })
+        } catch {
+          /* backend unavailable */
+        }
+      },
       clearRaffleCards: (id) => {
         const next = cards.filter((card) => card.raffleId !== id)
         setCards(next)
@@ -281,21 +319,41 @@ export function CardsProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const buyer = captureTelegramUser()
-    if (!buyer) return
-    setCards((prev) => {
-      let changed = false
-      const next = prev.map((card) => {
-        if (card.telegramId) return card
-        changed = true
-        return { ...card, telegramId: buyer.telegramId, telegramUsername: buyer.telegramUsername }
+    if (buyer) {
+      setCards((prev) => {
+        let changed = false
+        const next = prev.map((card) => {
+          if (card.telegramId) return card
+          changed = true
+          return { ...card, telegramId: buyer.telegramId, telegramUsername: buyer.telegramUsername }
+        })
+        if (!changed) {
+          syncCardsToBot(prev)
+          return prev
+        }
+        persist(next)
+        return next
       })
-      if (!changed) {
-        syncCardsToBot(prev)
-        return prev
-      }
-      persist(next)
-      return next
-    })
+    }
+    const pull = () => {
+      void fetchMyServerCards()
+        .then((remote) => {
+          if (!remote.length) return
+          setCards((prev) => {
+            const next = mergeRemoteCards(prev, remote)
+            try {
+              localStorage.setItem(STORAGE_KEYS.cards, JSON.stringify(next))
+            } catch {
+              /* ignore */
+            }
+            return next
+          })
+        })
+        .catch(() => undefined)
+    }
+    pull()
+    const timer = window.setInterval(pull, 12_000)
+    return () => window.clearInterval(timer)
   }, [])
 
   return <CardsContext.Provider value={value}>{children}</CardsContext.Provider>

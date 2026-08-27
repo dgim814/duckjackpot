@@ -4,6 +4,7 @@ import { useAdmin } from './AdminProvider'
 import { useI18n } from '../i18n/LanguageProvider'
 import {
   ArrowLeft,
+  Banknote,
   Flag,
   Gift,
   Image,
@@ -17,6 +18,7 @@ const NAV = [
   { to: '/admin', labelKey: 'adminNavDash' as const, icon: LayoutDashboard, end: true },
   { to: '/admin/raffles', labelKey: 'adminNavRaffles' as const, icon: Flag, end: false },
   { to: '/admin/nft', labelKey: 'adminNavNft' as const, icon: Image, end: false },
+  { to: '/admin/payments', labelKey: 'adminNavPayments' as const, icon: Banknote, end: false },
   { to: '/admin/cards', labelKey: 'adminNavCards' as const, icon: List, end: false },
   { to: '/admin/payouts', labelKey: 'adminNavPayouts' as const, icon: Gift, end: false },
   { to: '/admin/settings', labelKey: 'adminNavSettings' as const, icon: Settings, end: false },

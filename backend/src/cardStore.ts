@@ -14,6 +14,7 @@ export type StoredCard = {
   payCode: string
   usdtExact?: number
   telegramId?: number
+  telegramUsername?: string
 }
 
 type Store = Record<string, { cards: StoredCard[]; updatedAt: number }>
@@ -46,12 +47,53 @@ export function getUserCards(telegramId: number): StoredCard[] {
   return readStore()[String(telegramId)]?.cards ?? []
 }
 
+export function upsertUserCard(telegramId: number, card: StoredCard) {
+  const cards = getUserCards(telegramId)
+  const nextCard = { ...card, telegramId }
+  const index = cards.findIndex((item) => item.id === nextCard.id)
+  if (index >= 0) {
+    const existing = cards[index]
+    const locked = existing.status === 'active' || existing.status === 'rejected'
+    cards[index] = locked ? { ...existing, ...nextCard, status: existing.status } : { ...existing, ...nextCard }
+  } else {
+    cards.unshift(nextCard)
+  }
+  saveUserCards(telegramId, cards)
+  return cards[index >= 0 ? index : 0]
+}
+
+export function setUserCardStatus(telegramId: number, cardId: string, status: string) {
+  const cards = getUserCards(telegramId)
+  const index = cards.findIndex((item) => item.id === cardId)
+  if (index < 0) return null
+  cards[index] = { ...cards[index], status, telegramId }
+  saveUserCards(telegramId, cards)
+  return cards[index]
+}
+
+export function mergeUserCards(telegramId: number, incoming: StoredCard[]) {
+  let cards = getUserCards(telegramId)
+  for (const card of incoming) {
+    const nextCard = { ...card, telegramId }
+    const index = cards.findIndex((item) => item.id === nextCard.id)
+    if (index >= 0) {
+      const existing = cards[index]
+      const locked = existing.status === 'active' || existing.status === 'rejected'
+      cards[index] = locked ? { ...existing, ...nextCard, status: existing.status } : { ...existing, ...nextCard }
+    } else {
+      cards = [nextCard, ...cards]
+    }
+  }
+  saveUserCards(telegramId, cards)
+  return cards
+}
+
 export function getActiveCardsForRaffle(raffleId: string): StoredCard[] {
   const store = readStore()
   const cards: StoredCard[] = []
   for (const entry of Object.values(store)) {
     for (const card of entry.cards) {
-      if (card.raffleId === raffleId && card.status !== 'pending' && typeof card.telegramId === 'number') {
+      if (card.raffleId === raffleId && card.status === 'active' && typeof card.telegramId === 'number') {
         cards.push(card)
       }
     }
