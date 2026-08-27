@@ -59,7 +59,7 @@ function payErrorMessage(code: string, t: (key: MessageKey) => string) {
 export function BuySheet({ open, onClose }: BuySheetProps) {
   const { t, lang } = useI18n()
   const { mintCard, createPendingUsdt, raffleId, remaining } = useCards()
-  const { testPayMode, merchantWallet, usdtTrc20Address } = useAdmin()
+  const { testPayMode, merchantWallet, usdtTrc20Address, refreshPayWallets } = useAdmin()
   const raffle = getRaffle(raffleId)
   const payTonWallet = merchantWallet.trim()
   const payUsdtWallet = usdtTrc20Address.trim()
@@ -76,6 +76,7 @@ export function BuySheet({ open, onClose }: BuySheetProps) {
   const [pendingCard, setPendingCard] = useState<OwnedCard | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const swipeStartY = useRef<number | null>(null)
+  const autoTrc20Ref = useRef(false)
   const preAmlOk = hasCompletedPreAml()
   const payUsdtReady = isTronPayAddress(payUsdtWallet)
   const payTonReady = isTonPayAddress(payTonWallet)
@@ -84,9 +85,14 @@ export function BuySheet({ open, onClose }: BuySheetProps) {
   const usdtAmount = estimateUsdtAmount(raffle.priceRub, rate)
 
   useEffect(() => {
+    if (open) void refreshPayWallets().catch(() => undefined)
+  }, [open, refreshPayWallets])
+
+  useEffect(() => {
     if (!open) {
       abortRef.current?.abort()
       abortRef.current = null
+      autoTrc20Ref.current = false
       setBusy(false)
       setStep('choose')
       setBought(null)
@@ -97,7 +103,8 @@ export function BuySheet({ open, onClose }: BuySheetProps) {
     }
     console.log('[DuckJackpot] USDT TRC-20 address:', payUsdtWallet)
     console.log('[DuckJackpot] USDT TRC-20 source: admin/backend')
-    if (hasCompletedPreAml() && isTronPayAddress(payUsdtWallet)) {
+    if (!autoTrc20Ref.current && hasCompletedPreAml() && isTronPayAddress(payUsdtWallet)) {
+      autoTrc20Ref.current = true
       try {
         tonConnectUI.closeModal()
       } catch {
@@ -126,7 +133,7 @@ export function BuySheet({ open, onClose }: BuySheetProps) {
     return () => {
       cancelled = true
     }
-  }, [open])
+  }, [open, payUsdtWallet])
 
   const onSheetTouchStart = (event: TouchEvent<HTMLDivElement>) => {
     if (event.currentTarget.scrollTop > 8) {

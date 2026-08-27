@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   ADMIN_PASSWORD,
   CARD_ART,
@@ -79,6 +79,7 @@ type AdminContextValue = AdminState & {
   setMerchantWallet: (address: string) => void
   setUsdtTrc20Address: (address: string) => void
   applyPayWallets: (wallets: { merchantWallet: string; usdtTrc20Address: string }) => void
+  refreshPayWallets: () => Promise<void>
   setContent: (lang: Lang, key: ContentKey, value: string) => void
   markPaid: (id: string, paid: boolean, note?: string) => void
   updateWinnerNote: (id: string, note: string) => void
@@ -221,8 +222,8 @@ function readState(): AdminState {
       content: parsed.content ?? {},
       rateOverride: override ?? null,
       testPayMode: parsed.testPayMode === true,
-      merchantWallet: typeof parsed.merchantWallet === 'string' ? parsed.merchantWallet : '',
-      usdtTrc20Address: typeof parsed.usdtTrc20Address === 'string' ? parsed.usdtTrc20Address : '',
+      merchantWallet: '',
+      usdtTrc20Address: '',
     }
   } catch {
     return fallback
@@ -236,7 +237,10 @@ function persist(state: AdminState) {
       fast200: { ...state.raffles.fast200, image: publicImage(state.raffles.fast200.image) },
       fast100: { ...state.raffles.fast100, image: publicImage(state.raffles.fast100.image) },
     }
-    localStorage.setItem(STORAGE_KEYS.admin, JSON.stringify({ ...state, raffles }))
+    localStorage.setItem(
+      STORAGE_KEYS.admin,
+      JSON.stringify({ ...state, raffles, merchantWallet: '', usdtTrc20Address: '' }),
+    )
     if (state.rateOverride && state.rateOverride > 0) {
       localStorage.setItem(STORAGE_KEYS.usdtRub, String(state.rateOverride))
     } else {
@@ -247,25 +251,34 @@ function persist(state: AdminState) {
   }
 }
 
+function walletsFromApi(data: { tonAddress?: string; merchantWallet?: string; usdtTrc20Address?: string }) {
+  return {
+    merchantWallet: (data.tonAddress ?? data.merchantWallet ?? '').trim(),
+    usdtTrc20Address: (data.usdtTrc20Address ?? '').trim(),
+  }
+}
+
 export function AdminProvider({ children }: { children: ReactNode }) {
   const [authed, setAuthed] = useState(readAuth)
   const [state, setState] = useState<AdminState>(readState)
 
+  const refreshPayWallets = useCallback(async () => {
+    const { data } = await api.get<{
+      tonAddress?: string
+      merchantWallet?: string
+      usdtTrc20Address?: string
+    }>('/wallets')
+    const wallets = walletsFromApi(data)
+    setState((prev) => {
+      const next = { ...prev, ...wallets }
+      persist(next)
+      return next
+    })
+  }, [])
+
   useEffect(() => {
     let cancelled = false
-    void api
-      .get<{ tonAddress?: string; merchantWallet?: string; usdtTrc20Address?: string }>('/wallets')
-      .then(({ data }) => {
-        if (cancelled) return
-        const merchantWallet = (data.tonAddress ?? data.merchantWallet ?? '').trim()
-        const usdtTrc20Address = (data.usdtTrc20Address ?? '').trim()
-        setState((prev) => {
-          const next = { ...prev, merchantWallet, usdtTrc20Address }
-          persist(next)
-          return next
-        })
-      })
-      .catch(() => undefined)
+    void refreshPayWallets().catch(() => undefined)
     void api
       .get<{ images?: Partial<Record<RaffleId, { updatedAt?: number } | null>> }>('/nft')
       .then(({ data }) => {
@@ -391,6 +404,7 @@ export function AdminProvider({ children }: { children: ReactNode }) {
           merchantWallet: wallets.merchantWallet,
           usdtTrc20Address: wallets.usdtTrc20Address,
         })),
+      refreshPayWallets,
       setContent: (lang, key, value) =>
         patch((prev) => ({
           ...prev,
@@ -431,7 +445,7 @@ export function AdminProvider({ children }: { children: ReactNode }) {
         return { winners: drawn, eligible: data.eligible ?? 0 }
       },
     }),
-    [authed, state],
+    [authed, state, refreshPayWallets],
   )
 
   return <AdminContext.Provider value={value}>{children}</AdminContext.Provider>

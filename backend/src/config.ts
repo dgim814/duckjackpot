@@ -5,8 +5,11 @@ import { fileURLToPath } from 'node:url'
 const backendRoot = join(dirname(fileURLToPath(import.meta.url)), '..')
 
 function resolveDataDir() {
-  const fromEnv = (process.env.DATA_DIR ?? '').trim()
-  if (fromEnv) return resolve(fromEnv)
+  const fromEnv = (process.env.DATA_DIR ?? process.env.RAILWAY_VOLUME_MOUNT_PATH ?? '').trim()
+  if (fromEnv) {
+    mkdirSync(fromEnv, { recursive: true })
+    return resolve(fromEnv)
+  }
   if (existsSync('/data')) return '/data'
   return join(backendRoot, 'data')
 }

@@ -5,7 +5,7 @@ import { botIdentity, notifyTelegramUser, startBot } from './bot.js'
 import { findCardById, getUserCards, listAllCards, mergeUserCards, setCardStatusById, setUserCardStatus, upsertUserCard, type StoredCard } from './cardStore.js'
 import { adminPassword, DATA_DIR, getTelegramSettings, maskToken, saveTelegramSettings } from './config.js'
 import { deleteNftFile, getNftFile, isNftRaffleId, listNftMeta, saveNftFile } from './nftStore.js'
-import { getPayWallets, isTonPayAddress, isTronPayAddress, savePayWallets } from './walletsStore.js'
+import { getPayWallets, isTonPayAddress, isTronPayAddress, loadWalletsFromDisk, savePayWallets, walletsFilePath } from './walletsStore.js'
 import { drawRaffle } from './draw.js'
 import { getPayment, listPayments, setPaymentNotify, setPaymentStatus, upsertClaim } from './paymentStore.js'
 import { verifyInitData } from './verifyInitData.js'
@@ -375,7 +375,9 @@ app.post('/api/admin/raffles/:raffleId/draw', async (req, res) => {
 })
 
 app.listen(port, '0.0.0.0', () => {
+  loadWalletsFromDisk()
   console.log(`DuckJackpot API listening on 0.0.0.0:${port}`)
   console.log(`DATA_DIR ${DATA_DIR}`)
+  console.log(`WALLETS ${walletsFilePath()}`)
   void startBot()
 })
