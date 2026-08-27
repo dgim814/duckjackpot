@@ -12,7 +12,7 @@ import { verifyInitData } from './verifyInitData.js'
 dotenv.config()
 
 const app = express()
-const port = Number(process.env.PORT ?? 3001)
+const port = Number(process.env.PORT) || 3001
 
 const DEFAULT_CORS_ORIGINS = [
   'https://duckjackpot.vercel.app',
@@ -51,6 +51,10 @@ app.use(
   }),
 )
 app.use(express.json({ limit: '1mb' }))
+
+app.get('/', (_req, res) => {
+  res.json({ ok: true })
+})
 
 function resolveTelegramUser(body: { initData?: string; telegramId?: number; telegramUsername?: string }) {
   const { token } = getTelegramSettings()
@@ -123,12 +127,7 @@ app.put('/api/admin/wallets', saveAdminWallets)
 app.post('/api/admin/wallets', saveAdminWallets)
 
 app.get('/api/health', (_req, res) => {
-  const settings = getTelegramSettings()
-  res.json({
-    status: 'ok',
-    app: 'DuckJackpot',
-    telegram: Boolean(settings.token),
-  })
+  res.json({ ok: true })
 })
 
 app.get('/api/admin/telegram', async (req, res) => {
@@ -280,7 +279,7 @@ app.post('/api/admin/raffles/:raffleId/draw', async (req, res) => {
   }
 })
 
-app.listen(port, () => {
-  console.log(`DuckJackpot API listening on http://localhost:${port}`)
+app.listen(port, '0.0.0.0', () => {
+  console.log(`DuckJackpot API listening on 0.0.0.0:${port}`)
   void startBot()
 })
