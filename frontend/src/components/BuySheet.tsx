@@ -1,6 +1,7 @@
 import { useTonConnectUI, useTonWallet, type ConnectedWallet } from '@tonconnect/ui-react'
+import WebApp from '@twa-dev/sdk'
 import { CheckCircle2, Coins, Copy, Wallet, X } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type TouchEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAdmin } from '../admin/AdminProvider'
 import { formatSerial, formatUsdtExact, useCards, type OwnedCard, type PayAsset } from '../cards/CardsProvider'
@@ -130,6 +131,25 @@ export function BuySheet({ open, onClose }: BuySheetProps) {
     }
   }, [open])
 
+  useEffect(() => {
+    if (!open) return
+    const handleBack = () => onClose()
+    try {
+      WebApp.BackButton.onClick(handleBack)
+      WebApp.BackButton.show()
+    } catch {
+      /* outside Telegram */
+    }
+    return () => {
+      try {
+        WebApp.BackButton.offClick(handleBack)
+        WebApp.BackButton.hide()
+      } catch {
+        /* ignore */
+      }
+    }
+  }, [open, onClose])
+
   if (!open) return null
 
   const ensureWallet = async () => {
@@ -252,6 +272,22 @@ export function BuySheet({ open, onClose }: BuySheetProps) {
     navigate('/cards')
   }
 
+  const swipeStartY = useRef<number | null>(null)
+  const onSheetTouchStart = (event: TouchEvent<HTMLDivElement>) => {
+    if (event.currentTarget.scrollTop > 8) {
+      swipeStartY.current = null
+      return
+    }
+    swipeStartY.current = event.touches[0]?.clientY ?? null
+  }
+  const onSheetTouchEnd = (event: TouchEvent<HTMLDivElement>) => {
+    const start = swipeStartY.current
+    swipeStartY.current = null
+    if (start == null) return
+    const end = event.changedTouches[0]?.clientY ?? start
+    if (end - start > 72) onClose()
+  }
+
   const locale = lang === 'ru' ? 'ru-RU' : 'en-US'
   const tonLabel = tonAmount
     ? `${tonAmount.toLocaleString(locale, { maximumFractionDigits: 4 })} TON / GRAM`
@@ -262,14 +298,31 @@ export function BuySheet({ open, onClose }: BuySheetProps) {
     typeof exactUsdt === 'number' ? formatUsdtExact(exactUsdt, locale) : usdtLabel
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-4 pb-[max(16px,env(safe-area-inset-bottom))]">
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70">
       <button
         type="button"
         className="absolute inset-0"
         aria-label={t('close')}
         onClick={onClose}
       />
-      <div className="relative w-full max-w-lg rounded-3xl border border-amber-400/25 bg-[#141218] p-5 shadow-2xl">
+      <div
+        className="relative z-10 flex max-h-[min(92dvh,760px)] w-full max-w-lg flex-col overflow-y-auto rounded-t-3xl border border-amber-400/25 bg-[#141218] pb-[max(16px,env(safe-area-inset-bottom))] shadow-2xl"
+        onClick={(event) => event.stopPropagation()}
+        onTouchStart={onSheetTouchStart}
+        onTouchEnd={onSheetTouchEnd}
+      >
+        <div className="sticky top-0 z-20 flex items-center justify-end bg-[#141218] px-3 pt-2">
+          <div className="pointer-events-none absolute left-1/2 top-2 h-1 w-10 -translate-x-1/2 rounded-full bg-white/25" />
+          <button
+            type="button"
+            onClick={onClose}
+            className="relative z-10 rounded-full bg-white/10 p-2.5 text-zinc-200"
+            aria-label={t('close')}
+          >
+            <X size={18} />
+          </button>
+        </div>
+        <div className="px-5 pb-5 pt-1">
         {step === 'claimed' && bought ? (
           <div className="text-center">
             <CheckCircle2 className="mx-auto text-amber-300" size={40} />
@@ -320,23 +373,9 @@ export function BuySheet({ open, onClose }: BuySheetProps) {
           </div>
         ) : step === 'trc20' ? (
           <>
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-[10px] font-extrabold tracking-[0.18em] text-orange-400">USDT · TRC-20</p>
-                <h2 className="font-display mt-1 text-xl font-bold text-amber-200">{t('payUsdtTitle')}</h2>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  abortRef.current?.abort()
-                  setBusy(false)
-                  setStep('choose')
-                  setError(null)
-                }}
-                className="rounded-full bg-white/5 p-2 text-zinc-400"
-              >
-                <X size={18} />
-              </button>
+            <div>
+              <p className="text-[10px] font-extrabold tracking-[0.18em] text-orange-400">USDT · TRC-20</p>
+              <h2 className="font-display mt-1 text-xl font-bold text-amber-200">{t('payUsdtTitle')}</h2>
             </div>
             <p className="mt-3 text-xs leading-relaxed text-zinc-500">{t('payUsdtHint')}</p>
             <div className="mt-4 rounded-2xl border-2 border-amber-400 bg-amber-400/15 p-4 text-center">
@@ -391,27 +430,30 @@ export function BuySheet({ open, onClose }: BuySheetProps) {
             >
               {busy ? t('payProcessingUsdt') : t('payIPaid')}
             </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={onClose}
+              className="mt-2 w-full rounded-2xl px-4 py-3 text-sm font-bold text-zinc-400"
+            >
+              {t('payCancel')}
+            </button>
             <p className="mt-2 text-center text-[11px] text-zinc-500">{t('payUsdtCheckHint')}</p>
             {error ? <p className="mt-3 text-center text-sm text-orange-400">{error}</p> : null}
           </>
         ) : (
           <>
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-[10px] font-extrabold tracking-[0.18em] text-orange-400">
-                  {testPayMode ? t('testMode') : t('livePayMode')}
-                </p>
-                <h2 className="font-display mt-1 text-xl font-bold text-amber-200">{t('payTitle')}</h2>
-                <p className="mt-1 text-sm text-zinc-400">
-                  {t(RAFFLE_TITLE_KEY[raffleId])} · {formatCardPrice(raffle.priceRub, rate, lang)}
-                </p>
-                <p className="mt-1 text-xs text-zinc-500">
-                  {testPayMode ? t('payHintTest') : t('payHintLive')}
-                </p>
-              </div>
-              <button type="button" onClick={onClose} className="rounded-full bg-white/5 p-2 text-zinc-400">
-                <X size={18} />
-              </button>
+            <div>
+              <p className="text-[10px] font-extrabold tracking-[0.18em] text-orange-400">
+                {testPayMode ? t('testMode') : t('livePayMode')}
+              </p>
+              <h2 className="font-display mt-1 text-xl font-bold text-amber-200">{t('payTitle')}</h2>
+              <p className="mt-1 text-sm text-zinc-400">
+                {t(RAFFLE_TITLE_KEY[raffleId])} · {formatCardPrice(raffle.priceRub, rate, lang)}
+              </p>
+              <p className="mt-1 text-xs text-zinc-500">
+                {testPayMode ? t('payHintTest') : t('payHintLive')}
+              </p>
             </div>
 
             {!preAmlOk ? (
@@ -460,8 +502,17 @@ export function BuySheet({ open, onClose }: BuySheetProps) {
               <p className="mt-4 text-center text-sm font-semibold text-amber-200">{t('payProcessing')}</p>
             ) : null}
             {error ? <p className="mt-4 text-center text-sm text-orange-400">{error}</p> : null}
+            <button
+              type="button"
+              disabled={busy}
+              onClick={onClose}
+              className="mt-4 w-full rounded-2xl px-4 py-3 text-sm font-bold text-zinc-400"
+            >
+              {t('payCancel')}
+            </button>
           </>
         )}
+        </div>
       </div>
     </div>
   )
