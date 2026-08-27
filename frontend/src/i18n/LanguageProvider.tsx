@@ -26,6 +26,7 @@ function detectLang(): Lang {
 }
 
 function interpolate(template: string, vars?: Vars) {
+  if (typeof template !== 'string') return ''
   if (!vars) return template
   return template.replace(/\{(\w+)\}/g, (_, name: string) => String(vars[name] ?? ''))
 }
@@ -50,7 +51,8 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
       setLang,
       t: (key, vars) => {
         const custom = content[lang]?.[key as keyof NonNullable<(typeof content)[Lang]>]
-        return interpolate(custom || messages[lang][key], vars)
+        const text = custom || messages[lang][key]
+        return interpolate(typeof text === 'string' ? text : '', vars)
       },
     }
   }, [content, lang])

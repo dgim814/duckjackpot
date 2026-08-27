@@ -1,5 +1,4 @@
 import { useTonConnectUI, useTonWallet, type ConnectedWallet } from '@tonconnect/ui-react'
-import WebApp from '@twa-dev/sdk'
 import { CheckCircle2, Coins, Copy, Wallet, X } from 'lucide-react'
 import { useEffect, useRef, useState, type TouchEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
@@ -76,6 +75,7 @@ export function BuySheet({ open, onClose }: BuySheetProps) {
   const [copied, setCopied] = useState<'address' | 'code' | null>(null)
   const [pendingCard, setPendingCard] = useState<OwnedCard | null>(null)
   const abortRef = useRef<AbortController | null>(null)
+  const swipeStartY = useRef<number | null>(null)
   const preAmlOk = hasCompletedPreAml()
   const payUsdtReady = payUsdtWallet.length > 0
 
@@ -131,24 +131,20 @@ export function BuySheet({ open, onClose }: BuySheetProps) {
     }
   }, [open])
 
-  useEffect(() => {
-    if (!open) return
-    const handleBack = () => onClose()
-    try {
-      WebApp.BackButton.onClick(handleBack)
-      WebApp.BackButton.show()
-    } catch {
-      /* outside Telegram */
+  const onSheetTouchStart = (event: TouchEvent<HTMLDivElement>) => {
+    if (event.currentTarget.scrollTop > 8) {
+      swipeStartY.current = null
+      return
     }
-    return () => {
-      try {
-        WebApp.BackButton.offClick(handleBack)
-        WebApp.BackButton.hide()
-      } catch {
-        /* ignore */
-      }
-    }
-  }, [open, onClose])
+    swipeStartY.current = event.touches[0]?.clientY ?? null
+  }
+  const onSheetTouchEnd = (event: TouchEvent<HTMLDivElement>) => {
+    const start = swipeStartY.current
+    swipeStartY.current = null
+    if (start == null) return
+    const end = event.changedTouches[0]?.clientY ?? start
+    if (end - start > 72) onClose()
+  }
 
   if (!open) return null
 
@@ -272,22 +268,6 @@ export function BuySheet({ open, onClose }: BuySheetProps) {
     navigate('/cards')
   }
 
-  const swipeStartY = useRef<number | null>(null)
-  const onSheetTouchStart = (event: TouchEvent<HTMLDivElement>) => {
-    if (event.currentTarget.scrollTop > 8) {
-      swipeStartY.current = null
-      return
-    }
-    swipeStartY.current = event.touches[0]?.clientY ?? null
-  }
-  const onSheetTouchEnd = (event: TouchEvent<HTMLDivElement>) => {
-    const start = swipeStartY.current
-    swipeStartY.current = null
-    if (start == null) return
-    const end = event.changedTouches[0]?.clientY ?? start
-    if (end - start > 72) onClose()
-  }
-
   const locale = lang === 'ru' ? 'ru-RU' : 'en-US'
   const tonLabel = tonAmount
     ? `${tonAmount.toLocaleString(locale, { maximumFractionDigits: 4 })} TON / GRAM`
@@ -306,7 +286,7 @@ export function BuySheet({ open, onClose }: BuySheetProps) {
         onClick={onClose}
       />
       <div
-        className="relative z-10 flex max-h-[min(92dvh,760px)] w-full max-w-lg flex-col overflow-y-auto rounded-t-3xl border border-amber-400/25 bg-[#141218] pb-[max(16px,env(safe-area-inset-bottom))] shadow-2xl"
+        className="relative z-10 flex max-h-[90dvh] w-full max-w-lg flex-col overflow-y-auto rounded-t-3xl border border-amber-400/25 bg-[#141218] pb-[max(16px,env(safe-area-inset-bottom))] shadow-2xl"
         onClick={(event) => event.stopPropagation()}
         onTouchStart={onSheetTouchStart}
         onTouchEnd={onSheetTouchEnd}

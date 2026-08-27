@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { useCards } from '../cards/CardsProvider'
 import { BuySheet } from '../components/BuySheet'
 import { CollectibleCard } from '../components/CollectibleCard'
@@ -15,6 +15,7 @@ export function HomePage() {
   const raffle = getRaffle(raffleId)
   const { rate } = useUsdtRate()
   const [buyOpen, setBuyOpen] = useState(false)
+  const closeBuy = useCallback(() => setBuyOpen(false), [])
   const locale = lang === 'ru' ? 'ru-RU' : 'en-US'
   const progress = Math.min(100, (soldCount / raffle.total) * 100)
   const jackpot = raffle.prizes[0]?.amount ?? '—'
@@ -103,7 +104,7 @@ export function HomePage() {
         </span>
       </button>
 
-      <BuySheet open={buyOpen} onClose={() => setBuyOpen(false)} />
+      {buyOpen ? <BuySheet open onClose={closeBuy} /> : null}
     </div>
   )
 }
