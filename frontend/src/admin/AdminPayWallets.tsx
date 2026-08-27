@@ -1,6 +1,6 @@
 import { useEffect, useState, type CSSProperties } from 'react'
 import { ADMIN_PASSWORD, isTonPayAddress, isTronPayAddress } from '../constants'
-import { api } from '../api/client'
+import { api, formatApiError } from '../api/client'
 import { useAdmin } from './AdminProvider'
 import { useI18n } from '../i18n/LanguageProvider'
 
@@ -24,8 +24,15 @@ const fieldStyle: CSSProperties = {
 }
 
 type WalletPayload = {
+  tonAddress?: string
   merchantWallet?: string
   usdtTrc20Address?: string
+}
+
+function fromPayload(data: WalletPayload) {
+  const tonAddress = (data.tonAddress ?? data.merchantWallet ?? '').trim()
+  const usdtTrc20Address = (data.usdtTrc20Address ?? '').trim()
+  return { tonAddress, usdtTrc20Address, merchantWallet: tonAddress }
 }
 
 export function AdminPayWallets({ idPrefix = 'admin' }: { idPrefix?: string }) {
@@ -41,8 +48,10 @@ export function AdminPayWallets({ idPrefix = 'admin' }: { idPrefix?: string }) {
   const headers = { 'x-admin-password': ADMIN_PASSWORD }
 
   const applyLoaded = (data: WalletPayload) => {
-    setTon(typeof data.merchantWallet === 'string' ? data.merchantWallet : '')
-    setUsdt(typeof data.usdtTrc20Address === 'string' ? data.usdtTrc20Address : '')
+    const next = fromPayload(data)
+    setTon(next.tonAddress)
+    setUsdt(next.usdtTrc20Address)
+    return next
   }
 
   useEffect(() => {
@@ -51,20 +60,18 @@ export function AdminPayWallets({ idPrefix = 'admin' }: { idPrefix?: string }) {
       .get<WalletPayload>('/admin/wallets', { headers })
       .then(({ data }) => {
         if (cancelled) return
-        applyLoaded(data)
-        applyPayWallets({
-          merchantWallet: data.merchantWallet ?? '',
-          usdtTrc20Address: data.usdtTrc20Address ?? '',
-        })
+        applyPayWallets(applyLoaded(data))
       })
-      .catch(() => {
+      .catch((err: unknown) => {
         void api
           .get<WalletPayload>('/wallets')
           .then(({ data }) => {
             if (cancelled) return
-            applyLoaded(data)
+            applyPayWallets(applyLoaded(data))
           })
-          .catch(() => undefined)
+          .catch(() => {
+            if (!cancelled) setError(formatApiError(err))
+          })
       })
     return () => {
       cancelled = true
@@ -72,14 +79,14 @@ export function AdminPayWallets({ idPrefix = 'admin' }: { idPrefix?: string }) {
   }, [])
 
   const save = async () => {
-    const merchantWallet = ton.trim()
+    const tonAddress = ton.trim()
     const usdtTrc20Address = usdt.trim()
     if (usdtTrc20Address && !isTronPayAddress(usdtTrc20Address)) {
       setError(t('adminUsdtInvalid'))
       setSaved(false)
       return
     }
-    if (merchantWallet && !isTonPayAddress(merchantWallet)) {
+    if (tonAddress && !isTonPayAddress(tonAddress)) {
       setError(t('adminTonInvalid'))
       setSaved(false)
       return
@@ -88,16 +95,15 @@ export function AdminPayWallets({ idPrefix = 'admin' }: { idPrefix?: string }) {
     setError(null)
     setSaved(false)
     try {
-      const { data } = await api.post<WalletPayload>('/admin/wallets', { merchantWallet, usdtTrc20Address }, { headers })
-      const next = {
-        merchantWallet: data.merchantWallet ?? merchantWallet,
-        usdtTrc20Address: data.usdtTrc20Address ?? usdtTrc20Address,
-      }
-      applyLoaded(next)
-      applyPayWallets(next)
+      const { data } = await api.put<WalletPayload>(
+        '/admin/wallets',
+        { tonAddress, usdtTrc20Address },
+        { headers },
+      )
+      applyPayWallets(applyLoaded(data))
       setSaved(true)
-    } catch {
-      setError(t('adminWalletsSaveError'))
+    } catch (err) {
+      setError(formatApiError(err))
     } finally {
       setBusy(false)
     }
@@ -175,7 +181,9 @@ export function AdminPayWallets({ idPrefix = 'admin' }: { idPrefix?: string }) {
         {busy ? (en ? 'Saving…' : 'Сохранение…') : t('adminSave')}
       </button>
       {saved ? <p style={{ margin: '10px 0 0', color: '#c8e6c9', fontSize: 13 }}>{t('adminWalletSaved')}</p> : null}
-      {error ? <p style={{ margin: '10px 0 0', color: '#ff8a65', fontSize: 13 }}>{error}</p> : null}
+      {error ? (
+        <p style={{ margin: '10px 0 0', color: '#ff8a65', fontSize: 13, wordBreak: 'break-all' }}>{error}</p>
+      ) : null}
     </section>
   )
 }

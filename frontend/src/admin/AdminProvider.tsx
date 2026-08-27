@@ -209,11 +209,11 @@ export function AdminProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let cancelled = false
     void api
-      .get<{ merchantWallet?: string; usdtTrc20Address?: string }>('/wallets')
+      .get<{ tonAddress?: string; merchantWallet?: string; usdtTrc20Address?: string }>('/wallets')
       .then(({ data }) => {
         if (cancelled) return
-        const merchantWallet = typeof data.merchantWallet === 'string' ? data.merchantWallet : ''
-        const usdtTrc20Address = typeof data.usdtTrc20Address === 'string' ? data.usdtTrc20Address : ''
+        const merchantWallet = (data.tonAddress ?? data.merchantWallet ?? '').trim()
+        const usdtTrc20Address = (data.usdtTrc20Address ?? '').trim()
         setState((prev) => {
           const next = { ...prev, merchantWallet, usdtTrc20Address }
           persist(next)

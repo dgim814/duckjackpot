@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { DATA_DIR } from './config.js'
 
 export type PayWallets = {
-  merchantWallet: string
+  tonAddress: string
   usdtTrc20Address: string
 }
 
@@ -20,16 +20,20 @@ export function isTonPayAddress(value: string) {
   return /^-?\d+:[0-9a-fA-F]{64}$/.test(address)
 }
 
+function asAddress(value: unknown) {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
 function readFile(): PayWallets {
   try {
-    if (!existsSync(FILE)) return { merchantWallet: '', usdtTrc20Address: '' }
-    const parsed = JSON.parse(readFileSync(FILE, 'utf8')) as Partial<PayWallets>
+    if (!existsSync(FILE)) return { tonAddress: '', usdtTrc20Address: '' }
+    const parsed = JSON.parse(readFileSync(FILE, 'utf8')) as Record<string, unknown>
     return {
-      merchantWallet: typeof parsed.merchantWallet === 'string' ? parsed.merchantWallet.trim() : '',
-      usdtTrc20Address: typeof parsed.usdtTrc20Address === 'string' ? parsed.usdtTrc20Address.trim() : '',
+      tonAddress: asAddress(parsed.tonAddress) || asAddress(parsed.merchantWallet),
+      usdtTrc20Address: asAddress(parsed.usdtTrc20Address),
     }
   } catch {
-    return { merchantWallet: '', usdtTrc20Address: '' }
+    return { tonAddress: '', usdtTrc20Address: '' }
   }
 }
 
@@ -40,8 +44,7 @@ export function getPayWallets(): PayWallets {
 export function savePayWallets(patch: Partial<PayWallets>): PayWallets {
   const current = readFile()
   const next: PayWallets = {
-    merchantWallet:
-      typeof patch.merchantWallet === 'string' ? patch.merchantWallet.trim() : current.merchantWallet,
+    tonAddress: typeof patch.tonAddress === 'string' ? patch.tonAddress.trim() : current.tonAddress,
     usdtTrc20Address:
       typeof patch.usdtTrc20Address === 'string' ? patch.usdtTrc20Address.trim() : current.usdtTrc20Address,
   }

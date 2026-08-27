@@ -252,7 +252,7 @@ const ru = {
   adminPaySaved: 'Нажмите «Сохранить», чтобы записать адреса на сервер.',
   adminUsdtInvalid: 'USDT TRC-20: адрес должен начинаться с T и содержать 34 символа.',
   adminTonInvalid: 'TON / GRAM: укажите полный адрес (EQ… / UQ…, 48 символов).',
-  adminWalletsSaveError: 'Не удалось сохранить адреса. Проверьте, что backend запущен.',
+  adminWalletsSaveError: 'Не удалось сохранить адреса.',
   adminTextsTitle: 'Оферта и условия',
   adminTextsHint: 'Редактируется текст для текущего языка (RU/EN). Пустые поля не сохраняйте — лучше оставить полный абзац.',
 
@@ -529,7 +529,7 @@ const en: Record<keyof typeof ru, string> = {
   adminPaySaved: 'Tap Save to write the addresses to the server.',
   adminUsdtInvalid: 'USDT TRC-20: the address must start with T and be 34 characters.',
   adminTonInvalid: 'TON / GRAM: enter a full address (EQ… / UQ…, 48 characters).',
-  adminWalletsSaveError: 'Could not save wallets. Check that the backend is running.',
+  adminWalletsSaveError: 'Could not save wallets.',
   adminTextsTitle: 'Offer and terms',
   adminTextsHint: 'Edits apply to the current language (RU/EN). Keep full paragraphs.',
 

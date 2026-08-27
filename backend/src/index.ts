@@ -94,20 +94,33 @@ app.get('/api/admin/wallets', (req, res) => {
   res.json(getPayWallets())
 })
 
-app.post('/api/admin/wallets', (req, res) => {
+function readWalletBody(req: express.Request) {
+  const tonAddress = String(req.body?.tonAddress ?? req.body?.merchantWallet ?? '').trim()
+  const usdtTrc20Address = String(req.body?.usdtTrc20Address ?? '').trim()
+  return { tonAddress, usdtTrc20Address }
+}
+
+function saveAdminWallets(req: express.Request, res: express.Response) {
   if (!requireAdmin(req, res)) return
-  const merchantWallet = typeof req.body?.merchantWallet === 'string' ? req.body.merchantWallet.trim() : ''
-  const usdtTrc20Address = typeof req.body?.usdtTrc20Address === 'string' ? req.body.usdtTrc20Address.trim() : ''
+  const { tonAddress, usdtTrc20Address } = readWalletBody(req)
   if (usdtTrc20Address && !isTronPayAddress(usdtTrc20Address)) {
     res.status(400).json({ error: 'invalid_usdt_address' })
     return
   }
-  if (merchantWallet && !isTonPayAddress(merchantWallet)) {
+  if (tonAddress && !isTonPayAddress(tonAddress)) {
     res.status(400).json({ error: 'invalid_ton_address' })
     return
   }
-  res.json({ ok: true, ...savePayWallets({ merchantWallet, usdtTrc20Address }) })
-})
+  try {
+    res.json({ ok: true, ...savePayWallets({ tonAddress, usdtTrc20Address }) })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'write_failed'
+    res.status(500).json({ error: message })
+  }
+}
+
+app.put('/api/admin/wallets', saveAdminWallets)
+app.post('/api/admin/wallets', saveAdminWallets)
 
 app.get('/api/health', (_req, res) => {
   const settings = getTelegramSettings()
