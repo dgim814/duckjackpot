@@ -5,7 +5,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useAdmin } from '../admin/AdminProvider'
 import { formatSerial, formatUsdtExact, useCards, type OwnedCard, type PayAsset } from '../cards/CardsProvider'
 import { formatCardPrice, useUsdtRate } from '../hooks/useUsdtRate'
-import { DEFAULT_TON_WALLET, DEFAULT_USDT_TRC20, getRaffle, walletOrDefault } from '../constants'
+import { getRaffle, isTonPayAddress, isTronPayAddress } from '../constants'
 import { useI18n } from '../i18n/LanguageProvider'
 import type { MessageKey } from '../i18n/messages'
 import { RAFFLE_TITLE_KEY } from '../i18n/raffleLabels'
@@ -61,8 +61,8 @@ export function BuySheet({ open, onClose }: BuySheetProps) {
   const { mintCard, createPendingUsdt, raffleId, remaining } = useCards()
   const { testPayMode, merchantWallet, usdtTrc20Address } = useAdmin()
   const raffle = getRaffle(raffleId)
-  const payTonWallet = walletOrDefault(merchantWallet, DEFAULT_TON_WALLET)
-  const payUsdtWallet = walletOrDefault(usdtTrc20Address, DEFAULT_USDT_TRC20)
+  const payTonWallet = merchantWallet.trim()
+  const payUsdtWallet = usdtTrc20Address.trim()
   const { rate } = useUsdtRate()
   const navigate = useNavigate()
   const [tonConnectUI] = useTonConnectUI()
@@ -77,7 +77,8 @@ export function BuySheet({ open, onClose }: BuySheetProps) {
   const abortRef = useRef<AbortController | null>(null)
   const swipeStartY = useRef<number | null>(null)
   const preAmlOk = hasCompletedPreAml()
-  const payUsdtReady = payUsdtWallet.length > 0
+  const payUsdtReady = isTronPayAddress(payUsdtWallet)
+  const payTonReady = isTonPayAddress(payTonWallet)
 
   const tonAmount = tonRub ? estimateTonAmount(raffle.priceRub, tonRub) : null
   const usdtAmount = estimateUsdtAmount(raffle.priceRub, rate)
@@ -95,12 +96,8 @@ export function BuySheet({ open, onClose }: BuySheetProps) {
       return
     }
     console.log('[DuckJackpot] USDT TRC-20 address:', payUsdtWallet)
-    console.log('[DuckJackpot] USDT TRC-20 source:', {
-      settings: usdtTrc20Address,
-      used: payUsdtWallet,
-      fallback: DEFAULT_USDT_TRC20,
-    })
-    if (hasCompletedPreAml()) {
+    console.log('[DuckJackpot] USDT TRC-20 source: admin/backend')
+    if (hasCompletedPreAml() && isTronPayAddress(payUsdtWallet)) {
       try {
         tonConnectUI.closeModal()
       } catch {
@@ -176,7 +173,7 @@ export function BuySheet({ open, onClose }: BuySheetProps) {
         return
       }
 
-      if (!payTonWallet) throw new Error('no_merchant')
+      if (!isTonPayAddress(payTonWallet)) throw new Error('no_merchant')
       if (!tonAmount) throw new Error('ton_rate')
 
       const connected = await ensureWallet()
@@ -204,7 +201,7 @@ export function BuySheet({ open, onClose }: BuySheetProps) {
       setError(t('payNeedPreAml'))
       return
     }
-    if (!payUsdtWallet) {
+    if (!payUsdtReady) {
       setError(t('payUsdtUnavailable'))
       return
     }
@@ -465,7 +462,7 @@ export function BuySheet({ open, onClose }: BuySheetProps) {
               </button>
               <button
                 type="button"
-                disabled={busy || remaining <= 0 || !preAmlOk}
+                disabled={busy || remaining <= 0 || !preAmlOk || (!testPayMode && !payTonReady)}
                 onClick={() => void payTon()}
                 className="w-full rounded-2xl border border-white/10 bg-black/30 px-3 py-3 text-left disabled:opacity-60"
               >

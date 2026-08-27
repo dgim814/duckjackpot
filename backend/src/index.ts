@@ -4,6 +4,7 @@ import express from 'express'
 import { botIdentity, notifyTelegramUser, startBot } from './bot.js'
 import { getUserCards, mergeUserCards, setUserCardStatus, upsertUserCard, type StoredCard } from './cardStore.js'
 import { adminPassword, getTelegramSettings, maskToken, saveTelegramSettings } from './config.js'
+import { getPayWallets, isTonPayAddress, isTronPayAddress, savePayWallets } from './walletsStore.js'
 import { drawRaffle } from './draw.js'
 import { getPayment, listPayments, setPaymentNotify, setPaymentStatus, upsertClaim } from './paymentStore.js'
 import { verifyInitData } from './verifyInitData.js'
@@ -83,6 +84,30 @@ function requireAdmin(req: express.Request, res: express.Response) {
   }
   return true
 }
+
+app.get('/api/wallets', (_req, res) => {
+  res.json(getPayWallets())
+})
+
+app.get('/api/admin/wallets', (req, res) => {
+  if (!requireAdmin(req, res)) return
+  res.json(getPayWallets())
+})
+
+app.post('/api/admin/wallets', (req, res) => {
+  if (!requireAdmin(req, res)) return
+  const merchantWallet = typeof req.body?.merchantWallet === 'string' ? req.body.merchantWallet.trim() : ''
+  const usdtTrc20Address = typeof req.body?.usdtTrc20Address === 'string' ? req.body.usdtTrc20Address.trim() : ''
+  if (usdtTrc20Address && !isTronPayAddress(usdtTrc20Address)) {
+    res.status(400).json({ error: 'invalid_usdt_address' })
+    return
+  }
+  if (merchantWallet && !isTonPayAddress(merchantWallet)) {
+    res.status(400).json({ error: 'invalid_ton_address' })
+    return
+  }
+  res.json({ ok: true, ...savePayWallets({ merchantWallet, usdtTrc20Address }) })
+})
 
 app.get('/api/health', (_req, res) => {
   const settings = getTelegramSettings()

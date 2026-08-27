@@ -84,9 +84,20 @@ export const USDT_RUB_DEFAULT = 95
 export const CARD_ART = '/duck-jackpot.jpg'
 export const ADMIN_PASSWORD = 'duckadmin2026'
 
-/** Fallback receiving wallets when admin settings / localStorage are empty. */
+/** Fallback only when nothing is saved on the backend. Do not write these into admin fields. */
 export const DEFAULT_USDT_TRC20 = 'TQVrB6XACMwhAJXh1eJUVw5cEgEL3ZfML'
 export const DEFAULT_TON_WALLET = 'UQAdc1niAN8M0GQoFp_v_F53iA50HzoPf'
+
+export function isTronPayAddress(value: string) {
+  const address = value.trim()
+  return address.startsWith('T') && address.length === 34
+}
+
+export function isTonPayAddress(value: string) {
+  const address = value.trim()
+  if (address.startsWith('EQ') || address.startsWith('UQ')) return address.length === 48
+  return /^-?\d+:[0-9a-fA-F]{64}$/.test(address)
+}
 
 export function walletOrDefault(value: string | undefined, fallback: string) {
   const trimmed = typeof value === 'string' ? value.trim() : ''
