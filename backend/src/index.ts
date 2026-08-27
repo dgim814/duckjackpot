@@ -2,8 +2,8 @@ import cors from 'cors'
 import dotenv from 'dotenv'
 import express from 'express'
 import { botIdentity, notifyTelegramUser, startBot } from './bot.js'
-import { getUserCards, mergeUserCards, setUserCardStatus, upsertUserCard, type StoredCard } from './cardStore.js'
-import { adminPassword, getTelegramSettings, maskToken, saveTelegramSettings } from './config.js'
+import { getUserCards, listAllCards, mergeUserCards, setUserCardStatus, upsertUserCard, type StoredCard } from './cardStore.js'
+import { adminPassword, DATA_DIR, getTelegramSettings, maskToken, saveTelegramSettings } from './config.js'
 import { deleteNftFile, getNftFile, isNftRaffleId, listNftMeta, saveNftFile } from './nftStore.js'
 import { getPayWallets, isTonPayAddress, isTronPayAddress, savePayWallets } from './walletsStore.js'
 import { drawRaffle } from './draw.js'
@@ -285,6 +285,11 @@ app.get('/api/admin/payments', (req, res) => {
   res.json({ payments: listPayments({ status, raffleId }) })
 })
 
+app.get('/api/admin/cards', (req, res) => {
+  if (!requireAdmin(req, res)) return
+  res.json({ cards: listAllCards() })
+})
+
 app.post('/api/admin/payments/:id/confirm', async (req, res) => {
   if (!requireAdmin(req, res)) return
   const id = String(req.params.id ?? '')
@@ -338,5 +343,6 @@ app.post('/api/admin/raffles/:raffleId/draw', async (req, res) => {
 
 app.listen(port, '0.0.0.0', () => {
   console.log(`DuckJackpot API listening on 0.0.0.0:${port}`)
+  console.log(`DATA_DIR ${DATA_DIR}`)
   void startBot()
 })

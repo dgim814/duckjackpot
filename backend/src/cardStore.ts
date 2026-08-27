@@ -31,7 +31,7 @@ function readStore(): Store {
 
 function writeStore(store: Store) {
   mkdirSync(DATA_DIR, { recursive: true })
-  writeFileSync(FILE, JSON.stringify(store))
+  writeFileSync(FILE, JSON.stringify(store, null, 2))
 }
 
 export function saveUserCards(telegramId: number, cards: StoredCard[]) {
@@ -99,4 +99,13 @@ export function getActiveCardsForRaffle(raffleId: string): StoredCard[] {
     }
   }
   return cards
+}
+
+export function listAllCards(): StoredCard[] {
+  const store = readStore()
+  const cards: StoredCard[] = []
+  for (const entry of Object.values(store)) {
+    cards.push(...entry.cards)
+  }
+  return cards.sort((a, b) => b.purchasedAt - a.purchasedAt)
 }

@@ -1,9 +1,19 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const root = join(dirname(fileURLToPath(import.meta.url)), '..')
-export const DATA_DIR = join(root, 'data')
+const backendRoot = join(dirname(fileURLToPath(import.meta.url)), '..')
+
+function resolveDataDir() {
+  const fromEnv = (process.env.DATA_DIR ?? '').trim()
+  if (fromEnv) return resolve(fromEnv)
+  if (existsSync('/data')) return '/data'
+  return join(backendRoot, 'data')
+}
+
+export const DATA_DIR = resolveDataDir()
+mkdirSync(DATA_DIR, { recursive: true })
+
 const SETTINGS_FILE = join(DATA_DIR, 'telegram.json')
 
 export type TelegramSettings = {

@@ -1,3 +1,5 @@
+# Mount a persistent volume at /data so payments.json, cards.json,
+# wallets.json and NFT files survive deploys.
 [deploy]
 healthcheckPath = "/api/health"
 healthcheckTimeout = 30

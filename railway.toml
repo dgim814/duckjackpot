@@ -1,3 +1,4 @@
+# Mount a persistent volume at /data (payments, cards, wallets, NFT).
 [deploy]
 startCommand = "npm start --prefix backend"
 healthcheckPath = "/api/health"
