@@ -13,7 +13,7 @@ type CollectibleCardProps = {
 
 export function CollectibleCard({ card, raffleId, compact = false }: CollectibleCardProps) {
   const { t } = useI18n()
-  const { cardArt } = useAdmin()
+  const { cardArt, raffles } = useAdmin()
   const raffle = getRaffle(card?.raffleId ?? raffleId ?? 'classic')
   const serial = card ? formatSerial(card.serial, raffle.total) : '????'
   const art = cardArt(raffle.id)
@@ -22,6 +22,28 @@ export function CollectibleCard({ card, raffleId, compact = false }: Collectible
     setSrc(art)
   }, [art])
   const radius = compact ? 'rounded-[22px]' : 'rounded-[28px]'
+  const customNft = Boolean(raffles[raffle.id]?.image) && src !== CARD_ART
+
+  if (customNft) {
+    return (
+      <article
+        className={[
+          'relative overflow-hidden bg-transparent',
+          radius,
+          compact ? 'mx-auto w-[91%] max-w-[324px]' : '',
+        ].join(' ')}
+      >
+        <img
+          src={src}
+          alt={t('duckCardAlt')}
+          className="block h-auto w-full object-contain object-center"
+          onError={() => {
+            if (src !== CARD_ART) setSrc(CARD_ART)
+          }}
+        />
+      </article>
+    )
+  }
 
   return (
     <article
