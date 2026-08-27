@@ -1,8 +1,9 @@
-import { getRaffle, type RaffleId } from '../constants'
+import { CARD_ART, getRaffle, type RaffleId } from '../constants'
 import { formatSerial, type OwnedCard } from '../cards/CardsProvider'
 import { useAdmin } from '../admin/AdminProvider'
 import { useI18n } from '../i18n/LanguageProvider'
 import { RAFFLE_TITLE_KEY } from '../i18n/raffleLabels'
+import { useEffect, useState } from 'react'
 
 type CollectibleCardProps = {
   card?: OwnedCard
@@ -16,16 +17,31 @@ export function CollectibleCard({ card, raffleId, compact = false }: Collectible
   const raffle = getRaffle(card?.raffleId ?? raffleId ?? 'classic')
   const serial = card ? formatSerial(card.serial, raffle.total) : '????'
   const art = cardArt(raffle.id)
+  const [src, setSrc] = useState(art)
+  useEffect(() => {
+    setSrc(art)
+  }, [art])
+  const radius = compact ? 'rounded-[22px]' : 'rounded-[28px]'
 
   return (
     <article
       className={[
         'card-foil relative overflow-hidden border border-amber-400/35 bg-black',
         compact
-          ? 'mx-auto w-[91%] max-w-[324px] rounded-[22px] shadow-[0_12px_32px_rgba(255,107,0,0.2)]'
-          : 'rounded-[28px] shadow-[0_20px_50px_rgba(255,107,0,0.22)]',
+          ? `mx-auto w-[91%] max-w-[324px] ${radius} shadow-[0_12px_32px_rgba(255,107,0,0.2)]`
+          : `${radius} shadow-[0_20px_50px_rgba(255,107,0,0.22)]`,
       ].join(' ')}
     >
+      <div className={`relative aspect-[4/5] overflow-hidden ${radius}`}>
+        <img
+          src={src}
+          alt={t('duckCardAlt')}
+          className="absolute inset-0 h-full w-full object-contain object-center"
+          onError={() => {
+            if (src !== CARD_ART) setSrc(CARD_ART)
+          }}
+        />
+      </div>
       <div className="pointer-events-none absolute inset-0 z-10 card-shine" />
       <div
         className={[
@@ -39,14 +55,6 @@ export function CollectibleCard({ card, raffleId, compact = false }: Collectible
         <span className="rounded-full bg-black/55 px-2 py-0.5 font-display text-[10px] font-bold text-amber-200 backdrop-blur-sm">
           #{serial}
         </span>
-      </div>
-
-      <div className="aspect-[4/5]">
-        <img
-          src={art}
-          alt={t('duckCardAlt')}
-          className="h-full w-full object-cover object-[center_42%]"
-        />
       </div>
 
       <div

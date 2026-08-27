@@ -4,6 +4,7 @@ import express from 'express'
 import { botIdentity, notifyTelegramUser, startBot } from './bot.js'
 import { getUserCards, mergeUserCards, setUserCardStatus, upsertUserCard, type StoredCard } from './cardStore.js'
 import { adminPassword, getTelegramSettings, maskToken, saveTelegramSettings } from './config.js'
+import { deleteNftFile, getNftFile, isNftRaffleId, listNftMeta, saveNftFile } from './nftStore.js'
 import { getPayWallets, isTonPayAddress, isTronPayAddress, savePayWallets } from './walletsStore.js'
 import { drawRaffle } from './draw.js'
 import { getPayment, listPayments, setPaymentNotify, setPaymentStatus, upsertClaim } from './paymentStore.js'
@@ -50,7 +51,7 @@ app.use(
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   }),
 )
-app.use(express.json({ limit: '1mb' }))
+app.use(express.json({ limit: '8mb' }))
 
 app.get('/', (_req, res) => {
   res.json({ ok: true })
@@ -128,6 +129,62 @@ app.post('/api/admin/wallets', saveAdminWallets)
 
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true })
+})
+
+app.get('/api/nft', (_req, res) => {
+  res.json({ images: listNftMeta() })
+})
+
+app.get('/api/nft/:raffleId', (req, res) => {
+  const raffleId = String(req.params.raffleId ?? '')
+  if (!isNftRaffleId(raffleId)) {
+    res.status(400).json({ error: 'unknown_raffle' })
+    return
+  }
+  const file = getNftFile(raffleId)
+  if (!file) {
+    res.status(404).json({ error: 'not_found' })
+    return
+  }
+  res.setHeader('Content-Type', file.mime)
+  res.setHeader('Cache-Control', 'public, max-age=60')
+  res.sendFile(file.path)
+})
+
+app.post('/api/admin/nft/:raffleId', (req, res) => {
+  if (!requireAdmin(req, res)) return
+  const raffleId = String(req.params.raffleId ?? '')
+  if (!isNftRaffleId(raffleId)) {
+    res.status(400).json({ error: 'unknown_raffle' })
+    return
+  }
+  const mime = String(req.body?.mime ?? '').trim().toLowerCase()
+  const raw = String(req.body?.data ?? '')
+  const base64 = raw.includes(',') ? raw.slice(raw.indexOf(',') + 1) : raw
+  if (!base64) {
+    res.status(400).json({ error: 'empty_file' })
+    return
+  }
+  try {
+    const buffer = Buffer.from(base64, 'base64')
+    const saved = saveNftFile(raffleId, mime, buffer)
+    res.json({ ok: true, raffleId, updatedAt: saved.updatedAt })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'write_failed'
+    const status = message === 'unsupported_type' || message === 'empty_file' || message === 'too_large' ? 400 : 500
+    res.status(status).json({ error: message })
+  }
+})
+
+app.delete('/api/admin/nft/:raffleId', (req, res) => {
+  if (!requireAdmin(req, res)) return
+  const raffleId = String(req.params.raffleId ?? '')
+  if (!isNftRaffleId(raffleId)) {
+    res.status(400).json({ error: 'unknown_raffle' })
+    return
+  }
+  deleteNftFile(raffleId)
+  res.json({ ok: true, raffleId })
 })
 
 app.get('/api/admin/telegram', async (req, res) => {

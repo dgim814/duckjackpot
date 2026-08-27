@@ -9,7 +9,7 @@ import {
   USDT_RUB_DEFAULT,
   type RaffleId,
 } from '../constants'
-import { api } from '../api/client'
+import { api, API_ORIGIN } from '../api/client'
 import type { Lang } from '../i18n/messages'
 
 export type RaffleStatus = 'running' | 'stopped'
@@ -72,6 +72,8 @@ type AdminContextValue = AdminState & {
   incrementSold: (id: RaffleId) => void
   resetRaffle: (id: RaffleId) => void
   setCardImage: (id: RaffleId, dataUrl: string | null) => void
+  uploadCardImage: (id: RaffleId, file: File) => Promise<void>
+  resetCardImage: (id: RaffleId) => Promise<void>
   setRateOverride: (rate: number | null) => void
   setTestPayMode: (enabled: boolean) => void
   setMerchantWallet: (address: string) => void
@@ -112,6 +114,32 @@ function defaultState(): AdminState {
     merchantWallet: '',
     usdtTrc20Address: '',
   }
+}
+
+function publicImage(value: unknown): string | null {
+  if (typeof value !== 'string' || !value.trim()) return null
+  if (value.startsWith('data:')) return null
+  return value
+}
+
+function nftUrl(id: RaffleId, updatedAt: number) {
+  return `${API_ORIGIN}/api/nft/${id}?v=${updatedAt}`
+}
+
+function applyNftCatalog(
+  raffles: Record<RaffleId, RaffleRuntime>,
+  images: Partial<Record<RaffleId, { updatedAt?: number } | null>>,
+) {
+  const next = { ...raffles }
+  for (const id of RAFFLE_ORDER) {
+    const meta = images[id]
+    const updatedAt = meta && typeof meta.updatedAt === 'number' ? meta.updatedAt : 0
+    next[id] = {
+      ...next[id],
+      image: updatedAt ? nftUrl(id, updatedAt) : null,
+    }
+  }
+  return next
 }
 
 function isRaffleId(value: unknown): value is RaffleId {
@@ -170,9 +198,21 @@ function readState(): AdminState {
             : fallback.rateOverride
     return {
       raffles: {
-        classic: { ...fallback.raffles.classic, ...parsed.raffles?.classic },
-        fast200: { ...fallback.raffles.fast200, ...parsed.raffles?.fast200 },
-        fast100: { ...fallback.raffles.fast100, ...parsed.raffles?.fast100 },
+        classic: {
+          ...fallback.raffles.classic,
+          ...parsed.raffles?.classic,
+          image: publicImage(parsed.raffles?.classic?.image),
+        },
+        fast200: {
+          ...fallback.raffles.fast200,
+          ...parsed.raffles?.fast200,
+          image: publicImage(parsed.raffles?.fast200?.image),
+        },
+        fast100: {
+          ...fallback.raffles.fast100,
+          ...parsed.raffles?.fast100,
+          image: publicImage(parsed.raffles?.fast100?.image),
+        },
       },
       winners:
         Array.isArray(parsed.winners) && parsed.winners.length
@@ -191,7 +231,12 @@ function readState(): AdminState {
 
 function persist(state: AdminState) {
   try {
-    localStorage.setItem(STORAGE_KEYS.admin, JSON.stringify(state))
+    const raffles = {
+      classic: { ...state.raffles.classic, image: publicImage(state.raffles.classic.image) },
+      fast200: { ...state.raffles.fast200, image: publicImage(state.raffles.fast200.image) },
+      fast100: { ...state.raffles.fast100, image: publicImage(state.raffles.fast100.image) },
+    }
+    localStorage.setItem(STORAGE_KEYS.admin, JSON.stringify({ ...state, raffles }))
     if (state.rateOverride && state.rateOverride > 0) {
       localStorage.setItem(STORAGE_KEYS.usdtRub, String(state.rateOverride))
     } else {
@@ -216,6 +261,17 @@ export function AdminProvider({ children }: { children: ReactNode }) {
         const usdtTrc20Address = (data.usdtTrc20Address ?? '').trim()
         setState((prev) => {
           const next = { ...prev, merchantWallet, usdtTrc20Address }
+          persist(next)
+          return next
+        })
+      })
+      .catch(() => undefined)
+    void api
+      .get<{ images?: Partial<Record<RaffleId, { updatedAt?: number } | null>> }>('/nft')
+      .then(({ data }) => {
+        if (cancelled) return
+        setState((prev) => {
+          const next = { ...prev, raffles: applyNftCatalog(prev.raffles, data.images ?? {}) }
           persist(next)
           return next
         })
@@ -292,8 +348,33 @@ export function AdminProvider({ children }: { children: ReactNode }) {
       setCardImage: (id, dataUrl) =>
         patch((prev) => ({
           ...prev,
-          raffles: { ...prev.raffles, [id]: { ...prev.raffles[id], image: dataUrl } },
+          raffles: { ...prev.raffles, [id]: { ...prev.raffles[id], image: publicImage(dataUrl) } },
         })),
+      uploadCardImage: async (id, file) => {
+        const data = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onload = () => resolve(String(reader.result ?? ''))
+          reader.onerror = () => reject(reader.error ?? new Error('read_failed'))
+          reader.readAsDataURL(file)
+        })
+        const { data: saved } = await api.post<{ updatedAt?: number }>(
+          `/admin/nft/${id}`,
+          { mime: file.type || 'image/jpeg', data },
+          { headers: { 'x-admin-password': ADMIN_PASSWORD }, timeout: 60_000 },
+        )
+        const image = saved.updatedAt ? nftUrl(id, saved.updatedAt) : nftUrl(id, Date.now())
+        patch((prev) => ({
+          ...prev,
+          raffles: { ...prev.raffles, [id]: { ...prev.raffles[id], image } },
+        }))
+      },
+      resetCardImage: async (id) => {
+        await api.delete(`/admin/nft/${id}`, { headers: { 'x-admin-password': ADMIN_PASSWORD } })
+        patch((prev) => ({
+          ...prev,
+          raffles: { ...prev.raffles, [id]: { ...prev.raffles[id], image: null } },
+        }))
+      },
       setRateOverride: (rate) => {
         const rateOverride =
           rate === null ? null : Number.isFinite(rate) && rate > 0 ? rate : USDT_RUB_DEFAULT

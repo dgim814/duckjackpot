@@ -192,7 +192,8 @@ const ru = {
   adminSoldEdit: 'Продано (для тестов)',
   adminSave: 'Сохранить',
   adminCardsUnit: 'карточек',
-  adminNftHint: 'Загрузите изображение карточки для каждого розыгрыша. Нужен предпросмотр ниже.',
+  adminNftHint:
+    'Загрузите своё изображение для каждой коллекции. Оно сохраняется на сервере и показывается на главной и в «Мои карточки».',
   adminNftUpload: 'Загрузить изображение',
   adminNftReset: 'Вернуть стандарт',
   adminNftCustom: 'Кастомное изображение',
@@ -468,7 +469,8 @@ const en: Record<keyof typeof ru, string> = {
   adminSoldEdit: 'Sold (for tests)',
   adminSave: 'Save',
   adminCardsUnit: 'cards',
-  adminNftHint: 'Upload card art for each raffle. Preview is shown below.',
+  adminNftHint:
+    'Upload art for each collection. It is stored on the server and shown on Home and My cards.',
   adminNftUpload: 'Upload image',
   adminNftReset: 'Restore default',
   adminNftCustom: 'Custom image',
