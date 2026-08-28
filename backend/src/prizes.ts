@@ -1,3 +1,9 @@
+export const RAFFLE_TOTALS: Record<string, number> = {
+  classic: 2000,
+  fast200: 200,
+  fast100: 100,
+}
+
 export const RAFFLE_PRIZES: Record<string, Array<{ place: number; amount: string }>> = {
   classic: [
     { place: 1, amount: '5000 USDT' },

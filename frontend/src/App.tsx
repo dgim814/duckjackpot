@@ -11,6 +11,7 @@ import { NftUploadPage } from './admin/pages/NftUploadPage'
 import { IssuedCardsPage } from './admin/pages/IssuedCardsPage'
 import { PaymentsPage } from './admin/pages/PaymentsPage'
 import { PayoutsPage } from './admin/pages/PayoutsPage'
+import { BonusAdminPage } from './admin/pages/BonusAdminPage'
 import { AdminSettingsPage } from './admin/pages/AdminSettingsPage'
 import { CardsProvider } from './cards/CardsProvider'
 import { captureTelegramUser } from './telegram/user'
@@ -58,6 +59,7 @@ export default function App() {
                   <Route path="cards" element={<IssuedCardsPage />} />
                   <Route path="payments" element={<PaymentsPage />} />
                   <Route path="payouts" element={<PayoutsPage />} />
+                  <Route path="bonus" element={<BonusAdminPage />} />
                   <Route path="settings" element={<AdminSettingsPage />} />
                 </Route>
               </Route>

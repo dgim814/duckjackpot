@@ -24,10 +24,22 @@ export function RafflesAdminPage() {
               <span
                 className={[
                   'rounded-full px-2 py-0.5 text-[10px] font-bold uppercase',
-                  runtime.status === 'running' ? 'bg-emerald-400/15 text-emerald-300' : 'bg-zinc-700 text-zinc-300',
+                  runtime.status === 'running'
+                    ? 'bg-emerald-400/15 text-emerald-300'
+                    : runtime.status === 'awaiting_draw'
+                      ? 'bg-amber-400/15 text-amber-200'
+                      : runtime.status === 'drawn'
+                        ? 'bg-sky-400/15 text-sky-200'
+                        : 'bg-zinc-700 text-zinc-300',
                 ].join(' ')}
               >
-                {runtime.status === 'running' ? t('adminRunning') : t('adminStopped')}
+                {runtime.status === 'running'
+                  ? t('adminRunning')
+                  : runtime.status === 'awaiting_draw'
+                    ? t('adminAwaitingDraw')
+                    : runtime.status === 'drawn'
+                      ? t('adminDrawn')
+                      : t('adminStopped')}
               </span>
             </div>
             <p className="mt-1 text-xs text-zinc-500">
@@ -40,7 +52,7 @@ export function RafflesAdminPage() {
               <button type="button" className="admin-btn" onClick={() => admin.setStatus(id, 'stopped')}>
                 {t('adminStop')}
               </button>
-              <DrawButton raffleId={id} />
+              <DrawButton raffleId={id} enabled={runtime.status === 'awaiting_draw'} />
               <button
                 type="button"
                 className="admin-btn admin-btn-danger"
@@ -87,7 +99,7 @@ export function RafflesAdminPage() {
   )
 }
 
-function DrawButton({ raffleId }: { raffleId: RaffleId }) {
+function DrawButton({ raffleId, enabled }: { raffleId: RaffleId; enabled: boolean }) {
   const { t } = useI18n()
   const { drawRaffle } = useAdmin()
   const [busy, setBusy] = useState(false)
@@ -98,7 +110,7 @@ function DrawButton({ raffleId }: { raffleId: RaffleId }) {
       <button
         type="button"
         className="admin-btn"
-        disabled={busy}
+        disabled={busy || !enabled}
         onClick={() => {
           if (!window.confirm(t('adminDrawConfirm'))) return
           setBusy(true)
@@ -107,7 +119,15 @@ function DrawButton({ raffleId }: { raffleId: RaffleId }) {
             .then((result) => {
               if (!result.winners.length) setError(t('adminDrawEmpty'))
             })
-            .catch(() => setError(t('adminDrawError')))
+            .catch((err: unknown) => {
+              const code =
+                err && typeof err === 'object' && 'response' in err
+                  ? String((err as { response?: { data?: { error?: string } } }).response?.data?.error ?? '')
+                  : ''
+              if (code === 'not_sold_out') setError(t('adminDrawNotSold'))
+              else if (code === 'already_drawn') setError(t('adminDrawAlready'))
+              else setError(t('adminDrawError'))
+            })
             .finally(() => setBusy(false))
         }}
       >

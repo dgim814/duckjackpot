@@ -1,19 +1,35 @@
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { TonConnectButton } from '@tonconnect/ui-react'
 import WebApp from '@twa-dev/sdk'
 import { User } from 'lucide-react'
+import { api } from '../api/client'
 import { ScreenHeader } from '../components/ScreenHeader'
 import { SupportBlock } from '../components/SupportBlock'
 import { useAgreement } from '../i18n/AgreementProvider'
 import { useI18n } from '../i18n/LanguageProvider'
+import { telegramInitData, captureTelegramUser } from '../telegram/user'
 
 export function ProfilePage() {
   const { t } = useI18n()
   const { accepted, reset } = useAgreement()
   const user = WebApp.initDataUnsafe.user
+  const [inBonus, setInBonus] = useState(false)
   const name = user?.first_name
     ? `${user.first_name}${user.last_name ? ` ${user.last_name}` : ''}`
     : t('profileGuest')
+
+  useEffect(() => {
+    const buyer = captureTelegramUser()
+    void api
+      .post<{ participating?: boolean }>('/me/bonus', {
+        initData: telegramInitData(),
+        telegramId: buyer?.telegramId,
+        telegramUsername: buyer?.telegramUsername,
+      })
+      .then(({ data }) => setInBonus(Boolean(data.participating)))
+      .catch(() => undefined)
+  }, [])
 
   return (
     <section className="px-4 pb-6">
@@ -35,6 +51,12 @@ export function ProfilePage() {
           </div>
         </div>
       </div>
+
+      {inBonus ? (
+        <div className="mt-4 rounded-2xl border border-amber-400/30 bg-[#1a1410] p-4">
+          <p className="text-sm font-extrabold text-amber-100">{t('profileBonus')}</p>
+        </div>
+      ) : null}
 
       <div className="mt-4 rounded-2xl border border-white/8 bg-[#141218] p-5">
         <p className="mb-1 text-sm font-semibold text-zinc-300">{t('profileWallet')}</p>

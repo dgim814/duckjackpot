@@ -11,6 +11,7 @@ import {
   LayoutDashboard,
   List,
   LogOut,
+  Sparkles,
   Settings,
 } from 'lucide-react'
 
@@ -21,6 +22,7 @@ const NAV = [
   { to: '/admin/payments', labelKey: 'adminNavPayments' as const, icon: Banknote, end: false },
   { to: '/admin/cards', labelKey: 'adminNavCards' as const, icon: List, end: false },
   { to: '/admin/payouts', labelKey: 'adminNavPayouts' as const, icon: Gift, end: false },
+  { to: '/admin/bonus', labelKey: 'adminNavBonus' as const, icon: Sparkles, end: false },
   { to: '/admin/settings', labelKey: 'adminNavSettings' as const, icon: Settings, end: false },
 ]
 

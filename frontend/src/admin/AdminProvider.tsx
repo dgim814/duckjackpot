@@ -12,7 +12,7 @@ import {
 import { api, API_ORIGIN } from '../api/client'
 import type { Lang } from '../i18n/messages'
 
-export type RaffleStatus = 'running' | 'stopped'
+export type RaffleStatus = 'running' | 'stopped' | 'awaiting_draw' | 'drawn'
 
 export type RaffleRuntime = {
   status: RaffleStatus
@@ -280,6 +280,35 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     let cancelled = false
     void refreshPayWallets().catch(() => undefined)
     void api
+      .get<{
+        raffles?: Partial<Record<RaffleId, { status?: string; sold?: number; total?: number }>>
+      }>('/raffles')
+      .then(({ data }) => {
+        if (cancelled) return
+        const incoming = data.raffles ?? {}
+        setState((prev) => {
+          const raffles = { ...prev.raffles }
+          for (const id of RAFFLE_ORDER) {
+            const row = incoming[id]
+            if (!row) continue
+            const status =
+              row.status === 'stopped' || row.status === 'awaiting_draw' || row.status === 'drawn' || row.status === 'running'
+                ? row.status
+                : raffles[id].status
+            const soldBase =
+              typeof row.sold === 'number' &&
+              (row.sold > raffles[id].soldBase || row.status === 'awaiting_draw' || row.status === 'drawn')
+                ? Math.max(0, Math.min(getRaffle(id).total, row.sold))
+                : raffles[id].soldBase
+            raffles[id] = { ...raffles[id], status, soldBase }
+          }
+          const next = { ...prev, raffles }
+          persist(next)
+          return next
+        })
+      })
+      .catch(() => undefined)
+    void api
       .get<{ images?: Partial<Record<RaffleId, { updatedAt?: number } | null>> }>('/nft')
       .then(({ data }) => {
         if (cancelled) return
@@ -438,7 +467,7 @@ export function AdminProvider({ children }: { children: ReactNode }) {
           ...prev,
           raffles: {
             ...prev.raffles,
-            [id]: { ...prev.raffles[id], status: 'stopped' },
+            [id]: { ...prev.raffles[id], status: 'drawn' },
           },
           winners: [...drawn, ...prev.winners.filter((winner) => winner.raffleId !== id)],
         }))

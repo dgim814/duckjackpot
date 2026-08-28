@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react'
+import { useAdmin } from '../admin/AdminProvider'
 import { useCards } from '../cards/CardsProvider'
 import { BuySheet } from '../components/BuySheet'
 import { CollectibleCard } from '../components/CollectibleCard'
@@ -12,6 +13,7 @@ import { useI18n } from '../i18n/LanguageProvider'
 export function HomePage() {
   const { t, lang } = useI18n()
   const { raffleId, soldCount, isRunning } = useCards()
+  const { raffles } = useAdmin()
   const raffle = getRaffle(raffleId)
   const { rate } = useUsdtRate()
   const [buyOpen, setBuyOpen] = useState(false)
@@ -19,6 +21,9 @@ export function HomePage() {
   const locale = lang === 'ru' ? 'ru-RU' : 'en-US'
   const progress = Math.min(100, (soldCount / raffle.total) * 100)
   const jackpot = raffle.prizes[0]?.amount ?? '—'
+  const phase = raffles[raffleId]?.status
+  const buyLabel =
+    isRunning ? t('buyCta') : phase === 'awaiting_draw' ? t('raffleAwaiting') : phase === 'drawn' ? t('raffleDrawn') : t('buyPaused')
 
   return (
     <div className="px-4 pb-4">
@@ -97,7 +102,7 @@ export function HomePage() {
         className="buy-btn sticky bottom-[calc(4.85rem+env(safe-area-inset-bottom))] z-20 mt-3 w-full rounded-2xl px-4 py-3.5 text-zinc-950 shadow-[0_8px_24px_rgba(0,0,0,0.45)] disabled:opacity-50"
       >
         <span className="block font-display text-lg font-extrabold leading-tight">
-          {isRunning ? t('buyCta') : t('buyPaused')}
+          {buyLabel}
         </span>
         <span className="mt-0.5 block text-sm font-bold opacity-80">
           {formatCardPrice(raffle.priceRub, rate, lang)}

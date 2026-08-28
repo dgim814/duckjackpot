@@ -1,13 +1,15 @@
 import cors from 'cors'
 import dotenv from 'dotenv'
 import express from 'express'
-import { botIdentity, notifyPaymentClaimed, notifyPaymentConfirmed, notifyPaymentRejected, startBot } from './bot.js'
+import { botIdentity, notifyPaymentClaimed, notifyPaymentConfirmed, notifyPaymentRejected, notifyTelegramUser, startBot } from './bot.js'
 import { findCardById, getUserCards, listAllCards, mergeUserCards, setCardStatusById, setUserCardStatus, upsertUserCard, type StoredCard } from './cardStore.js'
 import { adminPassword, DATA_DIR, getTelegramSettings, maskToken, saveTelegramSettings } from './config.js'
 import { deleteNftFile, getNftFile, isNftRaffleId, listNftMeta, saveNftFile } from './nftStore.js'
 import { handleSupportUpdate, isSupportWebhookAuthorized, startSupportBot, type SupportTelegramUpdate } from './supportBot.js'
 import { getPayWallets, isTonPayAddress, isTronPayAddress, loadWalletsFromDisk, savePayWallets, walletsFilePath } from './walletsStore.js'
-import { drawRaffle } from './draw.js'
+import { drawBonus, drawRaffle, publicRaffleSnapshot, refreshRafflePhase } from './draw.js'
+import { listDraws } from './drawStore.js'
+import { addBonusUser, isBonusUser, listBonusUsers, syncBonusUsersFromCards } from './bonusStore.js'
 import { getPayment, listPayments, setPaymentNotify, setPaymentStatus, upsertClaim } from './paymentStore.js'
 import { verifyInitData } from './verifyInitData.js'
 
@@ -370,6 +372,23 @@ async function confirmPayment(req: express.Request, res: express.Response) {
     } catch (err) {
       console.error('[telegram notify] confirm failed', err)
     }
+    try {
+      refreshRafflePhase(payment.raffleId)
+      if (payment.telegramId) {
+        const { added } = addBonusUser(payment.telegramId, payment.telegramUsername)
+        if (added) {
+          const bonusStatus = await notifyTelegramUser(
+            payment.telegramId,
+            'Вы в полугодовом розыгрыше. Не отключайте уведомления.',
+          )
+          if (bonusStatus !== 'sent') {
+            console.log('[telegram notify] bonus enroll skip', payment.telegramId, bonusStatus)
+          }
+        }
+      }
+    } catch (err) {
+      console.error('[bonus enroll]', err)
+    }
   }
   res.json({ ok: true, changed, payment: getPayment(payment.id) ?? payment })
 }
@@ -408,6 +427,46 @@ app.post('/api/admin/payments/:id/reject', (req, res) => {
   void rejectPayment(req, res)
 })
 
+app.get('/api/raffles', (_req, res) => {
+  res.json({ raffles: publicRaffleSnapshot() })
+})
+
+app.get('/api/draws', (_req, res) => {
+  res.json({ draws: listDraws() })
+})
+
+app.post('/api/me/bonus', (req, res) => {
+  const { telegramId } = resolveTelegramUser(req.body ?? {})
+  if (!telegramId) {
+    res.json({ participating: false })
+    return
+  }
+  syncBonusUsersFromCards()
+  res.json({ participating: isBonusUser(telegramId) })
+})
+
+app.get('/api/admin/bonus', (req, res) => {
+  if (!requireAdmin(req, res)) return
+  syncBonusUsersFromCards()
+  res.json({
+    users: listBonusUsers(),
+    draws: listDraws().filter((draw) => draw.kind === 'bonus'),
+  })
+})
+
+app.post('/api/admin/bonus/draw', async (req, res) => {
+  if (!requireAdmin(req, res)) return
+  const prizes = Array.isArray(req.body?.prizes) ? req.body.prizes : []
+  try {
+    const result = await drawBonus(prizes)
+    res.json(result)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'draw_failed'
+    const status = message === 'no_prizes' || message === 'no_tickets' ? 400 : 500
+    res.status(status).json({ error: message })
+  }
+})
+
 app.post('/api/admin/raffles/:raffleId/draw', async (req, res) => {
   if (!requireAdmin(req, res)) return
   const raffleId = String(req.params.raffleId ?? '')
@@ -416,7 +475,13 @@ app.post('/api/admin/raffles/:raffleId/draw', async (req, res) => {
     res.json(result)
   } catch (err) {
     const message = err instanceof Error ? err.message : 'draw_failed'
-    const status = message === 'unknown_raffle' ? 400 : 500
+    const status =
+      message === 'unknown_raffle' ||
+      message === 'not_sold_out' ||
+      message === 'already_drawn' ||
+      message === 'no_tickets'
+        ? 400
+        : 500
     res.status(status).json({ error: message })
   }
 })

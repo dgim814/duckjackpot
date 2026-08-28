@@ -48,6 +48,8 @@ export function TermsPage() {
         <p>{t('termsP2')}</p>
         <p>{t('termsP3')}</p>
         <p>{t('termsP4')}</p>
+        <p>{t('termsDrawCollection')}</p>
+        <p>{t('termsDrawBonus')}</p>
         <UsdtRateNote />
         <Link to="/agreement" className="inline-block font-semibold text-amber-300">
           {t('termsLinkOffer')}
