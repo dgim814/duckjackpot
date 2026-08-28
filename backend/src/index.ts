@@ -10,6 +10,8 @@ import { getPayWallets, isTonPayAddress, isTronPayAddress, loadWalletsFromDisk, 
 import { drawBonus, drawRaffle, publicRaffleSnapshot, refreshRafflePhase } from './draw.js'
 import { listDraws } from './drawStore.js'
 import { addBonusUser, isBonusUser, listBonusUsers, syncBonusUsersFromCards } from './bonusStore.js'
+import { setRafflePhase, setTestSold } from './raffleStore.js'
+import { RAFFLE_TOTALS } from './prizes.js'
 import { getPayment, listPayments, setPaymentNotify, setPaymentStatus, upsertClaim } from './paymentStore.js'
 import { verifyInitData } from './verifyInitData.js'
 
@@ -429,6 +431,35 @@ app.post('/api/admin/payments/:id/reject', (req, res) => {
 
 app.get('/api/raffles', (_req, res) => {
   res.json({ raffles: publicRaffleSnapshot() })
+})
+
+app.put('/api/admin/raffles/:raffleId', (req, res) => {
+  if (!requireAdmin(req, res)) return
+  const raffleId = String(req.params.raffleId ?? '')
+  const total = RAFFLE_TOTALS[raffleId]
+  if (!total) {
+    res.status(400).json({ error: 'unknown_raffle' })
+    return
+  }
+  try {
+    if (req.body?.sold != null) {
+      const sold = Math.max(0, Math.min(total, Math.round(Number(req.body.sold))))
+      if (!Number.isFinite(sold)) {
+        res.status(400).json({ error: 'invalid_sold' })
+        return
+      }
+      setTestSold(raffleId, sold)
+    }
+    const status = req.body?.status
+    if (status === 'running' || status === 'stopped' || status === 'awaiting_draw' || status === 'drawn') {
+      setRafflePhase(raffleId, status)
+    }
+    refreshRafflePhase(raffleId)
+    res.json({ ok: true, raffles: publicRaffleSnapshot() })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'save_failed'
+    res.status(500).json({ error: message })
+  }
 })
 
 app.get('/api/draws', (_req, res) => {

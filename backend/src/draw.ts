@@ -6,7 +6,7 @@ import { listBonusUsers, type BonusUser } from './bonusStore.js'
 import { saveDraw, type DrawWinner, type NotifyStatus } from './drawStore.js'
 import { fetchFairSeed, seededShuffle } from './fairSeed.js'
 import { RAFFLE_PRIZES, RAFFLE_TOTALS } from './prizes.js'
-import { getRafflePhase, setRafflePhase } from './raffleStore.js'
+import { getRafflePhase, getTestSold, setRafflePhase } from './raffleStore.js'
 
 export type { NotifyStatus }
 
@@ -54,12 +54,17 @@ export function soldCountFor(raffleId: string) {
   return uniqueActiveCards(raffleId).length
 }
 
+export function displaySoldFor(raffleId: string) {
+  const total = RAFFLE_TOTALS[raffleId] ?? Number.POSITIVE_INFINITY
+  return Math.min(total, Math.max(getTestSold(raffleId), soldCountFor(raffleId)))
+}
+
 export function refreshRafflePhase(raffleId: string) {
   const total = RAFFLE_TOTALS[raffleId]
   if (!total) return getRafflePhase(raffleId)
   const phase = getRafflePhase(raffleId)
   if (phase === 'drawn') return phase
-  if (soldCountFor(raffleId) >= total) {
+  if (displaySoldFor(raffleId) >= total) {
     setRafflePhase(raffleId, 'awaiting_draw')
     return 'awaiting_draw'
   }
@@ -91,7 +96,7 @@ export async function drawRaffle(raffleId: string) {
   const total = RAFFLE_TOTALS[raffleId]
   if (!prizes || !total) throw new Error('unknown_raffle')
   refreshRafflePhase(raffleId)
-  const sold = soldCountFor(raffleId)
+  const sold = displaySoldFor(raffleId)
   if (sold < total) throw new Error('not_sold_out')
   if (getRafflePhase(raffleId) === 'drawn') throw new Error('already_drawn')
 
@@ -241,12 +246,13 @@ export async function drawBonus(prizes: BonusPrize[]) {
 
 export function publicRaffleSnapshot() {
   const ids = Object.keys(RAFFLE_TOTALS)
-  const raffles: Record<string, { status: string; sold: number; total: number }> = {}
+  const raffles: Record<string, { status: string; sold: number; confirmed: number; total: number }> = {}
   for (const id of ids) {
     const status = refreshRafflePhase(id)
     raffles[id] = {
       status,
-      sold: soldCountFor(id),
+      sold: displaySoldFor(id),
+      confirmed: soldCountFor(id),
       total: RAFFLE_TOTALS[id],
     }
   }

@@ -242,6 +242,10 @@ const ru = {
   adminDrawError: 'Не удалось провести розыгрыш. Проверьте, что backend запущен.',
   adminDrawNotSold: 'Коллекция ещё не распродана полностью.',
   adminDrawAlready: 'Розыгрыш этой коллекции уже проведён.',
+  adminDrawNoCards: 'Нет подтверждённых номеров',
+  adminDrawTestWarn: 'Тестовый запуск. Победители только из подтверждённых карточек.',
+  adminDrawNeedSold: 'Сохраните Продано {sold} ≥ {total}, чтобы запустить.',
+  adminSoldSaved: 'Продано сохранено на сервер',
   adminBonusHint:
     'Участники — все, у кого есть хотя бы одна подтверждённая карточка. Задайте места и призы, затем запустите. Seed честный, призы вручную.',
   adminBonusPrizes: 'Места и призы',
@@ -548,6 +552,10 @@ const en: Record<keyof typeof ru, string> = {
   adminDrawError: 'Could not run the raffle. Check that the backend is running.',
   adminDrawNotSold: 'This collection is not sold out yet.',
   adminDrawAlready: 'This collection has already been drawn.',
+  adminDrawNoCards: 'No confirmed card numbers',
+  adminDrawTestWarn: 'Test launch. Winners are taken only from confirmed cards.',
+  adminDrawNeedSold: 'Save Sold {sold} ≥ {total} to start the raffle.',
+  adminSoldSaved: 'Sold count saved on the server',
   adminBonusHint:
     'Participants are everyone with at least one confirmed card. Set places and prizes, then start. Fair seed; prizes paid manually.',
   adminBonusPrizes: 'Places and prizes',

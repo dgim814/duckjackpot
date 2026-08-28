@@ -68,7 +68,7 @@ type AdminContextValue = AdminState & {
   logout: () => void
   cardArt: (id: RaffleId) => string
   setStatus: (id: RaffleId, status: RaffleStatus) => void
-  setSoldBase: (id: RaffleId, sold: number) => void
+  setSoldBase: (id: RaffleId, sold: number) => Promise<void>
   incrementSold: (id: RaffleId) => void
   resetRaffle: (id: RaffleId) => void
   setCardImage: (id: RaffleId, dataUrl: string | null) => void
@@ -251,6 +251,25 @@ function persist(state: AdminState) {
   }
 }
 
+function applyRaffleSnapshot(
+  prev: Record<RaffleId, RaffleRuntime>,
+  incoming: Partial<Record<RaffleId, { status?: string; sold?: number; confirmed?: number; total?: number }>>,
+) {
+  const raffles = { ...prev }
+  for (const id of RAFFLE_ORDER) {
+    const row = incoming[id]
+    if (!row) continue
+    const status =
+      row.status === 'stopped' || row.status === 'awaiting_draw' || row.status === 'drawn' || row.status === 'running'
+        ? row.status
+        : raffles[id].status
+    const soldBase =
+      typeof row.sold === 'number' ? Math.max(0, Math.min(getRaffle(id).total, Math.round(row.sold))) : raffles[id].soldBase
+    raffles[id] = { ...raffles[id], status, soldBase }
+  }
+  return raffles
+}
+
 function walletsFromApi(data: { tonAddress?: string; merchantWallet?: string; usdtTrc20Address?: string }) {
   return {
     merchantWallet: (data.tonAddress ?? data.merchantWallet ?? '').trim(),
@@ -287,22 +306,7 @@ export function AdminProvider({ children }: { children: ReactNode }) {
         if (cancelled) return
         const incoming = data.raffles ?? {}
         setState((prev) => {
-          const raffles = { ...prev.raffles }
-          for (const id of RAFFLE_ORDER) {
-            const row = incoming[id]
-            if (!row) continue
-            const status =
-              row.status === 'stopped' || row.status === 'awaiting_draw' || row.status === 'drawn' || row.status === 'running'
-                ? row.status
-                : raffles[id].status
-            const soldBase =
-              typeof row.sold === 'number' &&
-              (row.sold > raffles[id].soldBase || row.status === 'awaiting_draw' || row.status === 'drawn')
-                ? Math.max(0, Math.min(getRaffle(id).total, row.sold))
-                : raffles[id].soldBase
-            raffles[id] = { ...raffles[id], status, soldBase }
-          }
-          const next = { ...prev, raffles }
+          const next = { ...prev, raffles: applyRaffleSnapshot(prev.raffles, incoming) }
           persist(next)
           return next
         })
@@ -362,12 +366,15 @@ export function AdminProvider({ children }: { children: ReactNode }) {
           ...prev,
           raffles: { ...prev.raffles, [id]: { ...prev.raffles[id], status } },
         })),
-      setSoldBase: (id, sold) => {
+      setSoldBase: async (id, sold) => {
         const total = getRaffle(id).total
         const soldBase = Math.max(0, Math.min(total, Math.round(sold)))
+        const { data } = await api.put<{
+          raffles?: Partial<Record<RaffleId, { status?: string; sold?: number }>>
+        }>(`/admin/raffles/${id}`, { sold: soldBase }, { headers: { 'x-admin-password': ADMIN_PASSWORD } })
         patch((prev) => ({
           ...prev,
-          raffles: { ...prev.raffles, [id]: { ...prev.raffles[id], soldBase } },
+          raffles: applyRaffleSnapshot(prev.raffles, data.raffles ?? { [id]: { sold: soldBase } }),
         }))
       },
       incrementSold: (id) =>
@@ -379,14 +386,18 @@ export function AdminProvider({ children }: { children: ReactNode }) {
             raffles: { ...prev.raffles, [id]: { ...prev.raffles[id], soldBase } },
           }
         }),
-      resetRaffle: (id) =>
+      resetRaffle: (id) => {
+        void api
+          .put(`/admin/raffles/${id}`, { sold: 0, status: 'running' }, { headers: { 'x-admin-password': ADMIN_PASSWORD } })
+          .catch(() => undefined)
         patch((prev) => ({
           ...prev,
           raffles: {
             ...prev.raffles,
-            [id]: { ...prev.raffles[id], status: 'stopped', soldBase: 0 },
+            [id]: { ...prev.raffles[id], status: 'running', soldBase: 0 },
           },
-        })),
+        }))
+      },
       setCardImage: (id, dataUrl) =>
         patch((prev) => ({
           ...prev,
