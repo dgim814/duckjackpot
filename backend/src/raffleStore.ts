@@ -7,6 +7,7 @@ export type RafflePhase = 'running' | 'stopped' | 'awaiting_draw' | 'drawn'
 export type RaffleRecord = {
   status: RafflePhase
   testSold: number
+  round: number
   updatedAt: number
 }
 
@@ -31,6 +32,7 @@ function writeStore(store: Store) {
 
 function normalize(raffleId: string, raw?: Partial<RaffleRecord>): RaffleRecord {
   const testSold = typeof raw?.testSold === 'number' && Number.isFinite(raw.testSold) ? Math.max(0, Math.round(raw.testSold)) : 0
+  const round = typeof raw?.round === 'number' && raw.round >= 1 ? Math.round(raw.round) : 1
   const status =
     raw?.status === 'stopped' || raw?.status === 'awaiting_draw' || raw?.status === 'drawn' || raw?.status === 'running'
       ? raw.status
@@ -38,6 +40,7 @@ function normalize(raffleId: string, raw?: Partial<RaffleRecord>): RaffleRecord 
   return {
     status,
     testSold,
+    round,
     updatedAt: raw?.updatedAt ?? Date.now(),
   }
 }
@@ -54,12 +57,17 @@ export function getTestSold(raffleId: string) {
   return getRaffleRecord(raffleId).testSold
 }
 
-export function patchRaffle(raffleId: string, patch: { status?: RafflePhase; testSold?: number }) {
+export function setTestSold(raffleId: string, sold: number) {
+  return patchRaffle(raffleId, { testSold: sold })
+}
+
+export function patchRaffle(raffleId: string, patch: { status?: RafflePhase; testSold?: number; round?: number }) {
   const store = readStore()
   const current = normalize(raffleId, store[raffleId])
   const next: RaffleRecord = {
     status: patch.status ?? current.status,
     testSold: typeof patch.testSold === 'number' ? Math.max(0, Math.round(patch.testSold)) : current.testSold,
+    round: typeof patch.round === 'number' && patch.round >= 1 ? Math.round(patch.round) : current.round,
     updatedAt: Date.now(),
   }
   store[raffleId] = next
@@ -71,8 +79,17 @@ export function setRafflePhase(raffleId: string, status: RafflePhase) {
   return patchRaffle(raffleId, { status })
 }
 
-export function setTestSold(raffleId: string, testSold: number) {
-  return patchRaffle(raffleId, { testSold })
+export function getRaffleRound(raffleId: string) {
+  return getRaffleRecord(raffleId).round
+}
+
+export function startNextRaffleRound(raffleId: string) {
+  const current = getRaffleRecord(raffleId)
+  return patchRaffle(raffleId, {
+    status: 'running',
+    testSold: 0,
+    round: current.round + 1,
+  })
 }
 
 export function listRafflePhases() {

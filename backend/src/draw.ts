@@ -6,7 +6,7 @@ import { listBonusUsers, type BonusUser } from './bonusStore.js'
 import { saveDraw, type DrawWinner, type NotifyStatus } from './drawStore.js'
 import { fetchFairSeed, seededShuffle } from './fairSeed.js'
 import { RAFFLE_PRIZES, RAFFLE_TOTALS } from './prizes.js'
-import { getRafflePhase, getTestSold, setRafflePhase } from './raffleStore.js'
+import { getRafflePhase, getRaffleRound, getTestSold, setRafflePhase } from './raffleStore.js'
 
 export type { NotifyStatus }
 
@@ -246,7 +246,7 @@ export async function drawBonus(prizes: BonusPrize[]) {
 
 export function publicRaffleSnapshot() {
   const ids = Object.keys(RAFFLE_TOTALS)
-  const raffles: Record<string, { status: string; sold: number; confirmed: number; total: number }> = {}
+  const raffles: Record<string, { status: string; sold: number; confirmed: number; total: number; round: number }> = {}
   for (const id of ids) {
     const status = refreshRafflePhase(id)
     raffles[id] = {
@@ -254,6 +254,7 @@ export function publicRaffleSnapshot() {
       sold: displaySoldFor(id),
       confirmed: soldCountFor(id),
       total: RAFFLE_TOTALS[id],
+      round: getRaffleRound(id),
     }
   }
   return raffles

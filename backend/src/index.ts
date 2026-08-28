@@ -2,7 +2,7 @@ import cors from 'cors'
 import dotenv from 'dotenv'
 import express from 'express'
 import { botIdentity, notifyPaymentClaimed, notifyPaymentConfirmed, notifyPaymentRejected, notifyTelegramUser, startBot } from './bot.js'
-import { findCardById, getUserCards, listAllCards, mergeUserCards, setCardStatusById, setUserCardStatus, upsertUserCard, type StoredCard } from './cardStore.js'
+import { archiveRaffleCards, findCardById, getUserCards, listAllCards, mergeUserCards, setCardStatusById, setUserCardStatus, upsertUserCard, type StoredCard } from './cardStore.js'
 import { adminPassword, DATA_DIR, getTelegramSettings, maskToken, saveTelegramSettings } from './config.js'
 import { deleteNftFile, getNftFile, isNftRaffleId, listNftMeta, saveNftFile } from './nftStore.js'
 import { handleSupportUpdate, isSupportWebhookAuthorized, startSupportBot, type SupportTelegramUpdate } from './supportBot.js'
@@ -10,7 +10,7 @@ import { getPayWallets, isTonPayAddress, isTronPayAddress, loadWalletsFromDisk, 
 import { drawBonus, drawRaffle, publicRaffleSnapshot, refreshRafflePhase } from './draw.js'
 import { listDraws } from './drawStore.js'
 import { addBonusUser, isBonusUser, listBonusUsers, syncBonusUsersFromCards } from './bonusStore.js'
-import { setRafflePhase, setTestSold } from './raffleStore.js'
+import { setRafflePhase, setTestSold, startNextRaffleRound } from './raffleStore.js'
 import { RAFFLE_TOTALS } from './prizes.js'
 import { getPayment, listPayments, setPaymentNotify, setPaymentStatus, upsertClaim } from './paymentStore.js'
 import { verifyInitData } from './verifyInitData.js'
@@ -83,6 +83,7 @@ function asStoredCard(raw: Partial<StoredCard>, telegramId?: number): StoredCard
     usdtExact: typeof raw.usdtExact === 'number' ? raw.usdtExact : undefined,
     telegramId,
     telegramUsername: typeof raw.telegramUsername === 'string' ? raw.telegramUsername : undefined,
+    round: typeof raw.round === 'number' && raw.round >= 1 ? Math.round(raw.round) : undefined,
   }
 }
 
@@ -361,9 +362,12 @@ async function confirmPayment(req: express.Request, res: express.Response) {
   const changed = before.status === 'pending'
   const payment = setPaymentStatus(before.id, 'confirmed') ?? before
   if (changed) {
-    setCardStatusById(payment.id, 'active')
-    if (payment.telegramId) {
-      setUserCardStatus(payment.telegramId, payment.id, 'active')
+    const stored = findCardById(payment.id)
+    if (stored?.status !== 'past') {
+      setCardStatusById(payment.id, 'active')
+      if (payment.telegramId) {
+        setUserCardStatus(payment.telegramId, payment.id, 'active')
+      }
     }
     try {
       const notifyStatus = await notifyPaymentConfirmed(payment)
@@ -405,9 +409,12 @@ async function rejectPayment(req: express.Request, res: express.Response) {
   const changed = before.status === 'pending'
   const payment = setPaymentStatus(before.id, 'rejected') ?? before
   if (changed) {
-    setCardStatusById(payment.id, 'rejected')
-    if (payment.telegramId) {
-      setUserCardStatus(payment.telegramId, payment.id, 'rejected')
+    const stored = findCardById(payment.id)
+    if (stored?.status !== 'past') {
+      setCardStatusById(payment.id, 'rejected')
+      if (payment.telegramId) {
+        setUserCardStatus(payment.telegramId, payment.id, 'rejected')
+      }
     }
     try {
       const notifyStatus = await notifyPaymentRejected(payment)
@@ -458,6 +465,24 @@ app.put('/api/admin/raffles/:raffleId', (req, res) => {
     res.json({ ok: true, raffles: publicRaffleSnapshot() })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'save_failed'
+    res.status(500).json({ error: message })
+  }
+})
+
+app.post('/api/admin/raffles/:raffleId/reset', (req, res) => {
+  if (!requireAdmin(req, res)) return
+  const raffleId = String(req.params.raffleId ?? '')
+  if (!RAFFLE_TOTALS[raffleId]) {
+    res.status(400).json({ error: 'unknown_raffle' })
+    return
+  }
+  try {
+    archiveRaffleCards(raffleId)
+    startNextRaffleRound(raffleId)
+    refreshRafflePhase(raffleId)
+    res.json({ ok: true, raffles: publicRaffleSnapshot() })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'reset_failed'
     res.status(500).json({ error: message })
   }
 })

@@ -10,7 +10,7 @@ import { RAFFLE_TITLE_KEY } from '../../i18n/raffleLabels'
 export function RafflesAdminPage() {
   const { t } = useI18n()
   const admin = useAdmin()
-  const { clearRaffleCards } = useCards()
+  const { archiveRaffleCards } = useCards()
   const [draft, setDraft] = useState<Record<string, string>>({})
   const [saveError, setSaveError] = useState<Record<string, string>>({})
   const [saveOk, setSaveOk] = useState<Record<string, boolean>>({})
@@ -64,10 +64,16 @@ export function RafflesAdminPage() {
                 type="button"
                 className="admin-btn admin-btn-danger"
                 onClick={() => {
-                  if (window.confirm(t('adminResetConfirm'))) {
-                    clearRaffleCards(id)
-                    admin.resetRaffle(id)
-                  }
+                  if (!window.confirm(t('adminResetConfirm'))) return
+                  setSaveError((prev) => ({ ...prev, [id]: '' }))
+                  void admin
+                    .resetRaffle(id)
+                    .then(() => {
+                      archiveRaffleCards(id)
+                    })
+                    .catch((err: unknown) => {
+                      setSaveError((prev) => ({ ...prev, [id]: formatApiError(err) }))
+                    })
                 }}
               >
                 {t('adminReset')}

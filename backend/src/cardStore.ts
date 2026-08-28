@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { DATA_DIR } from './config.js'
+import { getRaffleRound } from './raffleStore.js'
 
 const FILE = join(DATA_DIR, 'cards.json')
 
@@ -15,6 +16,7 @@ export type StoredCard = {
   usdtExact?: number
   telegramId?: number
   telegramUsername?: string
+  round?: number
 }
 
 type Store = Record<string, { cards: StoredCard[]; updatedAt: number }>
@@ -49,12 +51,18 @@ export function getUserCards(telegramId: number): StoredCard[] {
 
 export function upsertUserCard(telegramId: number, card: StoredCard) {
   const cards = getUserCards(telegramId)
-  const nextCard = { ...card, telegramId }
+  const nextCard = {
+    ...card,
+    telegramId,
+    round: card.round ?? (card.status === 'past' ? 1 : getRaffleRound(card.raffleId)),
+  }
   const index = cards.findIndex((item) => item.id === nextCard.id)
   if (index >= 0) {
     const existing = cards[index]
-    const locked = existing.status === 'active' || existing.status === 'rejected'
-    cards[index] = locked ? { ...existing, ...nextCard, status: existing.status } : { ...existing, ...nextCard }
+    const locked = existing.status === 'active' || existing.status === 'rejected' || existing.status === 'past'
+    cards[index] = locked
+      ? { ...existing, ...nextCard, status: existing.status, round: existing.round ?? nextCard.round }
+      : { ...existing, ...nextCard }
   } else {
     cards.unshift(nextCard)
   }
@@ -66,6 +74,7 @@ export function setUserCardStatus(telegramId: number, cardId: string, status: st
   const cards = getUserCards(telegramId)
   const index = cards.findIndex((item) => item.id === cardId)
   if (index < 0) return null
+  if (cards[index].status === 'past') return cards[index]
   cards[index] = { ...cards[index], status, telegramId }
   saveUserCards(telegramId, cards)
   return cards[index]
@@ -74,12 +83,18 @@ export function setUserCardStatus(telegramId: number, cardId: string, status: st
 export function mergeUserCards(telegramId: number, incoming: StoredCard[]) {
   let cards = getUserCards(telegramId)
   for (const card of incoming) {
-    const nextCard = { ...card, telegramId }
+    const nextCard = {
+      ...card,
+      telegramId,
+      round: card.round ?? (card.status === 'past' ? 1 : getRaffleRound(card.raffleId)),
+    }
     const index = cards.findIndex((item) => item.id === nextCard.id)
     if (index >= 0) {
       const existing = cards[index]
-      const locked = existing.status === 'active' || existing.status === 'rejected'
-      cards[index] = locked ? { ...existing, ...nextCard, status: existing.status } : { ...existing, ...nextCard }
+      const locked = existing.status === 'active' || existing.status === 'rejected' || existing.status === 'past'
+      cards[index] = locked
+        ? { ...existing, ...nextCard, status: existing.status, round: existing.round ?? nextCard.round }
+        : { ...existing, ...nextCard }
     } else {
       cards = [nextCard, ...cards]
     }
@@ -89,16 +104,35 @@ export function mergeUserCards(telegramId: number, incoming: StoredCard[]) {
 }
 
 export function getActiveCardsForRaffle(raffleId: string): StoredCard[] {
+  const round = getRaffleRound(raffleId)
   const store = readStore()
   const cards: StoredCard[] = []
   for (const entry of Object.values(store)) {
     for (const card of entry.cards) {
-      if (card.raffleId === raffleId && card.status === 'active' && typeof card.telegramId === 'number') {
-        cards.push(card)
-      }
+      if (card.raffleId !== raffleId || card.status !== 'active' || typeof card.telegramId !== 'number') continue
+      if ((card.round ?? 1) !== round) continue
+      cards.push(card)
     }
   }
   return cards
+}
+
+export function archiveRaffleCards(raffleId: string) {
+  const store = readStore()
+  let changed = false
+  for (const key of Object.keys(store)) {
+    const entry = store[key]
+    let dirty = false
+    const cards = entry.cards.map((card) => {
+      if (card.raffleId !== raffleId || card.status === 'past') return card
+      dirty = true
+      return { ...card, status: 'past' }
+    })
+    if (!dirty) continue
+    store[key] = { ...entry, cards, updatedAt: Date.now() }
+    changed = true
+  }
+  if (changed) writeStore(store)
 }
 
 export function listAllCards(): StoredCard[] {
@@ -113,11 +147,15 @@ export function listAllCards(): StoredCard[] {
 export function findCardById(cardId: string): StoredCard | null {
   const id = cardId.trim()
   if (!id) return null
+  const matches: StoredCard[] = []
   for (const entry of Object.values(readStore())) {
-    const card = entry.cards.find((item) => item.id === id || item.payCode === id)
-    if (card) return card
+    for (const card of entry.cards) {
+      if (card.id === id || card.payCode === id) matches.push(card)
+    }
   }
-  return null
+  if (!matches.length) return null
+  const current = matches.find((card) => card.status !== 'past')
+  return current ?? matches.sort((a, b) => b.purchasedAt - a.purchasedAt)[0]
 }
 
 export function setCardStatusById(cardId: string, status: string): StoredCard | null {
@@ -127,6 +165,7 @@ export function setCardStatusById(cardId: string, status: string): StoredCard | 
     const entry = store[key]
     const index = entry.cards.findIndex((item) => item.id === id || item.payCode === id)
     if (index < 0) continue
+    if (entry.cards[index].status === 'past') return entry.cards[index]
     entry.cards[index] = { ...entry.cards[index], status }
     store[key] = { ...entry, updatedAt: Date.now() }
     writeStore(store)

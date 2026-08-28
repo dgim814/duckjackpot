@@ -71,7 +71,9 @@ export function MyCardsPage() {
                                   ? 'bg-orange-400/15 text-orange-300'
                                   : card.status === 'rejected'
                                     ? 'bg-zinc-700 text-zinc-400'
-                                    : 'bg-amber-400/15 text-amber-300'
+                                    : card.status === 'past'
+                                      ? 'bg-zinc-800 text-zinc-400'
+                                      : 'bg-amber-400/15 text-amber-300'
                               }`}
                             >
                               {t(
@@ -79,7 +81,9 @@ export function MyCardsPage() {
                                   ? 'cardStatusPending'
                                   : card.status === 'rejected'
                                     ? 'cardStatusRejected'
-                                    : 'cardStatusActive',
+                                    : card.status === 'past'
+                                      ? 'cardStatusPast'
+                                      : 'cardStatusActive',
                               )}
                             </dd>
                           </div>

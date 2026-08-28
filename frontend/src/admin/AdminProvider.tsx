@@ -70,7 +70,7 @@ type AdminContextValue = AdminState & {
   setStatus: (id: RaffleId, status: RaffleStatus) => void
   setSoldBase: (id: RaffleId, sold: number) => Promise<void>
   incrementSold: (id: RaffleId) => void
-  resetRaffle: (id: RaffleId) => void
+  resetRaffle: (id: RaffleId) => Promise<void>
   setCardImage: (id: RaffleId, dataUrl: string | null) => void
   uploadCardImage: (id: RaffleId, file: File) => Promise<void>
   resetCardImage: (id: RaffleId) => Promise<void>
@@ -386,16 +386,13 @@ export function AdminProvider({ children }: { children: ReactNode }) {
             raffles: { ...prev.raffles, [id]: { ...prev.raffles[id], soldBase } },
           }
         }),
-      resetRaffle: (id) => {
-        void api
-          .put(`/admin/raffles/${id}`, { sold: 0, status: 'running' }, { headers: { 'x-admin-password': ADMIN_PASSWORD } })
-          .catch(() => undefined)
+      resetRaffle: async (id) => {
+        const { data } = await api.post<{
+          raffles?: Partial<Record<RaffleId, { status?: string; sold?: number }>>
+        }>(`/admin/raffles/${id}/reset`, {}, { headers: { 'x-admin-password': ADMIN_PASSWORD } })
         patch((prev) => ({
           ...prev,
-          raffles: {
-            ...prev.raffles,
-            [id]: { ...prev.raffles[id], status: 'running', soldBase: 0 },
-          },
+          raffles: applyRaffleSnapshot(prev.raffles, data.raffles ?? { [id]: { sold: 0, status: 'running' } }),
         }))
       },
       setCardImage: (id, dataUrl) =>

@@ -5,7 +5,7 @@ import { fetchMyServerCards, syncCardsToBot } from '../telegram/syncCards'
 import { captureTelegramUser } from '../telegram/user'
 
 export type PayAsset = 'TON' | 'USDT'
-export type CardStatus = 'pending' | 'active' | 'rejected'
+export type CardStatus = 'pending' | 'active' | 'rejected' | 'past'
 
 export type OwnedCard = {
   id: string
@@ -35,7 +35,7 @@ type CardsContextValue = {
   createPendingUsdt: (baseUsdt: number) => OwnedCard
   confirmCardPayment: (id: string, extra?: { txHash?: string }) => OwnedCard
   refreshFromServer: () => Promise<void>
-  clearRaffleCards: (id: RaffleId) => void
+  archiveRaffleCards: (id: RaffleId) => void
 }
 
 const PAY_CODE_TAG: Record<RaffleId, string> = {
@@ -102,7 +102,13 @@ function readCards(): OwnedCard[] {
         paidWith: card.paidWith === 'USDT' ? 'USDT' : 'TON',
         purchasedAt: typeof card.purchasedAt === 'number' ? card.purchasedAt : Date.now(),
         status:
-          card.status === 'pending' ? 'pending' : card.status === 'rejected' ? 'rejected' : 'active',
+          card.status === 'pending'
+            ? 'pending'
+            : card.status === 'rejected'
+              ? 'rejected'
+              : card.status === 'past'
+                ? 'past'
+                : 'active',
         payCode:
           typeof card.payCode === 'string' && card.payCode
             ? card.payCode
@@ -148,7 +154,10 @@ function mergeRemoteCards(local: OwnedCard[], remote: OwnedCard[]): OwnedCard[] 
       serial: card.serial,
       paidWith: card.paidWith === 'TON' ? 'TON' : 'USDT',
       purchasedAt: typeof card.purchasedAt === 'number' ? card.purchasedAt : prev?.purchasedAt ?? Date.now(),
-      status: card.status === 'pending' || card.status === 'rejected' || card.status === 'active' ? card.status : prev?.status ?? 'pending',
+      status:
+        card.status === 'pending' || card.status === 'rejected' || card.status === 'active' || card.status === 'past'
+          ? card.status
+          : prev?.status ?? 'pending',
       payCode: card.payCode || prev?.payCode || formatPayCode(raffleId, card.serial),
       usdtExact: typeof card.usdtExact === 'number' ? card.usdtExact : prev?.usdtExact,
       txHash: card.txHash ?? prev?.txHash,
@@ -172,7 +181,7 @@ function withBuyer(card: OwnedCard): OwnedCard {
 function allocateSerial(existing: OwnedCard[], raffleId: RaffleId) {
   const total = RAFFLES[raffleId].total
   const used = new Set(
-    existing.filter((card) => card.raffleId === raffleId).map((card) => card.serial),
+    existing.filter((card) => card.raffleId === raffleId && card.status !== 'past').map((card) => card.serial),
   )
   const bytes = new Uint32Array(1)
   for (let i = 0; i < total * 2; i += 1) {
@@ -281,7 +290,7 @@ export function CardsProvider({ children }: { children: ReactNode }) {
       confirmCardPayment: (id, extra) => {
         const current = cards.find((card) => card.id === id)
         if (!current) throw new Error('not_found')
-        if (current.status === 'active') {
+        if (current.status === 'active' || current.status === 'past') {
           return current
         }
         const updated = withBuyer({
@@ -309,8 +318,10 @@ export function CardsProvider({ children }: { children: ReactNode }) {
           /* backend unavailable */
         }
       },
-      clearRaffleCards: (id) => {
-        const next = cards.filter((card) => card.raffleId !== id)
+      archiveRaffleCards: (id) => {
+        const next = cards.map((card) =>
+          card.raffleId === id && card.status !== 'past' ? { ...card, status: 'past' as const } : card,
+        )
         setCards(next)
         persist(next)
       },

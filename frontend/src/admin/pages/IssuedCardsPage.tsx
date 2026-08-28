@@ -110,7 +110,9 @@ export function IssuedCardsPage() {
                             ? 'bg-orange-400/15 text-orange-300'
                             : card.status === 'rejected'
                               ? 'bg-zinc-700 text-zinc-400'
-                              : 'bg-emerald-400/15 text-emerald-300'
+                              : card.status === 'past'
+                                ? 'bg-zinc-800 text-zinc-400'
+                                : 'bg-emerald-400/15 text-emerald-300'
                         }`}
                       >
                         {t(
@@ -118,7 +120,9 @@ export function IssuedCardsPage() {
                             ? 'adminPayStatusPending'
                             : card.status === 'rejected'
                               ? 'adminPayStatusRejected'
-                              : 'adminPayStatusConfirmed',
+                              : card.status === 'past'
+                                ? 'cardStatusPast'
+                                : 'adminPayStatusConfirmed',
                         )}
                       </span>
                     </td>
