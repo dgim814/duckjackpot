@@ -133,12 +133,19 @@ app.get('/api/health', (_req, res) => {
 })
 
 app.post('/api/support-bot/webhook', (req, res) => {
+  console.log('[support-bot] webhook route', {
+    update_id: req.body?.update_id,
+    fromId: req.body?.message?.from?.id,
+    text: req.body?.message?.text ?? req.body?.message?.caption ?? null,
+  })
   if (!isSupportWebhookAuthorized(req.get('X-Telegram-Bot-Api-Secret-Token') ?? undefined)) {
+    console.error('[support-bot] webhook unauthorized')
     res.status(401).json({ error: 'unauthorized' })
     return
   }
   const body = req.body as { update_id?: number; message?: SupportTelegramUpdate['message'] }
   if (body.update_id == null) {
+    console.error('[support-bot] webhook missing update_id')
     res.status(400).json({ error: 'bad_update' })
     return
   }
@@ -147,6 +154,8 @@ app.post('/api/support-bot/webhook', (req, res) => {
     message: body.message,
   }
   void handleSupportUpdate(update)
+    .then(() => console.log('[support-bot] handler done', update.update_id))
+    .catch((err) => console.error('[support-bot] handler error', err))
   res.json({ ok: true })
 })
 

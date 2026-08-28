@@ -71,9 +71,7 @@ export function supportBotToken() {
 }
 
 export function adminTelegramId() {
-  const raw = (process.env.ADMIN_TELEGRAM_ID ?? '').trim()
-  const id = Number(raw)
-  return Number.isInteger(id) && id > 0 ? id : 0
+  return Number(process.env.ADMIN_TELEGRAM_ID)
 }
 
 export function supportBotWebhookUrl() {

@@ -1,5 +1,4 @@
 import {
-  adminTelegramId,
   supportBotToken,
   supportBotWebhookSecret,
   supportBotWebhookUrl,
@@ -29,9 +28,6 @@ export type SupportTelegramUpdate = {
 
 type ApiResult<T> = { ok: true; result: T } | { ok: false; description?: string }
 
-const USER_ACK =
-  'Сообщение принято. Напишите код платежа DJ-… и номер карточки. Ответим здесь.'
-
 let stopPolling: (() => void) | null = null
 let pollLoop: Promise<void> | null = null
 
@@ -59,13 +55,6 @@ async function sendText(token: string, chatId: number, text: string) {
   })
 }
 
-function userLabel(user?: TelegramUser) {
-  const username = user?.username ? `@${user.username}` : 'без username'
-  const name = user?.first_name?.trim() || '—'
-  const id = user?.id ?? 0
-  return { username, name, id }
-}
-
 function messageBody(message: TelegramMessage) {
   return (message.text ?? message.caption ?? '').trim()
 }
@@ -75,7 +64,11 @@ async function handleAdminReply(token: string, message: TelegramMessage) {
   if (!replyId) return
   const ticket = getSupportTicket(replyId)
   if (!ticket) {
-    await sendText(token, message.chat.id, 'Не найден пользователь для этого ответа. Ответьте reply на пересланное обращение.')
+    await sendText(
+      token,
+      message.chat.id,
+      'Не найден пользователь для этого ответа. Ответьте reply на пересланное обращение.',
+    )
     return
   }
   const text = messageBody(message)
@@ -90,49 +83,75 @@ async function handleAdminReply(token: string, message: TelegramMessage) {
   })
 }
 
-async function handleUserMessage(token: string, message: TelegramMessage) {
-  const adminId = adminTelegramId()
-  await sendText(token, message.chat.id, USER_ACK)
-
-  const command = (message.text ?? '').trim().split(/\s+/)[0]?.split('@')[0]
-  if (command === '/start') return
-
-  if (!adminId) {
-    console.error('[support-bot] ADMIN_TELEGRAM_ID is not set')
+async function notifyAdminOnline(token: string) {
+  const adminId = Number(process.env.ADMIN_TELEGRAM_ID)
+  console.log('[support-bot] ADMIN_TELEGRAM_ID', adminId)
+  if (!Number.isFinite(adminId) || adminId === 0) {
+    console.error('[support-bot] ADMIN_TELEGRAM_ID is missing or invalid')
     return
   }
-
-  const { username, name, id } = userLabel(message.from)
-  const body = messageBody(message) || '(сообщение без текста)'
-  const forwarded = await sendText(
-    token,
-    adminId,
-    `Обращение в поддержку\n\nОт: ${username}\nИмя: ${name}\nTelegram ID: ${id}\n\n${body}`,
-  )
-  rememberSupportTicket(forwarded.message_id, {
-    userId: id,
-    chatId: message.chat.id,
-    username: message.from?.username,
-    at: Date.now(),
-  })
+  try {
+    await sendText(token, adminId, 'Support bot online')
+    console.log('[support-bot] sent online ping to admin', adminId)
+  } catch (err) {
+    console.error('[support-bot] online ping failed — admin must /start the support bot first', err)
+  }
 }
 
 export async function handleSupportUpdate(update: SupportTelegramUpdate) {
-  if (update.update_id == null) return
   const token = supportBotToken()
   const message = update.message
-  if (!token || !message?.from || message.from.is_bot) return
+  const adminId = Number(process.env.ADMIN_TELEGRAM_ID)
+  console.log('[support-bot] incoming', {
+    update_id: update.update_id,
+    hasToken: Boolean(token),
+    adminId,
+    chatId: message?.chat?.id,
+    fromId: message?.from?.id,
+    username: message?.from?.username ?? null,
+    text: message?.text ?? message?.caption ?? null,
+  })
+  if (update.update_id == null) return
+  if (!token) {
+    console.error('[support-bot] SUPPORT_BOT_TOKEN is empty')
+    return
+  }
+  if (!message) {
+    console.log('[support-bot] update without message, skip')
+    return
+  }
+  if (message.from?.is_bot) {
+    console.log('[support-bot] skip bot sender')
+    return
+  }
 
-  const adminId = adminTelegramId()
-  const fromAdmin = adminId > 0 && message.from.id === adminId
   try {
-    if (fromAdmin) {
+    if (message.from?.id === adminId && message.reply_to_message) {
       await handleAdminReply(token, message)
       return
     }
-    await handleUserMessage(token, message)
+
+    const username = message.from?.username ? `@${message.from.username}` : '@unknown'
+    const userId = message.from?.id ?? message.chat.id
+    const text = messageBody(message) || '(без текста)'
+    const adminText = `Поддержка: ${username} / ${userId} / ${text}`
+
+    if (!Number.isFinite(adminId) || adminId === 0) {
+      console.error('[support-bot] cannot notify admin, ADMIN_TELEGRAM_ID=', process.env.ADMIN_TELEGRAM_ID)
+    } else {
+      const forwarded = await sendText(token, adminId, adminText)
+      console.log('[support-bot] forwarded to admin', adminId, 'msg', forwarded.message_id)
+      rememberSupportTicket(forwarded.message_id, {
+        userId,
+        chatId: message.chat.id,
+        username: message.from?.username,
+        at: Date.now(),
+      })
+    }
+
+    await sendText(token, message.chat.id, 'Сообщение принято')
   } catch (err) {
-    console.error('[support-bot message]', err)
+    console.error('[support-bot] handle failed', err)
   }
 }
 
@@ -158,9 +177,7 @@ export async function startSupportBot() {
     console.log('Support bot: no SUPPORT_BOT_TOKEN — skipping')
     return
   }
-  if (!adminTelegramId()) {
-    console.log('Support bot: ADMIN_TELEGRAM_ID is not set — user messages will not be forwarded')
-  }
+  console.log('[support-bot] ADMIN_TELEGRAM_ID', Number(process.env.ADMIN_TELEGRAM_ID))
 
   const webhookUrl = supportBotWebhookUrl()
   if (webhookUrl) {
@@ -173,6 +190,7 @@ export async function startSupportBot() {
         ...(secret ? { secret_token: secret } : {}),
       })
       console.log(`Support bot webhook ${webhookUrl}`)
+      await notifyAdminOnline(token)
       return
     } catch (err) {
       console.error('[support-bot webhook]', err)
@@ -196,6 +214,7 @@ export async function startSupportBot() {
 
   pollLoop = (async () => {
     console.log('Support bot polling started')
+    await notifyAdminOnline(token)
     while (running) {
       try {
         const updates = await telegramApi<SupportTelegramUpdate[]>(
