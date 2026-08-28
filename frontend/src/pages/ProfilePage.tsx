@@ -3,6 +3,7 @@ import { TonConnectButton } from '@tonconnect/ui-react'
 import WebApp from '@twa-dev/sdk'
 import { User } from 'lucide-react'
 import { ScreenHeader } from '../components/ScreenHeader'
+import { SupportBlock } from '../components/SupportBlock'
 import { useAgreement } from '../i18n/AgreementProvider'
 import { useI18n } from '../i18n/LanguageProvider'
 
@@ -41,6 +42,10 @@ export function ProfilePage() {
         <div className="flex justify-center">
           <TonConnectButton />
         </div>
+      </div>
+
+      <div className="mt-4">
+        <SupportBlock />
       </div>
 
       <div className="mt-4 rounded-2xl border border-white/8 bg-[#141218] p-2">

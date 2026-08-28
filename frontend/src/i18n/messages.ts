@@ -161,6 +161,8 @@ const ru = {
   profileAgreementAccepted: 'Оферта принята',
   profileResetAgreement: 'Сбросить принятие оферты (для теста)',
   profileAdmin: 'Admin',
+  support: 'Поддержка',
+  supportHint: 'Напишите код платежа (DJ-…) и номер карточки',
 
   adminTitle: 'Кабинет администратора',
   adminLoginTitle: 'Вход в админку',
@@ -439,6 +441,8 @@ const en: Record<keyof typeof ru, string> = {
   profileAgreementAccepted: 'Offer accepted',
   profileResetAgreement: 'Reset offer acceptance (testing)',
   profileAdmin: 'Admin',
+  support: 'Support',
+  supportHint: 'Send your payment code (DJ-…) and card number',
 
   adminTitle: 'Admin panel',
   adminLoginTitle: 'Admin sign-in',

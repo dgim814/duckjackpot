@@ -83,6 +83,7 @@ export const TEST_PAY = {
 export const USDT_RUB_DEFAULT = 95
 export const CARD_ART = '/duck-jackpot.jpg'
 export const ADMIN_PASSWORD = 'duckadmin2026'
+export const SUPPORT_BOT_URL = 'https://t.me/DuckJackpotSupportBot'
 
 /** Fallback only when nothing is saved on the backend. Do not write these into admin fields. */
 export const DEFAULT_USDT_TRC20 = 'TQVrB6XACMwhAJXh1eJUVw5cEgEL3ZfML'

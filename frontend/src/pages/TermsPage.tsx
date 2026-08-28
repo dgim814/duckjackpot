@@ -1,6 +1,7 @@
 import { ChevronRight } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { ScreenHeader } from '../components/ScreenHeader'
+import { SupportBlock } from '../components/SupportBlock'
 import { UsdtRateNote } from '../components/UsdtRateNote'
 import { useI18n } from '../i18n/LanguageProvider'
 
@@ -17,6 +18,10 @@ export function TermsPage() {
   return (
     <section className="px-4 pb-6">
       <ScreenHeader title={t('legalHubTitle')} subtitle={t('legalHubLead')} />
+
+      <div className="mt-5">
+        <SupportBlock />
+      </div>
 
       <ul className="mt-5 space-y-2">
         {LINKS.map((item) => (
