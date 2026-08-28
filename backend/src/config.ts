@@ -65,3 +65,25 @@ export function maskToken(token: string) {
   if (token.length < 12) return '••••'
   return `${token.slice(0, 6)}…${token.slice(-4)}`
 }
+
+export function supportBotToken() {
+  return (process.env.SUPPORT_BOT_TOKEN ?? '').trim()
+}
+
+export function adminTelegramId() {
+  const raw = (process.env.ADMIN_TELEGRAM_ID ?? '').trim()
+  const id = Number(raw)
+  return Number.isInteger(id) && id > 0 ? id : 0
+}
+
+export function supportBotWebhookUrl() {
+  const explicit = (process.env.SUPPORT_BOT_WEBHOOK_URL ?? '').trim()
+  if (explicit) return explicit.replace(/\/$/, '')
+  const domain = (process.env.RAILWAY_PUBLIC_DOMAIN ?? '').trim()
+  if (domain) return `https://${domain.replace(/^https?:\/\//, '')}/api/support-bot/webhook`
+  return ''
+}
+
+export function supportBotWebhookSecret() {
+  return (process.env.SUPPORT_BOT_WEBHOOK_SECRET ?? '').trim()
+}
