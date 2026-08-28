@@ -1,7 +1,7 @@
 import cors from 'cors'
 import dotenv from 'dotenv'
 import express from 'express'
-import { botIdentity, notifyTelegramUser, startBot } from './bot.js'
+import { botIdentity, notifyPaymentClaimed, notifyPaymentConfirmed, notifyPaymentRejected, startBot } from './bot.js'
 import { findCardById, getUserCards, listAllCards, mergeUserCards, setCardStatusById, setUserCardStatus, upsertUserCard, type StoredCard } from './cardStore.js'
 import { adminPassword, DATA_DIR, getTelegramSettings, maskToken, saveTelegramSettings } from './config.js'
 import { deleteNftFile, getNftFile, isNftRaffleId, listNftMeta, saveNftFile } from './nftStore.js'
@@ -304,6 +304,11 @@ app.post('/api/payments/claim', (req, res) => {
     })
   }
   res.json({ ok: true, payment })
+  if (payment.status === 'pending') {
+    void notifyPaymentClaimed(payment).catch((err) => {
+      console.error('[payments claim notify]', err)
+    })
+  }
 })
 
 app.get('/api/admin/payments', (req, res) => {
@@ -355,18 +360,21 @@ async function confirmPayment(req: express.Request, res: express.Response) {
     setCardStatusById(payment.id, 'active')
     if (payment.telegramId) {
       setUserCardStatus(payment.telegramId, payment.id, 'active')
-      const serial = String(payment.serial).padStart(4, '0')
-      const notifyStatus = await notifyTelegramUser(
-        payment.telegramId,
-        `Оплата подтверждена, карточка №${serial} добавлена.`,
-      )
+    }
+    try {
+      const notifyStatus = await notifyPaymentConfirmed(payment)
+      if (notifyStatus !== 'sent') {
+        console.log('[telegram notify] confirm not delivered', payment.telegramId, notifyStatus)
+      }
       setPaymentNotify(payment.id, notifyStatus)
+    } catch (err) {
+      console.error('[telegram notify] confirm failed', err)
     }
   }
   res.json({ ok: true, changed, payment: getPayment(payment.id) ?? payment })
 }
 
-function rejectPayment(req: express.Request, res: express.Response) {
+async function rejectPayment(req: express.Request, res: express.Response) {
   if (!requireAdmin(req, res)) return
   const before = resolvePayment(req.params.id)
   if (!before) {
@@ -380,6 +388,15 @@ function rejectPayment(req: express.Request, res: express.Response) {
     if (payment.telegramId) {
       setUserCardStatus(payment.telegramId, payment.id, 'rejected')
     }
+    try {
+      const notifyStatus = await notifyPaymentRejected(payment)
+      if (notifyStatus !== 'sent') {
+        console.log('[telegram notify] reject not delivered', payment.telegramId, notifyStatus)
+      }
+      setPaymentNotify(payment.id, notifyStatus)
+    } catch (err) {
+      console.error('[telegram notify] reject failed', err)
+    }
   }
   res.json({ ok: true, changed, payment: getPayment(payment.id) ?? payment })
 }
@@ -387,7 +404,9 @@ function rejectPayment(req: express.Request, res: express.Response) {
 app.post('/api/admin/payments/:id/confirm', (req, res) => {
   void confirmPayment(req, res)
 })
-app.post('/api/admin/payments/:id/reject', rejectPayment)
+app.post('/api/admin/payments/:id/reject', (req, res) => {
+  void rejectPayment(req, res)
+})
 
 app.post('/api/admin/raffles/:raffleId/draw', async (req, res) => {
   if (!requireAdmin(req, res)) return

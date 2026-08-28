@@ -211,20 +211,114 @@ export async function notifyTelegramUser(
   text: string,
 ): Promise<'sent' | 'no_chat' | 'failed'> {
   const { token } = getTelegramSettings()
-  if (!token) return 'failed'
-  const chat = getChat(telegramId)
-  if (!chat) return 'no_chat'
+  if (!token) {
+    console.log('[telegram notify] no TELEGRAM_BOT_TOKEN, skip user', telegramId)
+    return 'failed'
+  }
+  const chatId = getChat(telegramId)?.chatId ?? telegramId
   try {
-    await sendMessage(token, chat.chatId, text)
+    await sendMessage(token, chatId, text)
     return 'sent'
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     if (/forbidden|chat not found|blocked|can't initiate|deactivated/i.test(message)) {
+      console.log('[telegram notify] cannot message user', telegramId, message)
       return 'no_chat'
     }
     console.error('[telegram notify]', err)
     return 'failed'
   }
+}
+
+export async function notifyTelegramAdmin(text: string): Promise<'sent' | 'failed'> {
+  const { token } = getTelegramSettings()
+  const adminId = Number(process.env.ADMIN_TELEGRAM_ID)
+  if (!token) {
+    console.error('[telegram admin] no TELEGRAM_BOT_TOKEN')
+    return 'failed'
+  }
+  if (!Number.isFinite(adminId) || adminId === 0) {
+    console.error('[telegram admin] invalid ADMIN_TELEGRAM_ID', process.env.ADMIN_TELEGRAM_ID)
+    return 'failed'
+  }
+  try {
+    await telegramApi(token, 'sendMessage', { chat_id: adminId, text })
+    return 'sent'
+  } catch (err) {
+    console.error('[telegram admin] send failed', err)
+    return 'failed'
+  }
+}
+
+function raffleLabel(raffleId: string) {
+  return RAFFLE_LABEL[raffleId] ?? raffleId
+}
+
+function cardNumber(serial: number) {
+  return `#${String(serial).padStart(4, '0')}`
+}
+
+export type PaymentNotifyInput = {
+  payCode?: string
+  usdtExact?: number
+  raffleId: string
+  serial: number
+  telegramId?: number
+  telegramUsername?: string
+}
+
+export async function notifyPaymentClaimed(payment: PaymentNotifyInput) {
+  const code = payment.payCode?.trim() || 'DJ-…'
+  const amount = typeof payment.usdtExact === 'number' ? String(payment.usdtExact) : '—'
+  const username = payment.telegramUsername ? `@${payment.telegramUsername}` : '@unknown'
+  const telegramId = payment.telegramId ?? '—'
+  const card = cardNumber(payment.serial)
+  try {
+    await notifyTelegramAdmin(
+      [
+        'Новая заявка',
+        `Код: ${code}`,
+        `Сумма: ${amount} USDT`,
+        `Коллекция: ${raffleLabel(payment.raffleId)}`,
+        `Карточка: ${card}`,
+        `Telegram: ${username} / ${telegramId}`,
+      ].join('\n'),
+    )
+  } catch (err) {
+    console.error('[telegram notify] admin claim failed', err)
+  }
+  if (typeof payment.telegramId !== 'number') return
+  rememberChat({
+    telegramId: payment.telegramId,
+    chatId: getChat(payment.telegramId)?.chatId ?? payment.telegramId,
+    username: payment.telegramUsername,
+  })
+  const status = await notifyTelegramUser(
+    payment.telegramId,
+    `Заявка ${code} принята. Когда админ подтвердит перевод, карточка появится в «Мои карточки».`,
+  )
+  if (status !== 'sent') {
+    console.log('[telegram notify] user claim not delivered', payment.telegramId, status)
+  }
+}
+
+export async function notifyPaymentConfirmed(payment: PaymentNotifyInput) {
+  if (typeof payment.telegramId !== 'number') {
+    console.log('[telegram notify] confirm: no telegramId')
+    return 'no_chat' as const
+  }
+  const code = payment.payCode?.trim() || 'DJ-…'
+  const card = cardNumber(payment.serial)
+  return notifyTelegramUser(payment.telegramId, `Оплата ${code} подтверждена. Карточка ${card} выдана.`)
+}
+
+export async function notifyPaymentRejected(payment: PaymentNotifyInput) {
+  if (typeof payment.telegramId !== 'number') {
+    console.log('[telegram notify] reject: no telegramId')
+    return 'no_chat' as const
+  }
+  const code = payment.payCode?.trim() || 'DJ-…'
+  return notifyTelegramUser(payment.telegramId, `Заявка ${code} отклонена. Напишите в Поддержку.`)
 }
 
 export async function botIdentity() {
