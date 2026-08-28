@@ -27,6 +27,13 @@ export type SupportTelegramUpdate = {
   message?: TelegramMessage
 }
 
+export function asSupportUpdate(raw: unknown): SupportTelegramUpdate | null {
+  if (!raw || typeof raw !== 'object') return null
+  const record = raw as { update_id?: unknown; message?: TelegramMessage }
+  if (typeof record.update_id !== 'number') return null
+  return { update_id: record.update_id, message: record.message }
+}
+
 type ApiResult<T> = { ok: true; result: T } | { ok: false; description?: string }
 
 const USER_ACK =

@@ -5,7 +5,7 @@ import { botIdentity, notifyTelegramUser, startBot } from './bot.js'
 import { findCardById, getUserCards, listAllCards, mergeUserCards, setCardStatusById, setUserCardStatus, upsertUserCard, type StoredCard } from './cardStore.js'
 import { adminPassword, DATA_DIR, getTelegramSettings, maskToken, saveTelegramSettings } from './config.js'
 import { deleteNftFile, getNftFile, isNftRaffleId, listNftMeta, saveNftFile } from './nftStore.js'
-import { handleSupportUpdate, isSupportWebhookAuthorized, startSupportBot } from './supportBot.js'
+import { asSupportUpdate, handleSupportUpdate, isSupportWebhookAuthorized, startSupportBot } from './supportBot.js'
 import { getPayWallets, isTonPayAddress, isTronPayAddress, loadWalletsFromDisk, savePayWallets, walletsFilePath } from './walletsStore.js'
 import { drawRaffle } from './draw.js'
 import { getPayment, listPayments, setPaymentNotify, setPaymentStatus, upsertClaim } from './paymentStore.js'
@@ -137,8 +137,8 @@ app.post('/api/support-bot/webhook', (req, res) => {
     res.status(401).json({ error: 'unauthorized' })
     return
   }
-  const update = req.body as { update_id?: number; message?: unknown }
-  if (typeof update?.update_id !== 'number') {
+  const update = asSupportUpdate(req.body)
+  if (!update) {
     res.status(400).json({ error: 'bad_update' })
     return
   }
