@@ -1,6 +1,9 @@
-import { useAdmin, type NotifyStatus } from '../AdminProvider'
+import { useEffect } from 'react'
+import { useAdmin } from '../AdminProvider'
+import { AdminDrawCard, useAdminDraws } from '../AdminDrawCard'
 import { useI18n } from '../../i18n/LanguageProvider'
 import { RAFFLE_TITLE_KEY } from '../../i18n/raffleLabels'
+import type { NotifyStatus } from '../AdminProvider'
 import type { MessageKey } from '../../i18n/messages'
 
 const NOTIFY_KEY: Record<NotifyStatus, MessageKey> = {
@@ -13,11 +16,36 @@ const NOTIFY_KEY: Record<NotifyStatus, MessageKey> = {
 export function PayoutsPage() {
   const { t } = useI18n()
   const { winners, markPaid, updateWinnerNote } = useAdmin()
+  const { draws, error, setDraws } = useAdminDraws()
+
+  useEffect(() => {
+    for (const draw of draws) {
+      if (!draw.hidden) continue
+      for (const winner of winners) {
+        const row = draw.winners.find(
+          (item) =>
+            item.telegramId === winner.telegramId &&
+            item.place === winner.place &&
+            (draw.kind === 'bonus' || winner.raffleId === draw.raffleId),
+        )
+        if (row && !row.paid && winner.paid) markPaid(winner.id, false)
+      }
+    }
+  }, [draws, winners, markPaid])
+
+  const listed = new Set(
+    draws.flatMap((draw) => draw.winners.map((winner) => `${winner.telegramId}:${winner.place}:${draw.raffleId ?? 'bonus'}`)),
+  )
+  const extra = winners.filter((winner) => !listed.has(`${winner.telegramId}:${winner.place}:${winner.raffleId}`))
 
   return (
     <div className="space-y-3">
       <p className="text-sm text-zinc-400">{t('adminPayoutsHint')}</p>
-      {winners.map((winner) => (
+      {error ? <p className="text-sm text-orange-400">{error}</p> : null}
+      {draws.map((draw) => (
+        <AdminDrawCard key={draw.id} draw={draw} showPaid onChanged={setDraws} />
+      ))}
+      {extra.map((winner) => (
         <section key={winner.id} className="rounded-2xl border border-white/10 bg-zinc-900/80 p-4">
           <div className="flex items-start justify-between gap-2">
             <div>
@@ -67,11 +95,7 @@ export function PayoutsPage() {
             placeholder={t('adminTxPlaceholder')}
             className="mt-1 w-full rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm text-zinc-100"
           />
-          <button
-            type="button"
-            className="admin-btn mt-3"
-            onClick={() => markPaid(winner.id, !winner.paid)}
-          >
+          <button type="button" className="admin-btn mt-3" onClick={() => markPaid(winner.id, !winner.paid)}>
             {winner.paid ? t('adminMarkUnpaid') : t('adminMarkPaid')}
           </button>
         </section>

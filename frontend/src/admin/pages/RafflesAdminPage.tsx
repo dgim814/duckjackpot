@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { isAxiosError } from 'axios'
 import { useAdmin } from '../AdminProvider'
+import { AdminDrawCard, useAdminDraws } from '../AdminDrawCard'
 import { useCards } from '../../cards/CardsProvider'
 import { formatApiError } from '../../api/client'
 import { RAFFLE_ORDER, RAFFLES, type RaffleId } from '../../constants'
@@ -11,6 +12,7 @@ export function RafflesAdminPage() {
   const { t } = useI18n()
   const admin = useAdmin()
   const { archiveRaffleCards } = useCards()
+  const { draws, setDraws, load: loadDraws } = useAdminDraws()
   const [draft, setDraft] = useState<Record<string, string>>({})
   const [saveError, setSaveError] = useState<Record<string, string>>({})
   const [saveOk, setSaveOk] = useState<Record<string, boolean>>({})
@@ -59,7 +61,7 @@ export function RafflesAdminPage() {
               <button type="button" className="admin-btn" onClick={() => admin.setStatus(id, 'stopped')}>
                 {t('adminStop')}
               </button>
-              <DrawButton raffleId={id} enabled={canDraw} sold={sold} total={raffle.total} />
+              <DrawButton raffleId={id} enabled={canDraw} sold={sold} total={raffle.total} onDrawn={() => void loadDraws()} />
               <button
                 type="button"
                 className="admin-btn admin-btn-danger"
@@ -122,6 +124,18 @@ export function RafflesAdminPage() {
             </div>
             {saveOk[id] ? <p className="mt-1 text-[11px] text-emerald-300">{t('adminSoldSaved')}</p> : null}
             {saveError[id] ? <p className="mt-1 text-[11px] text-orange-400">{saveError[id]}</p> : null}
+            {(() => {
+              const records = draws.filter((draw) => draw.kind === 'collection' && draw.raffleId === id)
+              if (!records.length) return null
+              return (
+                <div className="mt-4 space-y-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">{t('adminDrawRecords')}</p>
+                  {records.map((draw) => (
+                    <AdminDrawCard key={draw.id} draw={draw} onChanged={setDraws} />
+                  ))}
+                </div>
+              )
+            })()}
           </section>
         )
       })}
@@ -134,11 +148,13 @@ function DrawButton({
   enabled,
   sold,
   total,
+  onDrawn,
 }: {
   raffleId: RaffleId
   enabled: boolean
   sold: number
   total: number
+  onDrawn?: () => void
 }) {
   const { t } = useI18n()
   const { drawRaffle } = useAdmin()
@@ -160,6 +176,7 @@ function DrawButton({
           void drawRaffle(raffleId)
             .then((result) => {
               if (!result.winners.length) setError(t('adminDrawNoCards'))
+              onDrawn?.()
             })
             .catch((err: unknown) => {
               const code = isAxiosError(err) ? String(err.response?.data?.error ?? '') : ''

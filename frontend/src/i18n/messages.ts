@@ -235,6 +235,10 @@ const ru = {
   adminPaymentsLoadError: 'Не удалось загрузить платежи. Проверьте backend.',
   adminPaymentsActError: 'Не удалось обновить заявку.',
   adminPayoutsHint: 'После итогов розыгрыша бот пишет победителям. Если человек не писал боту, уведомление пропускается.',
+  adminHideFromHistory: 'Скрыть из истории',
+  adminHideFromHistoryConfirm: 'Скрыть этот розыгрыш из вкладки История? Карточки и платежи не удаляются.',
+  adminHiddenTest: 'скрыт / тест',
+  adminDrawRecords: 'Проведённые розыгрыши',
   adminDraw: 'Запустить розыгрыш',
   adminDrawHint:
     'Кнопка активна, когда проданы все карточки коллекции. Берутся только подтверждённые номера, seed — хеш последнего блока TON. Призы выплачиваются вручную.',
@@ -546,6 +550,10 @@ const en: Record<keyof typeof ru, string> = {
   adminPaymentsActError: 'Could not update the request.',
   adminPayoutsHint:
     'After results are confirmed the bot messages winners. If they never wrote to the bot, the notice is skipped.',
+  adminHideFromHistory: 'Hide from history',
+  adminHideFromHistoryConfirm: 'Hide this draw from the History tab? Cards and payments are not deleted.',
+  adminHiddenTest: 'hidden / test',
+  adminDrawRecords: 'Completed draws',
   adminDraw: 'Start raffle',
   adminDrawHint:
     'Enabled when every card in the collection is sold. Only confirmed numbers are used. Seed is the latest TON block hash. Prizes are paid manually.',

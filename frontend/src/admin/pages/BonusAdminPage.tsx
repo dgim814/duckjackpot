@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api, formatApiError } from '../../api/client'
 import { adminHeaders } from '../adminApi'
+import { AdminDrawCard, useAdminDraws } from '../AdminDrawCard'
 import { useI18n } from '../../i18n/LanguageProvider'
 
 type BonusUser = {
@@ -15,6 +16,7 @@ type PrizeRow = { place: string; amount: string }
 export function BonusAdminPage() {
   const { t, lang } = useI18n()
   const locale = lang === 'ru' ? 'ru-RU' : 'en-US'
+  const { draws, setDraws, load: loadDraws } = useAdminDraws()
   const [users, setUsers] = useState<BonusUser[]>([])
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -50,6 +52,7 @@ export function BonusAdminPage() {
         { headers: adminHeaders },
       )
       load()
+      void loadDraws()
     } catch (err) {
       setError(formatApiError(err))
     } finally {
@@ -95,6 +98,16 @@ export function BonusAdminPage() {
           {busy ? '…' : t('adminBonusDraw')}
         </button>
         {error ? <p className="mt-2 text-xs text-orange-400">{error}</p> : null}
+        {draws.filter((draw) => draw.kind === 'bonus').length ? (
+          <div className="mt-4 space-y-2">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">{t('adminDrawRecords')}</p>
+            {draws
+              .filter((draw) => draw.kind === 'bonus')
+              .map((draw) => (
+                <AdminDrawCard key={draw.id} draw={draw} onChanged={setDraws} />
+              ))}
+          </div>
+        ) : null}
       </section>
       <section className="rounded-2xl border border-white/10 bg-zinc-900/80 p-4">
         <h2 className="font-semibold text-zinc-100">

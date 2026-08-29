@@ -8,7 +8,7 @@ import { deleteNftFile, getNftFile, isNftRaffleId, listNftMeta, saveNftFile } fr
 import { handleSupportUpdate, isSupportWebhookAuthorized, startSupportBot, type SupportTelegramUpdate } from './supportBot.js'
 import { getPayWallets, isTonPayAddress, isTronPayAddress, loadWalletsFromDisk, savePayWallets, walletsFilePath } from './walletsStore.js'
 import { drawBonus, drawRaffle, publicRaffleSnapshot, refreshRafflePhase } from './draw.js'
-import { listDraws } from './drawStore.js'
+import { hideDraw, hideKnownTestDraws, listDraws, listPublicDraws, setDrawWinnerPaid } from './drawStore.js'
 import { addBonusUser, isBonusUser, listBonusUsers, syncBonusUsersFromCards } from './bonusStore.js'
 import { setRafflePhase, setTestSold, startNextRaffleRound } from './raffleStore.js'
 import { RAFFLE_TOTALS } from './prizes.js'
@@ -520,7 +520,38 @@ app.post('/api/admin/raffles/:raffleId/reset', async (req, res) => {
 })
 
 app.get('/api/draws', (_req, res) => {
+  res.json({ draws: listPublicDraws() })
+})
+
+app.get('/api/admin/draws', (req, res) => {
+  if (!requireAdmin(req, res)) return
   res.json({ draws: listDraws() })
+})
+
+app.post('/api/admin/draws/:drawId/hide', (req, res) => {
+  if (!requireAdmin(req, res)) return
+  const draw = hideDraw(String(req.params.drawId ?? ''))
+  if (!draw) {
+    res.status(404).json({ error: 'not_found' })
+    return
+  }
+  res.json({ ok: true, draw, draws: listDraws() })
+})
+
+app.post('/api/admin/draws/:drawId/paid', (req, res) => {
+  if (!requireAdmin(req, res)) return
+  const place = Number(req.body?.place)
+  const paid = req.body?.paid === true
+  if (!Number.isInteger(place) || place < 1) {
+    res.status(400).json({ error: 'invalid_place' })
+    return
+  }
+  const draw = setDrawWinnerPaid(String(req.params.drawId ?? ''), place, paid)
+  if (!draw) {
+    res.status(404).json({ error: 'not_found' })
+    return
+  }
+  res.json({ ok: true, draw, draws: listDraws() })
 })
 
 app.post('/api/me/bonus', (req, res) => {
@@ -576,6 +607,7 @@ app.post('/api/admin/raffles/:raffleId/draw', async (req, res) => {
 
 app.listen(port, '0.0.0.0', () => {
   loadWalletsFromDisk()
+  hideKnownTestDraws()
   console.log(`DuckJackpot API listening on 0.0.0.0:${port}`)
   console.log(`DATA_DIR ${DATA_DIR}`)
   console.log(`WALLETS ${walletsFilePath()}`)
