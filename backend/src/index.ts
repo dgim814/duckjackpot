@@ -12,6 +12,7 @@ import { listDraws } from './drawStore.js'
 import { addBonusUser, isBonusUser, listBonusUsers, syncBonusUsersFromCards } from './bonusStore.js'
 import { setRafflePhase, setTestSold, startNextRaffleRound } from './raffleStore.js'
 import { RAFFLE_TOTALS } from './prizes.js'
+import { isDataWriteError, WRITE_RETRY_MESSAGE } from './dataQueue.js'
 import { getPayment, listPayments, setPaymentNotify, setPaymentStatus, upsertClaim } from './paymentStore.js'
 import { verifyInitData } from './verifyInitData.js'
 
@@ -94,6 +95,10 @@ function requireAdmin(req: express.Request, res: express.Response) {
     return false
   }
   return true
+}
+
+function replyWriteFailed(res: express.Response) {
+  res.status(503).json({ error: WRITE_RETRY_MESSAGE })
 }
 
 app.get('/api/wallets', (_req, res) => {
@@ -257,21 +262,29 @@ app.post('/api/admin/telegram', async (req, res) => {
   }
 })
 
-app.post('/api/me/cards', (req, res) => {
+app.post('/api/me/cards', async (req, res) => {
   const { telegramId, telegramUsername } = resolveTelegramUser(req.body ?? {})
   if (!telegramId) {
     res.status(401).json({ error: 'invalid_init_data' })
     return
   }
   const incoming = Array.isArray(req.body?.cards) ? (req.body.cards as StoredCard[]) : []
-  const cards = mergeUserCards(
-    telegramId,
-    incoming
-      .map((card) => asStoredCard(card, telegramId))
-      .filter((card): card is StoredCard => Boolean(card))
-      .map((card) => ({ ...card, telegramUsername: card.telegramUsername ?? telegramUsername })),
-  )
-  res.json({ ok: true, count: cards.length, telegramId, cards })
+  try {
+    const cards = await mergeUserCards(
+      telegramId,
+      incoming
+        .map((card) => asStoredCard(card, telegramId))
+        .filter((card): card is StoredCard => Boolean(card))
+        .map((card) => ({ ...card, telegramUsername: card.telegramUsername ?? telegramUsername })),
+    )
+    res.json({ ok: true, count: cards.length, telegramId, cards })
+  } catch (err) {
+    if (isDataWriteError(err)) {
+      replyWriteFailed(res)
+      return
+    }
+    res.status(500).json({ error: WRITE_RETRY_MESSAGE })
+  }
 })
 
 app.post('/api/me/cards/fetch', (req, res) => {
@@ -283,36 +296,41 @@ app.post('/api/me/cards/fetch', (req, res) => {
   res.json({ telegramId, cards: getUserCards(telegramId) })
 })
 
-app.post('/api/payments/claim', (req, res) => {
+app.post('/api/payments/claim', async (req, res) => {
   const { telegramId, telegramUsername } = resolveTelegramUser(req.body ?? {})
   const card = asStoredCard(req.body?.card ?? {}, telegramId)
   if (!card) {
     res.status(400).json({ error: 'invalid_card' })
     return
   }
-  const payment = upsertClaim({
-    id: card.id,
-    payCode: card.payCode,
-    usdtExact: card.usdtExact,
-    raffleId: card.raffleId,
-    serial: card.serial,
-    telegramId,
-    telegramUsername,
-    createdAt: card.purchasedAt,
-    paidWith: card.paidWith || 'USDT',
-  })
-  if (telegramId) {
-    upsertUserCard(telegramId, {
-      ...card,
-      status: payment.status === 'pending' ? 'pending' : card.status,
+  try {
+    const payment = await upsertClaim({
+      id: card.id,
+      payCode: card.payCode,
+      usdtExact: card.usdtExact,
+      raffleId: card.raffleId,
+      serial: card.serial,
+      telegramId,
       telegramUsername,
+      createdAt: card.purchasedAt,
+      paidWith: card.paidWith || 'USDT',
     })
-  }
-  res.json({ ok: true, payment })
-  if (payment.status === 'pending') {
-    void notifyPaymentClaimed(payment).catch((err) => {
-      console.error('[payments claim notify]', err)
-    })
+    if (telegramId) {
+      await upsertUserCard(telegramId, {
+        ...card,
+        status: payment.status === 'pending' ? 'pending' : card.status,
+        telegramUsername,
+      })
+    }
+    res.json({ ok: true, payment })
+    if (payment.status === 'pending') {
+      void notifyPaymentClaimed(payment).catch((err) => {
+        console.error('[payments claim notify]', err)
+      })
+    }
+  } catch (err) {
+    console.error('[payments claim]', { paymentId: card.id, err })
+    replyWriteFailed(res)
   }
 })
 
@@ -342,7 +360,7 @@ function paymentFromCard(card: StoredCard): Parameters<typeof upsertClaim>[0] {
   }
 }
 
-function resolvePayment(rawId: unknown) {
+async function resolvePayment(rawId: unknown) {
   const id = decodeURIComponent(String(rawId ?? '')).trim()
   if (!id) return null
   const existing = getPayment(id)
@@ -354,79 +372,89 @@ function resolvePayment(rawId: unknown) {
 
 async function confirmPayment(req: express.Request, res: express.Response) {
   if (!requireAdmin(req, res)) return
-  const before = resolvePayment(req.params.id)
-  if (!before) {
-    res.status(404).json({ error: 'not_found' })
-    return
-  }
-  const changed = before.status === 'pending'
-  const payment = setPaymentStatus(before.id, 'confirmed') ?? before
-  if (changed) {
-    const stored = findCardById(payment.id)
-    if (stored?.status !== 'past') {
-      setCardStatusById(payment.id, 'active')
-      if (payment.telegramId) {
-        setUserCardStatus(payment.telegramId, payment.id, 'active')
-      }
+  try {
+    const before = await resolvePayment(req.params.id)
+    if (!before) {
+      res.status(404).json({ error: 'not_found' })
+      return
     }
-    try {
-      const notifyStatus = await notifyPaymentConfirmed(payment)
-      if (notifyStatus !== 'sent') {
-        console.log('[telegram notify] confirm not delivered', payment.telegramId, notifyStatus)
-      }
-      setPaymentNotify(payment.id, notifyStatus)
-    } catch (err) {
-      console.error('[telegram notify] confirm failed', err)
-    }
-    try {
-      refreshRafflePhase(payment.raffleId)
-      if (payment.telegramId) {
-        const { added } = addBonusUser(payment.telegramId, payment.telegramUsername)
-        if (added) {
-          const bonusStatus = await notifyTelegramUser(
-            payment.telegramId,
-            'Вы в полугодовом розыгрыше. Не отключайте уведомления.',
-          )
-          if (bonusStatus !== 'sent') {
-            console.log('[telegram notify] bonus enroll skip', payment.telegramId, bonusStatus)
-          }
+    const changed = before.status === 'pending'
+    const payment = (await setPaymentStatus(before.id, 'confirmed')) ?? before
+    if (changed) {
+      const stored = findCardById(payment.id)
+      if (stored?.status !== 'past') {
+        await setCardStatusById(payment.id, 'active')
+        if (payment.telegramId) {
+          await setUserCardStatus(payment.telegramId, payment.id, 'active')
         }
       }
-    } catch (err) {
-      console.error('[bonus enroll]', err)
+      try {
+        const notifyStatus = await notifyPaymentConfirmed(payment)
+        if (notifyStatus !== 'sent') {
+          console.log('[telegram notify] confirm not delivered', payment.telegramId, notifyStatus)
+        }
+        await setPaymentNotify(payment.id, notifyStatus)
+      } catch (err) {
+        console.error('[telegram notify] confirm failed', err)
+      }
+      try {
+        refreshRafflePhase(payment.raffleId)
+        if (payment.telegramId) {
+          const { added } = addBonusUser(payment.telegramId, payment.telegramUsername)
+          if (added) {
+            const bonusStatus = await notifyTelegramUser(
+              payment.telegramId,
+              'Вы в полугодовом розыгрыше. Не отключайте уведомления.',
+            )
+            if (bonusStatus !== 'sent') {
+              console.log('[telegram notify] bonus enroll skip', payment.telegramId, bonusStatus)
+            }
+          }
+        }
+      } catch (err) {
+        console.error('[bonus enroll]', err)
+      }
     }
+    res.json({ ok: true, changed, payment: getPayment(payment.id) ?? payment })
+  } catch (err) {
+    console.error('[payments confirm]', { paymentId: req.params.id, err })
+    replyWriteFailed(res)
   }
-  res.json({ ok: true, changed, payment: getPayment(payment.id) ?? payment })
 }
 
 async function rejectPayment(req: express.Request, res: express.Response) {
   if (!requireAdmin(req, res)) return
-  const before = resolvePayment(req.params.id)
-  if (!before) {
-    res.status(404).json({ error: 'not_found' })
-    return
-  }
-  const changed = before.status === 'pending'
-  const payment = setPaymentStatus(before.id, 'rejected') ?? before
-  if (changed) {
-    const stored = findCardById(payment.id)
-    if (stored?.status !== 'past') {
-      setCardStatusById(payment.id, 'rejected')
-      if (payment.telegramId) {
-        setUserCardStatus(payment.telegramId, payment.id, 'rejected')
+  try {
+    const before = await resolvePayment(req.params.id)
+    if (!before) {
+      res.status(404).json({ error: 'not_found' })
+      return
+    }
+    const changed = before.status === 'pending'
+    const payment = (await setPaymentStatus(before.id, 'rejected')) ?? before
+    if (changed) {
+      const stored = findCardById(payment.id)
+      if (stored?.status !== 'past') {
+        await setCardStatusById(payment.id, 'rejected')
+        if (payment.telegramId) {
+          await setUserCardStatus(payment.telegramId, payment.id, 'rejected')
+        }
+      }
+      try {
+        const notifyStatus = await notifyPaymentRejected(payment)
+        if (notifyStatus !== 'sent') {
+          console.log('[telegram notify] reject not delivered', payment.telegramId, notifyStatus)
+        }
+        await setPaymentNotify(payment.id, notifyStatus)
+      } catch (err) {
+        console.error('[telegram notify] reject failed', err)
       }
     }
-    try {
-      const notifyStatus = await notifyPaymentRejected(payment)
-      if (notifyStatus !== 'sent') {
-        console.log('[telegram notify] reject not delivered', payment.telegramId, notifyStatus)
-      }
-      setPaymentNotify(payment.id, notifyStatus)
-    } catch (err) {
-      console.error('[telegram notify] reject failed', err)
-    }
+    res.json({ ok: true, changed, payment: getPayment(payment.id) ?? payment })
+  } catch (err) {
+    console.error('[payments reject]', { paymentId: req.params.id, err })
+    replyWriteFailed(res)
   }
-  res.json({ ok: true, changed, payment: getPayment(payment.id) ?? payment })
 }
 
 app.post('/api/admin/payments/:id/confirm', (req, res) => {
@@ -469,7 +497,7 @@ app.put('/api/admin/raffles/:raffleId', (req, res) => {
   }
 })
 
-app.post('/api/admin/raffles/:raffleId/reset', (req, res) => {
+app.post('/api/admin/raffles/:raffleId/reset', async (req, res) => {
   if (!requireAdmin(req, res)) return
   const raffleId = String(req.params.raffleId ?? '')
   if (!RAFFLE_TOTALS[raffleId]) {
@@ -477,11 +505,15 @@ app.post('/api/admin/raffles/:raffleId/reset', (req, res) => {
     return
   }
   try {
-    archiveRaffleCards(raffleId)
+    await archiveRaffleCards(raffleId)
     startNextRaffleRound(raffleId)
     refreshRafflePhase(raffleId)
     res.json({ ok: true, raffles: publicRaffleSnapshot() })
   } catch (err) {
+    if (isDataWriteError(err)) {
+      replyWriteFailed(res)
+      return
+    }
     const message = err instanceof Error ? err.message : 'reset_failed'
     res.status(500).json({ error: message })
   }
