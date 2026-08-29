@@ -1,4 +1,5 @@
 import axios, { isAxiosError } from 'axios'
+import { getAdminPassword } from '../admin/adminApi'
 
 const PROD_API = 'https://duckjackpot-production.up.railway.app'
 const DEV_API = 'http://localhost:3001'
@@ -14,6 +15,15 @@ export const API_ORIGIN = apiRoot()
 export const api = axios.create({
   baseURL: `${API_ORIGIN}/api`,
   timeout: 15_000,
+})
+
+api.interceptors.request.use((config) => {
+  const path = String(config.url ?? '')
+  if (path.includes('/admin') && !path.includes('/admin/login')) {
+    config.headers = config.headers ?? {}
+    config.headers['x-admin-password'] = getAdminPassword()
+  }
+  return config
 })
 
 export function formatApiError(err: unknown) {

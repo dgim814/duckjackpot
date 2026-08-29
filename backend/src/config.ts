@@ -57,7 +57,7 @@ export function saveTelegramSettings(patch: Partial<TelegramSettings>) {
 }
 
 export function adminPassword() {
-  return (process.env.ADMIN_PASSWORD ?? 'duckadmin2026').trim()
+  return String(process.env.ADMIN_PASSWORD ?? '').trim()
 }
 
 export function maskToken(token: string) {

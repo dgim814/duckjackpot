@@ -1,6 +1,6 @@
 import { useEffect, useState, type CSSProperties } from 'react'
-import { ADMIN_PASSWORD } from '../constants'
 import { api } from '../api/client'
+import { adminHeaders } from './adminApi'
 import { useI18n } from '../i18n/LanguageProvider'
 
 type TelegramStatus = {
@@ -34,7 +34,7 @@ export function AdminTelegramSettings() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const headers = { 'x-admin-password': ADMIN_PASSWORD }
+  const headers = adminHeaders
 
   const load = async () => {
     try {

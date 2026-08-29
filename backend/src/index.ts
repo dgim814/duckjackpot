@@ -89,8 +89,9 @@ function asStoredCard(raw: Partial<StoredCard>, telegramId?: number): StoredCard
 }
 
 function requireAdmin(req: express.Request, res: express.Response) {
-  const password = String(req.header('x-admin-password') ?? req.body?.adminPassword ?? '')
-  if (password !== adminPassword()) {
+  const password = String(req.header('x-admin-password') ?? req.body?.adminPassword ?? req.body?.password ?? '').trim()
+  const expected = adminPassword()
+  if (!expected || !password || password !== expected) {
     res.status(401).json({ error: 'unauthorized' })
     return false
   }
@@ -100,6 +101,16 @@ function requireAdmin(req: express.Request, res: express.Response) {
 function replyWriteFailed(res: express.Response) {
   res.status(503).json({ error: WRITE_RETRY_MESSAGE })
 }
+
+app.post('/api/admin/login', (req, res) => {
+  const password = String(req.body?.password ?? req.header('x-admin-password') ?? '').trim()
+  const expected = adminPassword()
+  if (!expected || !password || password !== expected) {
+    res.status(401).json({ error: 'unauthorized' })
+    return
+  }
+  res.json({ ok: true })
+})
 
 app.get('/api/wallets', (_req, res) => {
   res.json(getPayWallets())

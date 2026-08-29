@@ -5,6 +5,8 @@ import { useI18n } from '../i18n/LanguageProvider'
 import {
   ArrowLeft,
   Banknote,
+  Eye,
+  EyeOff,
   Flag,
   Gift,
   Image,
@@ -30,13 +32,17 @@ export function AdminGate() {
   const { authed, login } = useAdmin()
   const location = useLocation()
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState(false)
+  const [busy, setBusy] = useState(false)
   const { t } = useI18n()
 
   useEffect(() => {
     const params = new URLSearchParams(location.search)
     const key = params.get('key')
-    if (key && !authed) login(key)
+    if (key && !authed) {
+      void login(key).then((ok) => setError(!ok))
+    }
   }, [authed, location.search, login])
 
   if (!authed) {
@@ -49,22 +55,42 @@ export function AdminGate() {
           className="mt-6 space-y-3"
           onSubmit={(e) => {
             e.preventDefault()
-            setError(!login(password))
+            if (busy) return
+            setBusy(true)
+            setError(false)
+            void login(password).then((ok) => {
+              setError(!ok)
+              setBusy(false)
+            })
           }}
         >
-          <input
-            type="password"
-            value={password}
-            autoComplete="current-password"
-            placeholder={t('adminPassword')}
-            onChange={(e) => {
-              setPassword(e.target.value)
-              setError(false)
-            }}
-            className="w-full rounded-xl border border-white/10 bg-zinc-900 px-3 py-3 text-sm text-zinc-100 outline-none focus:border-amber-400/50"
-          />
+          <div className="relative">
+            <input
+              type={showPassword ? 'text' : 'password'}
+              value={password}
+              autoComplete="current-password"
+              placeholder={t('adminPassword')}
+              onChange={(e) => {
+                setPassword(e.target.value)
+                setError(false)
+              }}
+              className="w-full rounded-xl border border-white/10 bg-zinc-900 py-3 pl-3 pr-11 text-sm text-zinc-100 outline-none focus:border-amber-400/50"
+            />
+            <button
+              type="button"
+              className="absolute inset-y-0 right-0 flex items-center px-3 text-zinc-500"
+              aria-label={showPassword ? t('adminHidePassword') : t('adminShowPassword')}
+              onClick={() => setShowPassword((open) => !open)}
+            >
+              {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+            </button>
+          </div>
           {error ? <p className="text-xs text-orange-400">{t('adminLoginError')}</p> : null}
-          <button type="submit" className="w-full rounded-xl bg-zinc-100 py-3 text-sm font-bold text-zinc-950">
+          <button
+            type="submit"
+            disabled={busy}
+            className="w-full rounded-xl bg-zinc-100 py-3 text-sm font-bold text-zinc-950 disabled:opacity-60"
+          >
             {t('adminEnter')}
           </button>
         </form>

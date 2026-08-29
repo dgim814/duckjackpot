@@ -1,6 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
-  ADMIN_PASSWORD,
   CARD_ART,
   getRaffle,
   RAFFLE_ORDER,
@@ -10,6 +9,7 @@ import {
   type RaffleId,
 } from '../constants'
 import { api, API_ORIGIN } from '../api/client'
+import { adminHeaders, clearAdminSession, isAdminSession, setAdminSession } from './adminApi'
 import type { Lang } from '../i18n/messages'
 
 export type RaffleStatus = 'running' | 'stopped' | 'awaiting_draw' | 'drawn'
@@ -64,7 +64,7 @@ type AdminState = {
 
 type AdminContextValue = AdminState & {
   authed: boolean
-  login: (password: string) => boolean
+  login: (password: string) => Promise<boolean>
   logout: () => void
   cardArt: (id: RaffleId) => string
   setStatus: (id: RaffleId, status: RaffleStatus) => void
@@ -169,11 +169,7 @@ function normalizeWinner(winner: Partial<Winner> & { id?: string; place?: number
 }
 
 function readAuth() {
-  try {
-    return sessionStorage.getItem(STORAGE_KEYS.adminAuth) === '1'
-  } catch {
-    return false
-  }
+  return isAdminSession()
 }
 
 function readState(): AdminState {
@@ -340,25 +336,21 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     () => ({
       ...state,
       authed,
-      login: (password) => {
-        const ok = password === ADMIN_PASSWORD
-        if (ok) {
+      login: async (password) => {
+        const trimmed = password.trim()
+        if (!trimmed) return false
+        try {
+          await api.post('/admin/login', { password: trimmed })
+          setAdminSession(trimmed)
           setAuthed(true)
-          try {
-            sessionStorage.setItem(STORAGE_KEYS.adminAuth, '1')
-          } catch {
-            /* ignore */
-          }
+          return true
+        } catch {
+          return false
         }
-        return ok
       },
       logout: () => {
         setAuthed(false)
-        try {
-          sessionStorage.removeItem(STORAGE_KEYS.adminAuth)
-        } catch {
-          /* ignore */
-        }
+        clearAdminSession()
       },
       cardArt: (id) => state.raffles[id].image || CARD_ART,
       setStatus: (id, status) =>
@@ -371,7 +363,7 @@ export function AdminProvider({ children }: { children: ReactNode }) {
         const soldBase = Math.max(0, Math.min(total, Math.round(sold)))
         const { data } = await api.put<{
           raffles?: Partial<Record<RaffleId, { status?: string; sold?: number }>>
-        }>(`/admin/raffles/${id}`, { sold: soldBase }, { headers: { 'x-admin-password': ADMIN_PASSWORD } })
+        }>(`/admin/raffles/${id}`, { sold: soldBase }, { headers: adminHeaders })
         patch((prev) => ({
           ...prev,
           raffles: applyRaffleSnapshot(prev.raffles, data.raffles ?? { [id]: { sold: soldBase } }),
@@ -389,7 +381,7 @@ export function AdminProvider({ children }: { children: ReactNode }) {
       resetRaffle: async (id) => {
         const { data } = await api.post<{
           raffles?: Partial<Record<RaffleId, { status?: string; sold?: number }>>
-        }>(`/admin/raffles/${id}/reset`, {}, { headers: { 'x-admin-password': ADMIN_PASSWORD } })
+        }>(`/admin/raffles/${id}/reset`, {}, { headers: adminHeaders })
         patch((prev) => ({
           ...prev,
           raffles: applyRaffleSnapshot(prev.raffles, data.raffles ?? { [id]: { sold: 0, status: 'running' } }),
@@ -410,7 +402,7 @@ export function AdminProvider({ children }: { children: ReactNode }) {
         const { data: saved } = await api.post<{ updatedAt?: number }>(
           `/admin/nft/${id}`,
           { mime: file.type || 'image/jpeg', data },
-          { headers: { 'x-admin-password': ADMIN_PASSWORD }, timeout: 60_000 },
+          { headers: adminHeaders, timeout: 60_000 },
         )
         const image = saved.updatedAt ? nftUrl(id, saved.updatedAt) : nftUrl(id, Date.now())
         patch((prev) => ({
@@ -419,7 +411,7 @@ export function AdminProvider({ children }: { children: ReactNode }) {
         }))
       },
       resetCardImage: async (id) => {
-        await api.delete(`/admin/nft/${id}`, { headers: { 'x-admin-password': ADMIN_PASSWORD } })
+        await api.delete(`/admin/nft/${id}`, { headers: adminHeaders })
         patch((prev) => ({
           ...prev,
           raffles: { ...prev.raffles, [id]: { ...prev.raffles[id], image: null } },
@@ -466,7 +458,7 @@ export function AdminProvider({ children }: { children: ReactNode }) {
         const { data } = await api.post<{ winners: Winner[]; eligible: number }>(
           `/admin/raffles/${id}/draw`,
           {},
-          { headers: { 'x-admin-password': ADMIN_PASSWORD } },
+          { headers: adminHeaders },
         )
         const drawn = (data.winners ?? [])
           .map((winner) => normalizeWinner({ ...winner, raffleId: id }))

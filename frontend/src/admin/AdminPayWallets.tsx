@@ -1,6 +1,7 @@
 import { useEffect, useState, type CSSProperties } from 'react'
-import { ADMIN_PASSWORD, isTonPayAddress, isTronPayAddress } from '../constants'
+import { isTonPayAddress, isTronPayAddress } from '../constants'
 import { api, formatApiError } from '../api/client'
+import { adminHeaders } from './adminApi'
 import { useAdmin } from './AdminProvider'
 import { useI18n } from '../i18n/LanguageProvider'
 
@@ -45,7 +46,7 @@ export function AdminPayWallets({ idPrefix = 'admin' }: { idPrefix?: string }) {
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
 
-  const headers = { 'x-admin-password': ADMIN_PASSWORD }
+  const headers = adminHeaders
 
   const applyLoaded = (data: WalletPayload) => {
     const next = fromPayload(data)
