@@ -120,6 +120,15 @@ async function handleMessage(token: string, message: TelegramMessage) {
       .join('\n')
     const extra = cards.length > 20 ? `\n\n…и ещё ${cards.length - 20}` : ''
     await sendMessage(token, chatId, `Ваши карточки:\n\n${list}${extra}`, '/cards')
+    return
+  }
+  if (command === '/heist') {
+    await sendMessage(
+      token,
+      chatId,
+      'Duck Heist — ограбление банка. Камера, охранник, лут. Уйти или идти дальше. Откройте Mini App.',
+      '/heist',
+    )
   }
 }
 
@@ -128,6 +137,7 @@ async function applyMenuAndCommands(token: string) {
     commands: [
       { command: 'start', description: 'Открыть DuckJackpot' },
       { command: 'cards', description: 'Мои карточки' },
+      { command: 'heist', description: 'Duck Heist' },
     ],
   })
   const url = publicWebappUrl('/')

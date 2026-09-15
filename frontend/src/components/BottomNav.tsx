@@ -1,11 +1,11 @@
-import { Crosshair, History, Home, Layers, ScrollText, User } from 'lucide-react'
+import { History, Home, Landmark, Layers, ScrollText, User } from 'lucide-react'
 import { NavLink, useLocation } from 'react-router-dom'
 import { useI18n } from '../i18n/LanguageProvider'
 import type { MessageKey } from '../i18n/messages'
 
 const tabs: { to: string; labelKey: MessageKey; icon: typeof Home; end: boolean }[] = [
   { to: '/', labelKey: 'navHome', icon: Home, end: true },
-  { to: '/hunt', labelKey: 'navHunt', icon: Crosshair, end: false },
+  { to: '/heist', labelKey: 'navHeist', icon: Landmark, end: false },
   { to: '/cards', labelKey: 'navCards', icon: Layers, end: false },
   { to: '/terms', labelKey: 'navTerms', icon: ScrollText, end: false },
   { to: '/history', labelKey: 'navHistory', icon: History, end: false },

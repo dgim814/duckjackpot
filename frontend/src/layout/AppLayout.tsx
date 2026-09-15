@@ -3,7 +3,7 @@ import { BottomNav } from '../components/BottomNav'
 
 export function AppLayout() {
   const location = useLocation()
-  const hunt = location.pathname === '/hunt'
+  const hunt = location.pathname === '/hunt' || location.pathname === '/heist'
 
   return (
     <div className="mx-auto min-h-dvh max-w-lg">

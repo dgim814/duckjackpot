@@ -1,7 +1,7 @@
 import { TonConnectUIProvider } from '@tonconnect/ui-react'
 import WebApp from '@twa-dev/sdk'
 import { useEffect, type ReactNode } from 'react'
-import { HashRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { HashRouter, Navigate, Route, Routes, useNavigate } from 'react-router-dom'
 import { AdminProvider } from './admin/AdminProvider'
 import { FxProvider } from './fx/FxProvider'
 import { AdminGate, AdminLayout } from './admin/AdminLayout'
@@ -21,6 +21,7 @@ import { AppLayout } from './layout/AppLayout'
 import { AgreementPage } from './pages/AgreementPage'
 import { HistoryPage } from './pages/HistoryPage'
 import { HomePage } from './pages/HomePage'
+import { HeistPage } from './pages/HeistPage'
 import { HuntPage } from './pages/HuntPage'
 import { LegalDocPage } from './pages/LegalDocPage'
 import { MyCardsPage } from './pages/MyCardsPage'
@@ -41,6 +42,15 @@ function TelegramBoot({ children }: { children: ReactNode }) {
   return children
 }
 
+function StartParamGate() {
+  const navigate = useNavigate()
+  useEffect(() => {
+    const param = (WebApp.initDataUnsafe.start_param ?? '').toLowerCase()
+    if (param === 'heist') navigate('/heist', { replace: true })
+  }, [navigate])
+  return null
+}
+
 export default function App() {
   return (
     <AdminProvider>
@@ -49,6 +59,7 @@ export default function App() {
       <TelegramBoot>
       <TonConnectUIProvider manifestUrl={manifestUrl}>
         <HashRouter>
+          <StartParamGate />
           <AgreementProvider>
             <CardsProvider>
             <Routes>
@@ -73,6 +84,7 @@ export default function App() {
                 }
               >
                 <Route path="/" element={<HomePage />} />
+                <Route path="/heist" element={<HeistPage />} />
                 <Route path="/hunt" element={<HuntPage />} />
                 <Route path="/cards" element={<MyCardsPage />} />
                 <Route path="/terms" element={<TermsPage />} />
