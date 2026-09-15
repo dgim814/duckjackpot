@@ -1,6 +1,9 @@
+import { useState } from 'react'
 import { CONTENT_KEYS, useAdmin } from '../AdminProvider'
 import { AdminPayWallets } from '../AdminPayWallets'
 import { AdminTelegramSettings } from '../AdminTelegramSettings'
+import { adminHeaders } from '../adminApi'
+import { api, formatApiError } from '../../api/client'
 import { useUsdtRate } from '../../hooks/useUsdtRate'
 import { messages } from '../../i18n/messages'
 import { useI18n } from '../../i18n/LanguageProvider'
@@ -19,6 +22,7 @@ export function AdminSettingsPage() {
   return (
     <div className="space-y-5">
       <AdminTelegramSettings />
+      <HuntCooldownReset />
       <AdminPayWallets idPrefix="admin-settings" />
 
       <section className="rounded-2xl border border-white/10 bg-zinc-900/80 p-4">
@@ -94,5 +98,56 @@ export function AdminSettingsPage() {
         </div>
       </section>
     </div>
+  )
+}
+
+function HuntCooldownReset() {
+  const { t } = useI18n()
+  const [telegramId, setTelegramId] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [ok, setOk] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  return (
+    <section className="rounded-2xl border border-white/10 bg-zinc-900/80 p-4">
+      <h2 className="text-sm font-semibold text-zinc-100">{t('adminHuntResetTitle')}</h2>
+      <p className="mt-1 text-xs text-zinc-500">{t('adminHuntResetHint')}</p>
+      <label className="mt-3 block text-xs text-zinc-500">{t('adminHuntTelegramId')}</label>
+      <div className="mt-1 flex gap-2">
+        <input
+          inputMode="numeric"
+          value={telegramId}
+          onChange={(e) => {
+            setTelegramId(e.target.value)
+            setOk(false)
+            setError(null)
+          }}
+          className="w-44 rounded-lg border border-white/10 bg-black/40 px-2 py-2 font-mono text-sm text-zinc-100"
+        />
+        <button
+          type="button"
+          className="admin-btn"
+          disabled={busy}
+          onClick={() => {
+            const id = Number(telegramId.trim())
+            if (!Number.isFinite(id) || id <= 0) {
+              setError(t('adminHuntTelegramId'))
+              return
+            }
+            setBusy(true)
+            setError(null)
+            void api
+              .post('/admin/hunt/reset', { telegramId: id }, { headers: adminHeaders })
+              .then(() => setOk(true))
+              .catch((err: unknown) => setError(formatApiError(err)))
+              .finally(() => setBusy(false))
+          }}
+        >
+          {t('adminHuntReset')}
+        </button>
+      </div>
+      {ok ? <p className="mt-2 text-[11px] text-emerald-300">{t('adminHuntResetOk')}</p> : null}
+      {error ? <p className="mt-2 text-[11px] text-orange-400">{error}</p> : null}
+    </section>
   )
 }
