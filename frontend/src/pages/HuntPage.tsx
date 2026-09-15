@@ -1,8 +1,7 @@
-import { Crosshair, Volume2, VolumeX } from 'lucide-react'
+import { Volume2, VolumeX } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
-import { ScreenHeader } from '../components/ScreenHeader'
 import { HuntGame } from '../hunt/HuntGame'
 import { HUNT_LEVELS } from '../hunt/levels'
 import { huntFailSound, huntSoundEnabled, huntWinSound, setHuntSoundEnabled } from '../hunt/sound'
@@ -11,16 +10,10 @@ import { captureTelegramUser, telegramInitData } from '../telegram/user'
 
 type HuntAttempt = {
   id: string
-  userId: number
   startedAt: number
-  finishedAt?: number
-  levelsPassed: number
-  shots: number
-  hits: number
-  win: boolean
 }
 
-type Phase = 'idle' | 'play' | 'result'
+type Phase = 'idle' | 'intro' | 'play' | 'result'
 
 function authBody() {
   const buyer = captureTelegramUser()
@@ -38,12 +31,6 @@ function formatRemain(ms: number) {
   return `${h}:${String(m).padStart(2, '0')}`
 }
 
-function levelNameKey(id: string) {
-  if (id === 'hard') return 'huntLevelHard' as const
-  if (id === 'extreme') return 'huntLevelExtreme' as const
-  return 'huntLevelMedium' as const
-}
-
 export function HuntPage() {
   const { t } = useI18n()
   const navigate = useNavigate()
@@ -52,15 +39,18 @@ export function HuntPage() {
   const [canPlay, setCanPlay] = useState(true)
   const [nextAt, setNextAt] = useState(0)
   const [error, setError] = useState<string | null>(null)
-  const [attempt, setAttempt] = useState<HuntAttempt | null>(null)
   const [levelIndex, setLevelIndex] = useState(0)
+  const [hud, setHud] = useState({ remaining: 25, hits: 0, required: 5 })
   const [hits, setHits] = useState(0)
+  const [levelsPassed, setLevelsPassed] = useState(0)
   const [win, setWin] = useState(false)
-  const [endedAt, setEndedAt] = useState(0)
+  const [elapsed, setElapsed] = useState(0)
   const [now, setNow] = useState(Date.now)
   const shotsRef = useRef(0)
   const hitsRef = useRef(0)
   const attemptRef = useRef<HuntAttempt | null>(null)
+  const startedAtRef = useRef(0)
+  const introTimer = useRef(0)
 
   const loadStatus = useCallback(async () => {
     try {
@@ -69,41 +59,42 @@ export function HuntPage() {
       setNextAt(typeof data.nextAt === 'number' ? data.nextAt : 0)
       setError(null)
     } catch {
-      setError(t('huntNeedTelegram'))
+      setCanPlay(true)
     }
-  }, [t])
+  }, [])
 
   useEffect(() => {
     void loadStatus()
   }, [loadStatus])
 
+  useEffect(() => () => window.clearTimeout(introTimer.current), [])
+
   useEffect(() => {
-    if (canPlay || nextAt <= Date.now()) return
-    const timer = window.setInterval(() => setNow(Date.now()), 30_000)
+    if (canPlay) return
+    const timer = window.setInterval(() => setNow(Date.now()), 1000)
     return () => window.clearInterval(timer)
-  }, [canPlay, nextAt])
+  }, [canPlay])
 
   const finish = async (passed: number, isWin: boolean) => {
     if (isWin) huntWinSound()
     else huntFailSound()
-    const shotCount = shotsRef.current
-    const hitCount = hitsRef.current
-    setHits(hitCount)
+    setHits(hitsRef.current)
+    setLevelsPassed(passed)
     setWin(isWin)
-    setEndedAt(Date.now())
+    setElapsed(Math.max(1, Math.round((Date.now() - startedAtRef.current) / 1000)))
     setPhase('result')
     try {
       await api.post('/hunt/finish', {
         ...authBody(),
         id: attemptRef.current?.id,
         levelsPassed: passed,
-        shots: shotCount,
-        hits: hitCount,
+        shots: shotsRef.current,
+        hits: hitsRef.current,
         win: isWin,
       })
       await loadStatus()
     } catch {
-      /* start already consumed the daily attempt */
+      await loadStatus()
     }
   }
 
@@ -119,11 +110,14 @@ export function HuntPage() {
       attemptRef.current = data.attempt
       shotsRef.current = 0
       hitsRef.current = 0
-      setAttempt(data.attempt)
+      startedAtRef.current = Date.now()
       setLevelIndex(0)
       setHits(0)
-      setWin(false)
-      setPhase('play')
+      setLevelsPassed(0)
+      setHud({ remaining: HUNT_LEVELS[0].seconds, hits: 0, required: HUNT_LEVELS[0].required })
+      setPhase('intro')
+      window.clearTimeout(introTimer.current)
+      introTimer.current = window.setTimeout(() => setPhase('play'), 2000)
     } catch (err) {
       const payload = (err as { response?: { data?: { nextAt?: number; error?: string } } })?.response?.data
       if (payload?.error === 'cooldown') {
@@ -131,95 +125,125 @@ export function HuntPage() {
         setNextAt(payload.nextAt ?? Date.now())
         return
       }
-      if (payload?.error === 'invalid_init_data') setError(t('huntNeedTelegram'))
-      else setError(t('huntStartError'))
+      setError(payload?.error === 'invalid_init_data' ? t('huntNeedTelegram') : t('huntStartError'))
     }
   }
 
-  const remain = Math.max(0, nextAt - now)
-  const resultSeconds = attempt && endedAt ? Math.max(1, Math.round((endedAt - attempt.startedAt) / 1000)) : 0
+  const remainCd = Math.max(0, nextAt - now)
+  const locked = !canPlay && remainCd > 0
 
   return (
-    <section className="px-4 pb-6">
-      <ScreenHeader kicker={t('huntKicker')} title={t('huntTitle')} subtitle={t('huntHint')} />
-      <div className="mt-3 flex justify-end">
-        <button
-          type="button"
-          onClick={() => {
-            const next = !soundOn
-            setHuntSoundEnabled(next)
-            setSoundOn(next)
-          }}
-          className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-[#141218] px-3 py-1.5 text-[11px] font-bold text-amber-200"
-        >
-          {soundOn ? <Volume2 size={14} /> : <VolumeX size={14} />}
-          {soundOn ? t('huntSoundOn') : t('huntSoundOff')}
-        </button>
-      </div>
+    <section className="relative h-[calc(100dvh-4.75rem-env(safe-area-inset-bottom))] overflow-hidden bg-[#120c10]">
+      <HuntGame
+        running={phase === 'play'}
+        levelIndex={levelIndex}
+        onShot={() => {
+          shotsRef.current += 1
+        }}
+        onHit={() => {
+          hitsRef.current += 1
+        }}
+        onHud={setHud}
+        onClear={() => {
+          const passed = levelIndex + 1
+          if (passed >= 3) {
+            void finish(3, true)
+            return
+          }
+          setLevelIndex(passed)
+          setHud({
+            remaining: HUNT_LEVELS[passed].seconds,
+            hits: 0,
+            required: HUNT_LEVELS[passed].required,
+          })
+          setPhase('intro')
+          window.clearTimeout(introTimer.current)
+          introTimer.current = window.setTimeout(() => setPhase('play'), 2000)
+        }}
+        onFail={() => {
+          void finish(levelIndex, false)
+        }}
+      />
+
+      <button
+        type="button"
+        onClick={() => {
+          const next = !soundOn
+          setHuntSoundEnabled(next)
+          setSoundOn(next)
+        }}
+        className="absolute right-3 top-[max(10px,env(safe-area-inset-top))] z-20 inline-flex items-center gap-1 rounded-full border border-amber-400/30 bg-black/45 px-3 py-1.5 text-[11px] font-bold text-amber-200 backdrop-blur-sm"
+      >
+        {soundOn ? <Volume2 size={14} /> : <VolumeX size={14} />}
+        {soundOn ? t('huntSoundOn') : t('huntSoundOff')}
+      </button>
+
+      {phase === 'play' || phase === 'intro' ? (
+        <div className="pointer-events-none absolute inset-x-0 top-[max(44px,calc(env(safe-area-inset-top)+36px))] z-10 px-4 text-center">
+          <p className="font-display text-2xl font-extrabold tracking-wide text-amber-200 drop-shadow-[0_2px_8px_rgba(0,0,0,0.8)]">
+            {t('huntLevelBanner', { n: String(levelIndex + 1) })}
+          </p>
+          {phase === 'play' ? (
+            <>
+              <p className="mt-1 font-mono text-4xl font-black tabular-nums text-white drop-shadow-[0_2px_10px_rgba(0,0,0,0.85)]">
+                {Math.ceil(hud.remaining)}
+              </p>
+              <p className="mt-1 font-display text-lg font-extrabold text-amber-100 drop-shadow-[0_2px_8px_rgba(0,0,0,0.8)]">
+                {t('huntShotDown', { x: String(hud.hits), y: String(hud.required) })}
+              </p>
+            </>
+          ) : null}
+        </div>
+      ) : null}
 
       {phase === 'idle' ? (
-        <div className="mt-5 rounded-2xl border border-amber-400/25 bg-[#1a1410] p-4">
-          <p className="text-sm text-zinc-300">{t('huntRules')}</p>
-          {error ? <p className="mt-3 text-sm text-orange-400">{error}</p> : null}
-          {!canPlay && remain > 0 ? (
-            <p className="mt-4 text-sm text-amber-200">{t('huntCooldown', { time: formatRemain(remain) })}</p>
+        <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center px-6">
+          <p className="mb-5 max-w-[16rem] text-center text-sm font-semibold leading-snug text-amber-50/90 drop-shadow-[0_2px_8px_rgba(0,0,0,0.85)]">
+            {t('huntRulesShort')}
+          </p>
+          {error ? <p className="mb-3 text-center text-sm text-orange-300">{error}</p> : null}
+          {locked ? (
+            <p className="pointer-events-auto rounded-full border border-amber-400/40 bg-black/55 px-5 py-3 text-center font-display text-lg font-extrabold text-amber-200">
+              {t('huntCooldown', { time: formatRemain(remainCd) })}
+            </p>
           ) : (
-            <button type="button" className="buy-btn mt-5 w-full rounded-2xl px-4 py-3 text-zinc-950" onClick={() => void start()}>
-              {t('huntStart')}
+            <button
+              type="button"
+              className="buy-btn pointer-events-auto min-w-[13rem] rounded-full px-10 py-5 font-display text-2xl font-black tracking-[0.12em] text-zinc-950 shadow-[0_12px_40px_rgba(255,193,7,0.35)]"
+              onClick={() => void start()}
+            >
+              {t('huntPlay')}
             </button>
           )}
         </div>
       ) : null}
 
-      {phase === 'play' ? (
-        <div className="mt-4">
-          <p className="mb-2 flex items-center gap-2 text-sm font-bold text-amber-200">
-            <Crosshair size={16} />
-            {t('huntLevel', { n: String(levelIndex + 1), name: t(levelNameKey(HUNT_LEVELS[levelIndex].id)) })}
-          </p>
-          <HuntGame
-            levelIndex={levelIndex}
-            onShot={() => {
-              shotsRef.current += 1
-            }}
-            onHit={() => {
-              hitsRef.current += 1
-            }}
-            onClear={() => {
-              const passed = levelIndex + 1
-              if (passed >= 3) {
-                void finish(3, true)
-                return
-              }
-              setLevelIndex(passed)
-            }}
-            onFail={() => {
-              void finish(levelIndex, false)
-            }}
-          />
-        </div>
-      ) : null}
-
       {phase === 'result' ? (
-        <div className="mt-5 rounded-2xl border border-amber-400/30 bg-[#1a1410] p-5 text-center">
-          <p className="font-display text-xl font-extrabold text-amber-200">{win ? t('huntWin') : t('huntFail')}</p>
-          <dl className="mt-4 space-y-2 text-sm">
-            <div className="flex justify-between text-zinc-300">
-              <dt>{t('huntTime')}</dt>
-              <dd className="font-mono text-amber-200">{resultSeconds}s</dd>
-            </div>
-            <div className="flex justify-between text-zinc-300">
-              <dt>{t('huntHits')}</dt>
-              <dd className="font-mono text-amber-200">{hits}</dd>
-            </div>
-          </dl>
-          <button
-            type="button"
-            className="buy-btn mt-5 w-full rounded-2xl px-4 py-3 text-zinc-950"
-            onClick={() => navigate('/')}
-          >
-            {t('huntToCards')}
-          </button>
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black/35 px-6">
+          <div className="w-full max-w-sm rounded-3xl border border-amber-400/40 bg-[#120c10]/88 p-6 text-center shadow-[0_20px_60px_rgba(0,0,0,0.55)] backdrop-blur-md">
+            <p className="font-display text-3xl font-black text-amber-200">{win ? t('huntWin') : t('huntFail')}</p>
+            <dl className="mt-5 space-y-2 text-left text-base">
+              <div className="flex justify-between text-zinc-200">
+                <dt>{t('huntTime')}</dt>
+                <dd className="font-mono font-bold text-amber-200">{elapsed}s</dd>
+              </div>
+              <div className="flex justify-between text-zinc-200">
+                <dt>{t('huntHits')}</dt>
+                <dd className="font-mono font-bold text-amber-200">{hits}</dd>
+              </div>
+              <div className="flex justify-between text-zinc-200">
+                <dt>{t('huntLevels')}</dt>
+                <dd className="font-mono font-bold text-amber-200">{levelsPassed}/3</dd>
+              </div>
+            </dl>
+            <button
+              type="button"
+              className="buy-btn mt-6 w-full rounded-2xl px-4 py-3 text-zinc-950"
+              onClick={() => navigate('/')}
+            >
+              {t('huntToCards')}
+            </button>
+          </div>
         </div>
       ) : null}
     </section>
