@@ -1,9 +1,17 @@
-export const HUNT_BREAK_MS = 3000
+export const HUNT_ROUND_COUNT = 20
+export const HUNT_ROUND_SECONDS = 80
+export const HUNT_BREAK_MS = 5000
+export const HUNT_MIN_DAY_SCORE = 1600
 
-export const HUNT_LEVELS = [
-  { id: 'easy' as const, seconds: 28, required: 8, spawnMs: 900, flyMin: 3.4, flyMax: 4.2, size: 156, minAlive: 2, maxAlive: 3 },
-  { id: 'hard' as const, seconds: 30, required: 12, spawnMs: 620, flyMin: 2.0, flyMax: 2.6, size: 148, minAlive: 3, maxAlive: 4 },
-  { id: 'extreme' as const, seconds: 32, required: 16, spawnMs: 480, flyMin: 1.35, flyMax: 1.9, size: 140, minAlive: 3, maxAlive: 4 },
-]
-
-export type HuntLevelId = (typeof HUNT_LEVELS)[number]['id']
+export function huntRoundConfig(roundIndex: number) {
+  const n = Math.max(0, Math.min(HUNT_ROUND_COUNT - 1, roundIndex))
+  const t = n / (HUNT_ROUND_COUNT - 1)
+  return {
+    seconds: HUNT_ROUND_SECONDS,
+    required: 8 + Math.round(t * 10),
+    ducks: n < 6 ? 2 : n < 14 ? (n % 2 === 0 ? 2 : 3) : 3,
+    flyMin: 4.1 - t * 1.5,
+    flyMax: 5.2 - t * 1.7,
+    size: 148 - t * 16,
+  }
+}

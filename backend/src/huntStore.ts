@@ -90,7 +90,7 @@ export function finishHuntAttempt(
   const updated: HuntAttempt = {
     ...current,
     finishedAt: Date.now(),
-    levelsPassed: Math.max(0, Math.min(3, Math.round(patch.levelsPassed))),
+    levelsPassed: Math.max(0, Math.min(20, Math.round(patch.levelsPassed))),
     shots: Math.max(0, Math.round(patch.shots)),
     hits: Math.max(0, Math.round(patch.hits)),
     win: patch.win === true,
