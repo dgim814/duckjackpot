@@ -1,7 +1,9 @@
+export const HUNT_BREAK_MS = 3000
+
 export const HUNT_LEVELS = [
-  { id: 'easy' as const, seconds: 25, required: 5, spawnMs: 1400, flyMin: 3.2, flyMax: 4, size: 118 },
-  { id: 'hard' as const, seconds: 30, required: 7, spawnMs: 1100, flyMin: 2.5, flyMax: 3.3, size: 104 },
-  { id: 'extreme' as const, seconds: 35, required: 9, spawnMs: 850, flyMin: 2, flyMax: 2.7, size: 92 },
+  { id: 'easy' as const, seconds: 28, required: 8, spawnMs: 900, flyMin: 3.4, flyMax: 4.2, size: 156, minAlive: 2, maxAlive: 3 },
+  { id: 'hard' as const, seconds: 30, required: 12, spawnMs: 620, flyMin: 2.0, flyMax: 2.6, size: 148, minAlive: 3, maxAlive: 4 },
+  { id: 'extreme' as const, seconds: 32, required: 16, spawnMs: 480, flyMin: 1.35, flyMax: 1.9, size: 140, minAlive: 3, maxAlive: 4 },
 ]
 
 export type HuntLevelId = (typeof HUNT_LEVELS)[number]['id']

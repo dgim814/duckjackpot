@@ -195,26 +195,50 @@ export function HuntGame({ running, levelIndex, onShot, onHit, onHud, onClear, o
     window.addEventListener('resize', resize)
     const size = () => ({ w: canvas.clientWidth, h: canvas.clientHeight })
 
+    const flyingCount = () => ducks.filter((duck) => duck.state === 'fly').length
+
     const spawn = (attract: boolean) => {
       const { w, h } = size()
-      const dir: 1 | -1 = Math.random() > 0.5 ? 1 : -1
-      const sizePx = attract ? 96 : level.size
-      const fly = attract ? 3.6 : level.flyMin + Math.random() * (level.flyMax - level.flyMin)
-      const travel = w + sizePx * 1.4
+      const sizePx = attract ? 110 : level.size
+      const fly = attract ? 3.8 : level.flyMin + Math.random() * (level.flyMax - level.flyMin)
+      const lane = Math.floor(Math.random() * 3)
+      const dir: 1 | -1 = lane === 1 ? -1 : 1
+      let x = dir > 0 ? -sizePx : w + sizePx
+      let y = h * 0.16 + Math.random() * (h * 0.4)
+      let vx = dir * ((w + sizePx * 1.5) / fly)
+      let vy = (Math.random() - 0.5) * (attract ? 36 : 70)
+      if (lane === 2) {
+        x = w * (0.15 + Math.random() * 0.7)
+        y = -sizePx
+        vx = (Math.random() > 0.5 ? 1 : -1) * (w * 0.35) / fly
+        vy = (h * 0.55) / fly
+      }
       ducks.push({
-        x: dir > 0 ? -sizePx : w + sizePx,
-        y: h * 0.18 + Math.random() * (h * 0.42),
-        vx: dir * (travel / fly),
-        vy: (Math.random() - 0.5) * 28,
+        x,
+        y,
+        vx,
+        vy,
         size: sizePx,
         phase: Math.random() * Math.PI * 2,
-        dir,
+        dir: vx >= 0 ? 1 : -1,
         state: 'fly',
         rot: 0,
         life: 1,
       })
     }
-    spawn(!running)
+
+    const keepFlock = () => {
+      if (ended) return
+      const minAlive = running ? level.minAlive : 2
+      const maxAlive = running ? level.maxAlive : 3
+      while (flyingCount() < minAlive) spawn(!running)
+      const spawnEvery = running ? level.spawnMs : 2200
+      if (spawnAt >= spawnEvery && flyingCount() < maxAlive) {
+        spawnAt = 0
+        spawn(!running)
+      }
+    }
+    keepFlock()
 
     const tick = (now: number) => {
       const dt = Math.min(0.05, (now - last) / 1000)
@@ -223,11 +247,7 @@ export function HuntGame({ running, levelIndex, onShot, onHit, onHud, onClear, o
       if (running && !ended) elapsed += dt
       aim.hot = Math.max(0, aim.hot - dt * 3)
       spawnAt += dt * 1000
-      const spawnEvery = running ? level.spawnMs : 2200
-      if (spawnAt >= spawnEvery) {
-        spawnAt = 0
-        if (!ended) spawn(!running)
-      }
+      keepFlock()
 
       drawSky(ctx, w, h)
       for (const duck of ducks) {
