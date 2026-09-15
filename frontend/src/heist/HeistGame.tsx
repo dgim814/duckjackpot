@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import WebApp from '@twa-dev/sdk'
 import { useI18n } from '../i18n/LanguageProvider'
 import { punchBackdrop } from './sprite'
 
@@ -16,6 +17,11 @@ export type HeistEnd = { verdict: 'escaped' | 'caught'; loot: number }
 type HeistGameProps = {
   running: boolean
   onDone: (end: HeistEnd) => void
+}
+
+function telegramApp() {
+  const tg = (window as Window & { Telegram?: { WebApp?: typeof WebApp } }).Telegram?.WebApp
+  return tg ?? WebApp
 }
 
 function clamp(n: number, a: number, b: number) {
@@ -104,7 +110,6 @@ export function HeistGame({ running, onDone }: HeistGameProps) {
 
     const player = { x: 2.35, y: 6.45, facing: 1 as 1 | -1 }
     const target = { x: 2.35, y: 6.45 }
-    let pointer: Pt | null = null
     const lootTaken = [false, false, false]
     let lootTotal = 0
     let deepest = 0
@@ -148,6 +153,32 @@ export function HeistGame({ running, onDone }: HeistGameProps) {
     const ro = new ResizeObserver(rebuild)
     ro.observe(wrap)
 
+    const html = document.documentElement
+    const body = document.body
+    const prev = {
+      htmlOverflow: html.style.overflow,
+      bodyOverflow: body.style.overflow,
+      htmlOverscroll: html.style.overscrollBehavior,
+      bodyOverscroll: body.style.overscrollBehavior,
+    }
+    html.style.overflow = 'hidden'
+    body.style.overflow = 'hidden'
+    html.style.overscrollBehavior = 'none'
+    body.style.overscrollBehavior = 'none'
+    const tg = telegramApp()
+    try {
+      tg.expand?.()
+      const disable = (tg as { disableVerticalSwipes?: () => void }).disableVerticalSwipes
+      disable?.()
+    } catch {
+      /* ignore */
+    }
+
+    const snapTile = (p: Pt) => ({
+      x: clamp(Math.floor(p.x) + 0.5, 0.5, COLS - 0.5),
+      y: clamp(Math.floor(p.y) + 0.5, 0.5, ROWS - 0.5),
+    })
+
     const toLocal = (e: PointerEvent): Pt => {
       const r = canvas.getBoundingClientRect()
       return { x: e.clientX - r.left, y: e.clientY - r.top }
@@ -158,11 +189,10 @@ export function HeistGame({ running, onDone }: HeistGameProps) {
       return toScreen(p.x, p.y, 10)
     }
 
-    const onDown = (e: PointerEvent) => {
+    const onTap = (e: PointerEvent) => {
       if (mode === 'choice' || mode === 'done') return
-      canvas.setPointerCapture(e.pointerId)
+      e.preventDefault()
       const p = toLocal(e)
-      pointer = p
       for (let i = 0; i <= Math.min(deepest, 2); i += 1) {
         if (lootTaken[i]) continue
         const s = lootScreen(i)
@@ -173,25 +203,19 @@ export function HeistGame({ running, onDone }: HeistGameProps) {
           return
         }
       }
-      const w = toWorld(p.x, p.y)
-      target.x = clamp(w.x, 0.45, COLS - 0.45)
-      target.y = clamp(w.y, 0.45, ROWS - 0.45)
+      const tile = snapTile(toWorld(p.x, p.y))
+      target.x = tile.x
+      target.y = tile.y
     }
-    const onMove = (e: PointerEvent) => {
-      if (!pointer || mode === 'choice' || mode === 'done') return
-      const p = toLocal(e)
-      pointer = p
-      const w = toWorld(p.x, p.y)
-      target.x = clamp(w.x, 0.45, COLS - 0.45)
-      target.y = clamp(w.y, 0.45, ROWS - 0.45)
+
+    const stopTouchScroll = (e: TouchEvent) => {
+      e.preventDefault()
     }
-    const onUp = () => {
-      pointer = null
-    }
-    canvas.addEventListener('pointerdown', onDown)
-    canvas.addEventListener('pointermove', onMove)
-    canvas.addEventListener('pointerup', onUp)
-    canvas.addEventListener('pointercancel', onUp)
+
+    canvas.addEventListener('pointerdown', onTap)
+    wrap.addEventListener('touchmove', stopTouchScroll, { passive: false })
+    canvas.addEventListener('touchmove', stopTouchScroll, { passive: false })
+    document.addEventListener('touchmove', stopTouchScroll, { passive: false })
 
     const finish = (verdict: HeistEnd['verdict']) => {
       if (ended) return
@@ -506,16 +530,30 @@ export function HeistGame({ running, onDone }: HeistGameProps) {
       cancelAnimationFrame(raf)
       ro.disconnect()
       wrap.removeEventListener('click', onChoiceClick)
-      canvas.removeEventListener('pointerdown', onDown)
-      canvas.removeEventListener('pointermove', onMove)
-      canvas.removeEventListener('pointerup', onUp)
-      canvas.removeEventListener('pointercancel', onUp)
+      wrap.removeEventListener('touchmove', stopTouchScroll)
+      canvas.removeEventListener('pointerdown', onTap)
+      canvas.removeEventListener('touchmove', stopTouchScroll)
+      document.removeEventListener('touchmove', stopTouchScroll)
+      html.style.overflow = prev.htmlOverflow
+      body.style.overflow = prev.bodyOverflow
+      html.style.overscrollBehavior = prev.htmlOverscroll
+      body.style.overscrollBehavior = prev.bodyOverscroll
+      try {
+        const enable = (telegramApp() as { enableVerticalSwipes?: () => void }).enableVerticalSwipes
+        enable?.()
+      } catch {
+        /* ignore */
+      }
     }
   }, [running])
 
   return (
-    <div ref={wrapRef} className="relative h-full w-full touch-none select-none">
-      <canvas ref={canvasRef} className="block h-full w-full" />
+    <div
+      ref={wrapRef}
+      className="relative h-full w-full touch-none overscroll-none select-none"
+      style={{ touchAction: 'none', overscrollBehavior: 'none' }}
+    >
+      <canvas ref={canvasRef} className="block h-full w-full touch-none overscroll-none" style={{ touchAction: 'none', overscrollBehavior: 'none' }} />
       <ChoiceOverlay />
     </div>
   )

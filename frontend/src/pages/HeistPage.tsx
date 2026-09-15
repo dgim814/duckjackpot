@@ -42,7 +42,10 @@ export function HeistPage() {
 
   if (screen === 'play') {
     return (
-      <section className="relative h-[calc(100dvh-4.75rem-env(safe-area-inset-bottom))] overflow-hidden bg-[#120c10]">
+      <section
+        className="relative h-[calc(100dvh-4.75rem-env(safe-area-inset-bottom))] overflow-hidden overscroll-none bg-[#120c10]"
+        style={{ touchAction: 'none', overscrollBehavior: 'none' }}
+      >
         <HeistGame key={runKey} running onDone={onDone} />
       </section>
     )

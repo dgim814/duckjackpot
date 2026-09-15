@@ -366,7 +366,7 @@ const ru = {
 
   heistKicker: 'BANK',
   heistTitle: 'Duck Heist',
-  heistHint: 'Тап по полу — идти. Тап по $ — лут. Конус камеры ловит.',
+  heistHint: 'Тап по клетке — идти. Тап по $ — лут. Конус камеры ловит.',
   heistPlay: 'ИГРАТЬ',
   heistLeave: 'УЙТИ',
   heistDeeper: 'ГЛУБЖЕ',
@@ -752,7 +752,7 @@ const en: Record<keyof typeof ru, string> = {
 
   heistKicker: 'BANK',
   heistTitle: 'Duck Heist',
-  heistHint: 'Tap the floor to walk. Tap $ for loot. The camera cone catches you.',
+  heistHint: 'Tap a tile to walk. Tap $ for loot. The camera cone catches you.',
   heistPlay: 'PLAY',
   heistLeave: 'LEAVE',
   heistDeeper: 'DEEPER',
