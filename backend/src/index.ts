@@ -14,6 +14,7 @@ import { setRafflePhase, setTestSold, startNextRaffleRound } from './raffleStore
 import { RAFFLE_TOTALS } from './prizes.js'
 import { isDataWriteError, WRITE_RETRY_MESSAGE } from './dataQueue.js'
 import { getPayment, listPayments, setPaymentNotify, setPaymentStatus, upsertClaim } from './paymentStore.js'
+import { finishHuntAttempt, huntStatus, resetHuntCooldown, startHuntAttempt } from './huntStore.js'
 import { verifyInitData } from './verifyInitData.js'
 
 dotenv.config()
@@ -151,6 +152,65 @@ app.post('/api/admin/wallets', saveAdminWallets)
 
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true })
+})
+
+app.post('/api/hunt/status', (req, res) => {
+  const { telegramId } = resolveTelegramUser(req.body ?? {})
+  if (!telegramId) {
+    res.status(401).json({ error: 'invalid_init_data' })
+    return
+  }
+  const status = huntStatus(telegramId)
+  res.json({
+    canPlay: status.canPlay,
+    nextAt: status.nextAt,
+    last: status.last,
+  })
+})
+
+app.post('/api/hunt/start', (req, res) => {
+  const { telegramId } = resolveTelegramUser(req.body ?? {})
+  if (!telegramId) {
+    res.status(401).json({ error: 'invalid_init_data' })
+    return
+  }
+  try {
+    const attempt = startHuntAttempt(telegramId)
+    res.json({ ok: true, attempt })
+  } catch (err) {
+    const nextAt = err && typeof err === 'object' && 'nextAt' in err ? Number((err as { nextAt: number }).nextAt) : Date.now()
+    res.status(429).json({ error: 'cooldown', nextAt })
+  }
+})
+
+app.post('/api/hunt/finish', (req, res) => {
+  const { telegramId } = resolveTelegramUser(req.body ?? {})
+  if (!telegramId) {
+    res.status(401).json({ error: 'invalid_init_data' })
+    return
+  }
+  const attempt = finishHuntAttempt(telegramId, {
+    id: typeof req.body?.id === 'string' ? req.body.id : undefined,
+    levelsPassed: Number(req.body?.levelsPassed ?? 0),
+    shots: Number(req.body?.shots ?? 0),
+    hits: Number(req.body?.hits ?? 0),
+    win: req.body?.win === true,
+  })
+  if (!attempt) {
+    res.status(404).json({ error: 'not_found' })
+    return
+  }
+  res.json({ ok: true, attempt })
+})
+
+app.post('/api/admin/hunt/reset', (req, res) => {
+  if (!requireAdmin(req, res)) return
+  const telegramId = Number(req.body?.telegramId)
+  if (!Number.isFinite(telegramId) || telegramId <= 0) {
+    res.status(400).json({ error: 'invalid_telegram_id' })
+    return
+  }
+  res.json(resetHuntCooldown(telegramId))
 })
 
 app.post('/api/support-bot/webhook', (req, res) => {

@@ -21,6 +21,7 @@ import { AppLayout } from './layout/AppLayout'
 import { AgreementPage } from './pages/AgreementPage'
 import { HistoryPage } from './pages/HistoryPage'
 import { HomePage } from './pages/HomePage'
+import { HuntPage } from './pages/HuntPage'
 import { LegalDocPage } from './pages/LegalDocPage'
 import { MyCardsPage } from './pages/MyCardsPage'
 import { PreAmlPage } from './pages/PreAmlPage'
@@ -72,6 +73,7 @@ export default function App() {
                 }
               >
                 <Route path="/" element={<HomePage />} />
+                <Route path="/hunt" element={<HuntPage />} />
                 <Route path="/cards" element={<MyCardsPage />} />
                 <Route path="/terms" element={<TermsPage />} />
                 <Route path="/legal/pre-aml" element={<PreAmlPage />} />
