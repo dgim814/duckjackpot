@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
 import { HuntGame, type HuntHud } from '../hunt/HuntGame'
-import { HUNT_LEVEL_COUNT } from '../hunt/levels'
+import { HUNT_WAVE_COUNT } from '../hunt/levels'
 import { addHuntXp, huntXpBar, readHuntBest, readHuntXp, writeHuntBest } from '../hunt/progress'
 import { huntFailSound, huntSoundEnabled, huntWinSound, setHuntSoundEnabled } from '../hunt/sound'
 import { type HuntWeaponId } from '../hunt/weapons'
@@ -37,24 +37,20 @@ export function HuntPage() {
   const [canPlay, setCanPlay] = useState(true)
   const [nextAt, setNextAt] = useState(0)
   const [error, setError] = useState<string | null>(null)
-  const [levelIndex, setLevelIndex] = useState(0)
   const [weaponId, setWeaponId] = useState<HuntWeaponId>('blaster')
-  const [hud, setHud] = useState<HuntHud>({ remaining: 24, hits: 0, required: 4, ammo: 3, ammoMax: 3, score: 0, combo: 0 })
+  const [hud, setHud] = useState<HuntHud>({ remaining: 45, hits: 0, ammo: 3, ammoMax: 3, score: 0, combo: 0, wave: 1 })
   const [score, setScore] = useState(0)
   const [best, setBest] = useState(readHuntBest)
   const [xp, setXp] = useState(readHuntXp)
-  const [levelsPassed, setLevelsPassed] = useState(0)
   const [hitsDisplay, setHitsDisplay] = useState(0)
   const [comboMax, setComboMax] = useState(0)
-  const [win, setWin] = useState(false)
+  const [verdict, setVerdict] = useState<'perfect' | 'close'>('close')
   const [now, setNow] = useState(Date.now)
   const shotsRef = useRef(0)
   const hitsRef = useRef(0)
   const scoreRef = useRef(0)
   const comboMaxRef = useRef(0)
   const attemptRef = useRef<HuntAttempt | null>(null)
-  const levelIndexRef = useRef(0)
-  const lockRef = useRef(false)
   const finishedRef = useRef(false)
 
   const loadStatus = useCallback(async () => {
@@ -80,26 +76,25 @@ export function HuntPage() {
     return () => window.clearInterval(timer)
   }, [canPlay])
 
-  const finish = async (passed: number, isWin: boolean) => {
+  const finish = async (nextVerdict: 'perfect' | 'close') => {
     if (finishedRef.current) return
     finishedRef.current = true
-    const dayWin = isWin && passed >= HUNT_LEVEL_COUNT
+    const dayWin = nextVerdict === 'perfect'
     if (dayWin) huntWinSound()
     else huntFailSound()
     const gained = addHuntXp(30 + hitsRef.current * 3 + (dayWin ? 80 : 0))
     setXp(gained)
     setBest(writeHuntBest(scoreRef.current))
     setHitsDisplay(hitsRef.current)
-    setLevelsPassed(passed)
     setComboMax(comboMaxRef.current)
     setScore(scoreRef.current)
-    setWin(dayWin)
+    setVerdict(nextVerdict)
     setScreen('result')
     try {
       await api.post('/hunt/finish', {
         ...authBody(),
         id: attemptRef.current?.id,
-        levelsPassed: passed,
+        levelsPassed: HUNT_WAVE_COUNT,
         shots: shotsRef.current,
         hits: hitsRef.current,
         win: dayWin,
@@ -125,11 +120,7 @@ export function HuntPage() {
       scoreRef.current = 0
       comboMaxRef.current = 0
       finishedRef.current = false
-      lockRef.current = false
-      levelIndexRef.current = 0
-      setLevelIndex(0)
       setScore(0)
-      setWin(false)
       setScreen('hunt')
     } catch (err) {
       const payload = (err as { response?: { data?: { nextAt?: number; error?: string } } })?.response?.data
@@ -150,9 +141,8 @@ export function HuntPage() {
     return (
       <section className="relative h-[calc(100dvh-4.75rem-env(safe-area-inset-bottom))] overflow-hidden bg-[#5ec8ff]">
         <HuntGame
-          key={`${attemptRef.current?.id}-${levelIndex}`}
+          key={attemptRef.current?.id ?? 'hunt'}
           running
-          levelIndex={levelIndex}
           weaponId={weaponId}
           onShot={() => {
             shotsRef.current += 1
@@ -164,22 +154,8 @@ export function HuntPage() {
             setScore(scoreRef.current)
           }}
           onHud={setHud}
-          onClear={() => {
-            if (lockRef.current) return
-            lockRef.current = true
-            const passed = levelIndexRef.current + 1
-            if (passed >= HUNT_LEVEL_COUNT) {
-              void finish(passed, true)
-              return
-            }
-            levelIndexRef.current = passed
-            setLevelIndex(passed)
-            lockRef.current = false
-          }}
-          onFail={() => {
-            if (lockRef.current) return
-            lockRef.current = true
-            void finish(levelIndexRef.current, false)
+          onDone={(next) => {
+            void finish(next)
           }}
         />
         <span className="sr-only">{hud.remaining}</span>
@@ -192,32 +168,17 @@ export function HuntPage() {
       <section className="relative flex h-[calc(100dvh-4.75rem-env(safe-area-inset-bottom))] items-center justify-center overflow-hidden bg-[#0b1c28] px-5">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_20%,rgba(255,193,7,0.28),transparent_55%)]" />
         <div className="relative w-full max-w-sm rounded-3xl border border-amber-400/50 bg-[#101820]/90 p-6 text-center shadow-[0_0_80px_rgba(255,193,7,0.25)]">
-          <p className="font-display text-4xl font-black text-amber-300">{win ? t('huntWin') : t('huntDayOver')}</p>
+          <p className="font-display text-4xl font-black text-amber-300">{verdict === 'perfect' ? t('huntPerfect') : t('huntSoClose')}</p>
           <p className="mt-4 font-display text-5xl font-black text-white">{score}</p>
           <p className="text-xs font-bold uppercase tracking-[0.2em] text-amber-200/80">{t('huntScore')}</p>
-          <div className="mt-5 grid grid-cols-3 gap-2 text-center">
+          <div className="mt-5 grid grid-cols-2 gap-2 text-center">
             <Stat label={t('huntHits')} value={String(hitsDisplay)} />
             <Stat label="COMBO" value={`x${comboMax}`} />
-            <Stat label="XP" value={String(xpView.into)} />
           </div>
-          <div className="mt-4 h-2 overflow-hidden rounded-full bg-black/50">
-            <div className="h-full rounded-full bg-amber-400" style={{ width: `${xpView.into}%` }} />
-          </div>
-          <p className="mt-2 text-[11px] font-bold text-amber-200">
-            LV {xpView.level} · {levelsPassed}/{HUNT_LEVEL_COUNT}
-          </p>
           <button type="button" className="buy-btn mt-6 w-full rounded-2xl px-4 py-3 text-zinc-950" onClick={() => navigate('/')}>
             {t('huntToCards')}
           </button>
           <p className="mt-3 font-display text-lg font-extrabold text-amber-200">{t('huntTomorrow')}</p>
-          <div className="mt-4 grid grid-cols-2 gap-2">
-            <button type="button" disabled className="rounded-xl border border-white/10 py-2 text-xs font-bold text-zinc-500">
-              {t('huntStarsSoon')}
-            </button>
-            <button type="button" disabled className="rounded-xl border border-white/10 py-2 text-xs font-bold text-zinc-500">
-              {t('huntInviteSoon')}
-            </button>
-          </div>
         </div>
       </section>
     )

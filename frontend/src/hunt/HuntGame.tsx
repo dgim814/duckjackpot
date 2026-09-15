@@ -1,7 +1,9 @@
 import { useEffect, useRef } from 'react'
-import { huntLevel, HUNT_CUE_END } from './levels'
+import { HUNT_CUE_END, HUNT_WAVE_COUNT, huntWave } from './levels'
 import { huntHitSound, huntMissSound, huntShotSound } from './sound'
 import { huntWeapon, type HuntWeaponId } from './weapons'
+
+type Kind = 'common' | 'zigzag' | 'dive' | 'gold' | 'last'
 
 type Duck = {
   x: number
@@ -15,12 +17,12 @@ type Duck = {
   state: 'fly' | 'fall'
   rot: number
   life: number
-  gold: boolean
-  boss: boolean
+  kind: Kind
   turnIn: number
+  dive: number
 }
 
-type Particle = { x: number; y: number; vx: number; vy: number; t: number; color: string }
+type Particle = { x: number; y: number; vx: number; vy: number; t: number; color: string; w: number; h: number }
 type Floater = { x: number; y: number; t: number; text: string }
 type Cloud = { x: number; y: number; s: number; v: number }
 type Trail = { x: number; y: number; tx: number; ty: number; t: number }
@@ -28,22 +30,20 @@ type Trail = { x: number; y: number; tx: number; ty: number; t: number }
 export type HuntHud = {
   remaining: number
   hits: number
-  required: number
   ammo: number
   ammoMax: number
   score: number
   combo: number
+  wave: number
 }
 
 type HuntGameProps = {
   running: boolean
-  levelIndex: number
   weaponId: HuntWeaponId
   onShot: () => void
   onHit: (points: number, combo: number) => void
   onHud: (hud: HuntHud) => void
-  onClear: () => void
-  onFail: () => void
+  onDone: (verdict: 'perfect' | 'close') => void
 }
 
 function drawField(ctx: CanvasRenderingContext2D, w: number, h: number, t: number, shake: number, clouds: Cloud[]) {
@@ -113,86 +113,79 @@ function drawField(ctx: CanvasRenderingContext2D, w: number, h: number, t: numbe
   ctx.restore()
 }
 
+function palette(kind: Kind) {
+  if (kind === 'zigzag') return { body: '#2ec4b6', wing: '#1a9b96', head: '#7ee8d8', beak: '#ff8a3c' }
+  if (kind === 'dive') return { body: '#e85d04', wing: '#9d0208', head: '#faa307', beak: '#370617' }
+  if (kind === 'gold') return { body: '#ffd60a', wing: '#ffc300', head: '#fff3b0', beak: '#e85d04' }
+  if (kind === 'last') return { body: '#7b2cbf', wing: '#5a189a', head: '#ffd60a', beak: '#ff6d00' }
+  return { body: '#ffca28', wing: '#f6b000', head: '#ffe082', beak: '#ff6f00' }
+}
+
 function drawDuck(ctx: CanvasRenderingContext2D, duck: Duck) {
+  const c = palette(duck.kind)
   ctx.save()
   ctx.translate(duck.x, duck.y)
-  ctx.rotate(duck.rot)
+  ctx.rotate(duck.rot + (duck.kind === 'dive' ? 0.35 * Math.sign(duck.vy) : 0))
   ctx.scale(duck.dir, 1)
   const s = duck.size / 110
   ctx.scale(s, s)
-  const flap = Math.sin(duck.flap) * 0.7
-  ctx.fillStyle = duck.gold ? '#ffe082' : '#f6b000'
+  const flap = Math.sin(duck.flap) * (duck.kind === 'zigzag' ? 1 : 0.7)
+  ctx.fillStyle = c.wing
+  if (duck.kind === 'zigzag') {
+    ctx.beginPath()
+    ctx.moveTo(-8, 4)
+    ctx.lineTo(-48, -18 + flap * 16)
+    ctx.lineTo(-22, 10)
+    ctx.closePath()
+    ctx.fill()
+  } else if (duck.kind === 'dive') {
+    ctx.beginPath()
+    ctx.ellipse(-6, -6, 28, 8, -0.7 + flap * 0.3, 0, Math.PI * 2)
+    ctx.fill()
+  } else {
+    ctx.beginPath()
+    ctx.ellipse(-16, 0, 22, 11, 0.55 + flap, 0, Math.PI * 2)
+    ctx.fill()
+  }
+  ctx.fillStyle = c.body
+  if (duck.kind === 'zigzag') {
+    ctx.beginPath()
+    ctx.moveTo(-36, 10)
+    ctx.lineTo(8, -6)
+    ctx.lineTo(22, 8)
+    ctx.lineTo(-10, 22)
+    ctx.closePath()
+    ctx.fill()
+  } else if (duck.kind === 'last') {
+    ctx.beginPath()
+    ctx.ellipse(0, 10, 52, 30, -0.08, 0, Math.PI * 2)
+    ctx.fill()
+  } else {
+    ctx.beginPath()
+    ctx.ellipse(0, 8, duck.kind === 'dive' ? 40 : 46, duck.kind === 'dive' ? 20 : 26, -0.1, 0, Math.PI * 2)
+    ctx.fill()
+  }
+  ctx.fillStyle = c.head
   ctx.beginPath()
-  ctx.ellipse(-16, 0, 22, 11, 0.55 + flap, 0, Math.PI * 2)
+  ctx.arc(duck.kind === 'zigzag' ? 22 : 26, duck.kind === 'dive' ? -4 : -10, duck.kind === 'last' ? 24 : 18, 0, Math.PI * 2)
   ctx.fill()
-  ctx.fillStyle = duck.gold ? '#ffd54f' : '#ffca28'
+  ctx.fillStyle = c.beak
   ctx.beginPath()
-  ctx.ellipse(0, 8, 46, 26, -0.1, 0, Math.PI * 2)
-  ctx.fill()
-  ctx.fillStyle = duck.gold ? '#ffecb3' : '#ffb300'
-  ctx.beginPath()
-  ctx.ellipse(-8, 4, 16, 14, 0.3 + flap, 0, Math.PI * 2)
-  ctx.fill()
-  ctx.fillStyle = duck.gold ? '#fff8e1' : '#ffe082'
-  ctx.beginPath()
-  ctx.arc(26, -10, 20, 0, Math.PI * 2)
-  ctx.fill()
-  ctx.fillStyle = '#ff6f00'
-  ctx.beginPath()
-  ctx.ellipse(44, -6, 14, 7, 0.2, 0, Math.PI * 2)
+  ctx.ellipse(duck.kind === 'zigzag' ? 40 : 44, duck.kind === 'dive' ? 0 : -6, 14, 6, 0.2, 0, Math.PI * 2)
   ctx.fill()
   ctx.fillStyle = '#1a120c'
   ctx.beginPath()
-  ctx.arc(30, -16, 3.8, 0, Math.PI * 2)
+  ctx.arc(30, duck.kind === 'dive' ? -8 : -16, 3.6, 0, Math.PI * 2)
   ctx.fill()
-  ctx.fillStyle = '#ffc107'
-  ctx.beginPath()
-  ctx.moveTo(16, -26)
-  ctx.lineTo(26, -46)
-  ctx.lineTo(36, -26)
-  ctx.closePath()
-  ctx.fill()
-  ctx.restore()
-}
-
-function drawDog(ctx: CanvasRenderingContext2D, w: number, h: number, show: number) {
-  if (show <= 0) return
-  const grass = h * 0.68
-  ctx.save()
-  ctx.globalAlpha = Math.min(1, show)
-  ctx.translate(w * 0.5, grass + 18)
-  ctx.fillStyle = '#6b3a12'
-  ctx.beginPath()
-  ctx.ellipse(0, 0, 34, 20, 0, 0, Math.PI * 2)
-  ctx.fill()
-  ctx.fillStyle = '#c47a2a'
-  ctx.beginPath()
-  ctx.ellipse(8, 5, 14, 10, 0.2, 0, Math.PI * 2)
-  ctx.fill()
-  ctx.fillStyle = '#8a4a18'
-  ctx.beginPath()
-  ctx.arc(16, -18, 14, 0, Math.PI * 2)
-  ctx.fill()
-  ctx.fillStyle = '#4a240c'
-  ctx.beginPath()
-  ctx.ellipse(-18, -8, 8, 14, 0.5, 0, Math.PI * 2)
-  ctx.fill()
-  ctx.fillStyle = '#e0a020'
-  ctx.fillRect(-4, -8, 24, 5)
-  ctx.beginPath()
-  ctx.arc(8, -6, 8, 0, Math.PI * 2)
-  ctx.fill()
-  ctx.fillStyle = '#7a1fa2'
-  ctx.beginPath()
-  ctx.arc(8, -6, 4, 0, Math.PI * 2)
-  ctx.fill()
-  ctx.fillStyle = '#ffc107'
-  ctx.beginPath()
-  ctx.moveTo(2, -32)
-  ctx.lineTo(10, -44)
-  ctx.lineTo(18, -32)
-  ctx.closePath()
-  ctx.fill()
+  if (duck.kind === 'common' || duck.kind === 'gold' || duck.kind === 'last') {
+    ctx.fillStyle = '#ffc107'
+    ctx.beginPath()
+    ctx.moveTo(16, -26)
+    ctx.lineTo(26, duck.kind === 'last' ? -52 : -46)
+    ctx.lineTo(36, -26)
+    ctx.closePath()
+    ctx.fill()
+  }
   ctx.restore()
 }
 
@@ -225,35 +218,31 @@ function drawWeaponIcon(ctx: CanvasRenderingContext2D, w: number, h: number, id:
   }
 }
 
-function cueText(cue: number, n: number) {
-  if (cue < 0.4) return `ROUND ${n}`
-  if (cue < 0.75) return 'READY'
-  if (cue < 1.05) return '3'
-  if (cue < 1.35) return '2'
-  if (cue < 1.65) return '1'
-  if (cue < 2.05) return 'HUNT'
+function cueText(cue: number) {
+  if (cue < 0.45) return 'READY'
+  if (cue < 0.8) return '3'
+  if (cue < 1.15) return '2'
+  if (cue < 1.5) return '1'
+  if (cue < HUNT_CUE_END) return 'WAVE 1'
   return ''
 }
 
-export function HuntGame({ running, levelIndex, weaponId, onShot, onHit, onHud, onClear, onFail }: HuntGameProps) {
+export function HuntGame({ running, weaponId, onShot, onHit, onHud, onDone }: HuntGameProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const onShotRef = useRef(onShot)
   const onHitRef = useRef(onHit)
   const onHudRef = useRef(onHud)
-  const onClearRef = useRef(onClear)
-  const onFailRef = useRef(onFail)
+  const onDoneRef = useRef(onDone)
   onShotRef.current = onShot
   onHitRef.current = onHit
   onHudRef.current = onHud
-  onClearRef.current = onClear
-  onFailRef.current = onFail
+  onDoneRef.current = onDone
 
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
     const ctx = canvas.getContext('2d')
     if (!ctx) return
-    const level = huntLevel(levelIndex)
     const weapon = huntWeapon(weaponId)
     const ducks: Duck[] = []
     const parts: Particle[] = []
@@ -264,6 +253,7 @@ export function HuntGame({ running, levelIndex, weaponId, onShot, onHit, onHud, 
       { x: 180, y: 72, s: 1.3, v: 8 },
       { x: 300, y: 40, s: 0.8, v: 15 },
     ]
+    let wave = 0
     let hits = 0
     let score = 0
     let combo = 0
@@ -271,20 +261,22 @@ export function HuntGame({ running, levelIndex, weaponId, onShot, onHit, onHud, 
     let ended = false
     let last = performance.now()
     let live = 0
+    let cue = 0
     let cool = 0
     let raf = 0
     let shake = 0
     let slow = 0
     let recoil = 0
     let flash = 0
-    let dog = 0
-    let cue = 0
     let reload = 0
-    let climax = false
+    let banner = 0
+    let lastDuck = false
+    let lastHit: boolean | null = null
     let finale = 0
     let finger = false
     let aim = { x: 0, y: 0 }
     let clock = 0
+    let verdict: 'perfect' | 'close' = 'close'
 
     const resize = () => {
       const parent = canvas.parentElement
@@ -300,55 +292,73 @@ export function HuntGame({ running, levelIndex, weaponId, onShot, onHit, onHud, 
     resize()
     window.addEventListener('resize', resize)
     const size = () => ({ w: canvas.clientWidth, h: canvas.clientHeight })
-    const canShoot = () => (levelIndex === 0 ? cue >= HUNT_CUE_END : cue >= 2)
+    const canShoot = () => cue >= HUNT_CUE_END
 
-    const spawn = (opts?: { gold?: boolean; boss?: boolean; visible?: boolean }) => {
+    const spawn = (kind: Kind, visible = true) => {
       const { w, h } = size()
-      const gold = Boolean(opts?.gold || opts?.boss)
-      const boss = Boolean(opts?.boss)
-      const fromLeft = Math.random() > 0.5
+      const cfg = huntWave(wave)
+      const edge = Math.floor(Math.random() * 3)
+      const fromLeft = edge !== 1
       const dir: 1 | -1 = fromLeft ? 1 : -1
-      const fly = boss ? 5.2 : level.flyMin + Math.random() * (level.flyMax - level.flyMin)
-      const visible = opts?.visible !== false
-      const x = visible ? (fromLeft ? w * 0.18 : w * 0.82) : fromLeft ? -40 : w + 40
+      const fly = kind === 'last' ? 6 : cfg.flyMin + Math.random() * (cfg.flyMax - cfg.flyMin)
+      let x = visible ? (fromLeft ? w * 0.16 : w * 0.84) : fromLeft ? -40 : w + 40
+      let y = h * (0.16 + Math.random() * 0.3)
+      let vx = dir * ((w + 90) / fly)
+      let vy = (Math.random() - 0.5) * 36
+      if (edge === 2) {
+        x = w * (0.2 + Math.random() * 0.6)
+        y = visible ? h * 0.12 : -40
+        vx = (Math.random() > 0.5 ? 1 : -1) * (w * 0.28) / fly
+        vy = (h * 0.35) / fly
+      }
       ducks.push({
         x,
-        y: h * (boss ? 0.28 : 0.18 + Math.random() * 0.28),
-        vx: dir * ((w + 80) / fly),
-        vy: (Math.random() - 0.5) * (boss ? 20 : 40 + level.turn * 30),
-        size: boss ? 168 : gold ? level.size + 12 : level.size,
+        y,
+        vx,
+        vy,
+        size: kind === 'last' ? 170 : kind === 'gold' ? cfg.size + 16 : kind === 'common' ? cfg.size : cfg.size,
         phase: Math.random() * 6,
         flap: Math.random() * 8,
-        dir,
+        dir: vx >= 0 ? 1 : -1,
         state: 'fly',
         rot: 0,
         life: 1,
-        gold,
-        boss,
-        turnIn: boss ? 9 : level.turn < 0.3 ? 99 : 0.55 + Math.random() * 0.9,
+        kind,
+        turnIn: kind === 'zigzag' ? 0.35 : kind === 'common' ? 99 : 0.8,
+        dive: kind === 'dive' ? 0.5 + Math.random() * 0.8 : 9,
       })
     }
 
-    const keepDucks = () => {
-      if (ended || climax) return
-      const need = level.ducks
-      while (ducks.filter((d) => d.state === 'fly').length < need) spawn({ visible: true, gold: Math.random() < level.gold })
+    const pickKind = (): Kind => {
+      const cfg = huntWave(wave)
+      if (wave === 2 && Math.random() < 0.12) return 'gold'
+      return cfg.kind
     }
-    spawn({ visible: true })
-    if (level.ducks > 1) spawn({ visible: true })
 
-    const burst = (x: number, y: number, gold: boolean, fat: boolean) => {
-      const n = fat ? 36 : 16
+    const keepDucks = () => {
+      if (ended || lastDuck) return
+      const cfg = huntWave(wave)
+      const need = wave === 0 ? (live < 18 ? 1 : 2) : cfg.ducks
+      while (ducks.filter((d) => d.state === 'fly').length < need) spawn(pickKind(), true)
+    }
+
+    spawn('common', true)
+
+    const feathers = (x: number, y: number, kind: Kind, fat: boolean) => {
+      const c = palette(kind)
+      const n = fat ? 28 : 12
       for (let i = 0; i < n; i += 1) {
         const a = (i / n) * Math.PI * 2
-        const sp = fat ? 160 : 90
+        const sp = fat ? 170 : 95
         parts.push({
           x,
           y,
-          vx: Math.cos(a) * (sp + Math.random() * sp),
-          vy: Math.sin(a) * (sp + Math.random() * sp),
-          t: fat ? 0.9 : 0.45,
-          color: gold ? '#ffe082' : i % 2 ? '#ffca28' : '#fff8e1',
+          vx: Math.cos(a) * (sp + Math.random() * 70),
+          vy: Math.sin(a) * (sp + Math.random() * 70) - 40,
+          t: fat ? 0.9 : 0.5,
+          color: i % 2 ? c.body : c.wing,
+          w: fat ? 7 : 5,
+          h: fat ? 3 : 2,
         })
       }
     }
@@ -356,20 +366,20 @@ export function HuntGame({ running, levelIndex, weaponId, onShot, onHit, onHud, 
     const tick = (now: number) => {
       const raw = Math.min(0.05, (now - last) / 1000)
       last = now
-      const dt = raw * (slow > 0 ? 0.28 : 1)
+      const dt = raw * (slow > 0 ? 0.3 : 1)
       slow = Math.max(0, slow - raw)
       clock += dt
       const { w, h } = size()
       if (running && !ended) {
         cue += raw
-        if (canShoot()) live += dt
+        if (canShoot() && banner <= 0) live += dt
       }
       cool = Math.max(0, cool - raw)
       recoil = Math.max(0, recoil - raw * 9)
       flash = Math.max(0, flash - raw * 7)
       shake = Math.max(0, shake - raw * 9)
-      dog = Math.max(0, dog - raw)
       reload = Math.max(0, reload - raw)
+      banner = Math.max(0, banner - raw)
       if (reload === 0 && ammo <= 0 && canShoot() && !ended) ammo = weapon.ammo
       for (const c of clouds) {
         c.x += c.v * dt * 0.35
@@ -377,44 +387,50 @@ export function HuntGame({ running, levelIndex, weaponId, onShot, onHit, onHud, 
       }
       drawField(ctx, w, h, clock, shake, clouds)
 
+      const cfg = huntWave(wave)
       const skyMax = h * 0.62
-      if (running && !ended && canShoot()) keepDucks()
-      if (!canShoot() && ducks.filter((d) => d.state === 'fly').length === 0) spawn({ visible: true })
+      if (running && !ended && canShoot() && banner <= 0) keepDucks()
+      if (!canShoot() && ducks.filter((d) => d.state === 'fly').length === 0) spawn('common', true)
 
-      if (levelIndex === 2 && canShoot() && !climax && !ended && live >= level.seconds - 7) {
-        climax = true
+      if (wave === 2 && canShoot() && !lastDuck && live >= cfg.seconds - 8) {
+        lastDuck = true
         for (const duck of ducks) {
-          if (duck.state === 'fly' && !duck.boss) duck.state = 'fall'
+          if (duck.state === 'fly' && duck.kind !== 'last') duck.state = 'fall'
         }
-        spawn({ boss: true, visible: true })
+        spawn('last', true)
       }
 
       for (const duck of ducks) {
-        duck.flap += dt * 16
+        duck.flap += dt * (duck.kind === 'zigzag' ? 22 : 15)
         duck.phase += dt * 7
         if (duck.state === 'fall') {
-          duck.vy += 620 * dt
+          duck.vy += 640 * dt
           duck.y += duck.vy * dt
           duck.x += duck.vx * dt * 0.2
           duck.rot += dt * 7 * duck.dir
-          duck.life -= dt * 1.2
+          duck.life -= dt * 1.15
         } else {
           duck.turnIn -= dt
-          if (duck.turnIn <= 0 && !duck.boss) {
+          duck.dive -= dt
+          if (duck.kind === 'zigzag' && duck.turnIn <= 0) {
             duck.vx *= -1
             duck.dir = duck.vx >= 0 ? 1 : -1
-            duck.vy = (Math.random() - 0.5) * 90 * (0.35 + level.turn)
-            duck.turnIn = Math.max(0.32, 1.35 - level.turn * 0.4 + Math.random() * 0.45)
+            duck.vy = (Math.random() - 0.5) * 140
+            duck.turnIn = 0.28 + Math.random() * 0.35
+          }
+          if (duck.kind === 'dive' && duck.dive <= 0) {
+            duck.vy = 160
+            duck.dive = 1.1 + Math.random()
           }
           duck.x += duck.vx * dt
-          duck.y += duck.vy * dt + Math.sin(duck.phase) * 18 * dt
-          duck.y = Math.max(40, Math.min(skyMax, duck.y))
-          if (duck.boss) {
-            if (duck.x < 50) {
+          duck.y += duck.vy * dt + Math.sin(duck.phase) * (duck.kind === 'common' ? 10 : 22) * dt
+          duck.y = Math.max(38, Math.min(skyMax, duck.y))
+          if (duck.kind === 'last') {
+            if (duck.x < 48) {
               duck.vx = Math.abs(duck.vx)
               duck.dir = 1
             }
-            if (duck.x > w - 50) {
+            if (duck.x > w - 48) {
               duck.vx = -Math.abs(duck.vx)
               duck.dir = -1
             }
@@ -423,11 +439,11 @@ export function HuntGame({ running, levelIndex, weaponId, onShot, onHit, onHud, 
       }
       for (let i = ducks.length - 1; i >= 0; i -= 1) {
         const duck = ducks[i]
-        if (duck.boss && duck.state === 'fly') continue
-        if (duck.x < -70 || duck.x > w + 70 || duck.y > h + 40 || duck.life <= 0) ducks.splice(i, 1)
+        if (duck.kind === 'last' && duck.state === 'fly') continue
+        if (duck.kind === 'last' && duck.state === 'fall' && duck.life <= 0) ducks.splice(i, 1)
+        else if (duck.kind !== 'last' && (duck.x < -70 || duck.x > w + 70 || duck.y > h + 40 || duck.life <= 0)) ducks.splice(i, 1)
       }
       for (const duck of ducks) drawDuck(ctx, duck)
-      if (dog > 0 || (!canShoot() && levelIndex > 0)) drawDog(ctx, w, h, canShoot() ? dog : 1)
 
       for (let i = trails.length - 1; i >= 0; i -= 1) {
         const tr = trails[i]
@@ -448,20 +464,20 @@ export function HuntGame({ running, levelIndex, weaponId, onShot, onHit, onHud, 
         p.t -= dt
         p.x += p.vx * dt
         p.y += p.vy * dt
-        p.vy += 120 * dt
+        p.vy += 140 * dt
         if (p.t <= 0) {
           parts.splice(i, 1)
           continue
         }
         ctx.globalAlpha = Math.max(0, p.t * 2)
         ctx.fillStyle = p.color
-        ctx.fillRect(p.x, p.y, 4, 4)
+        ctx.fillRect(p.x, p.y, p.w, p.h)
         ctx.globalAlpha = 1
       }
       for (let i = floats.length - 1; i >= 0; i -= 1) {
         const f = floats[i]
         f.t -= dt
-        f.y -= 48 * dt
+        f.y -= 50 * dt
         if (f.t <= 0) {
           floats.splice(i, 1)
           continue
@@ -476,25 +492,32 @@ export function HuntGame({ running, levelIndex, weaponId, onShot, onHit, onHud, 
 
       if (finale > 0) {
         finale -= raw
-        ctx.fillStyle = `rgba(255, 210, 60, ${Math.max(0, finale) * 0.35})`
+        ctx.fillStyle = `rgba(255, 210, 60, ${Math.max(0, finale) * 0.4})`
         ctx.fillRect(0, 0, w, h)
+        ctx.fillStyle = '#fff8e1'
+        ctx.font = '900 46px ui-sans-serif, system-ui'
+        ctx.textAlign = 'center'
+        ctx.fillText(verdict === 'perfect' ? 'PERFECT' : 'SO CLOSE', w / 2, h * 0.42)
         if (finale <= 0 && !ended) {
           ended = true
-          onClearRef.current()
+          onDoneRef.current(verdict)
         }
       }
 
-      if (running && !ended && finale <= 0) {
-        const remaining = Math.max(0, level.seconds - live)
-        onHudRef.current({ remaining, hits, required: level.required, ammo, ammoMax: weapon.ammo, score, combo })
-        if (climax && live >= level.seconds && ducks.every((d) => !d.boss || d.state !== 'fly')) {
-          ended = true
-          if (hits >= level.required) onClearRef.current()
-          else onFailRef.current()
-        } else if (!climax && live >= level.seconds) {
-          ended = true
-          if (hits >= level.required) onClearRef.current()
-          else onFailRef.current()
+      if (running && !ended && finale <= 0 && canShoot() && banner <= 0) {
+        const remaining = Math.max(0, cfg.seconds - live)
+        onHudRef.current({ remaining, hits, ammo, ammoMax: weapon.ammo, score, combo, wave: wave + 1 })
+        if (lastDuck && remaining <= 0) {
+          verdict = lastHit === true ? 'perfect' : 'close'
+          finale = 1.1
+        } else if (!lastDuck && remaining <= 0 && wave < HUNT_WAVE_COUNT - 1) {
+          wave += 1
+          live = 0
+          banner = 1.15
+          ammo = weapon.ammo
+          for (const duck of ducks) {
+            if (duck.state === 'fly') duck.state = 'fall'
+          }
         }
       }
 
@@ -505,26 +528,25 @@ export function HuntGame({ running, levelIndex, weaponId, onShot, onHit, onHud, 
       ctx.textAlign = 'left'
       ctx.fillText(`SCORE ${score}`, 12, 20)
       ctx.textAlign = 'center'
-      ctx.fillText(`TIME ${Math.ceil(Math.max(0, level.seconds - live))}`, w / 2, 20)
+      ctx.fillText(`TIME ${Math.ceil(Math.max(0, huntWave(wave).seconds - live))}`, w / 2, 20)
       ctx.textAlign = 'right'
       ctx.fillText('SHOTS', w - 12, 18)
-      const dots = weapon.ammo
-      for (let i = 0; i < dots; i += 1) {
+      for (let i = 0; i < weapon.ammo; i += 1) {
         ctx.beginPath()
         ctx.fillStyle = i < ammo ? '#ffc107' : 'rgba(255,255,255,0.25)'
-        ctx.arc(w - 18 - (dots - 1 - i) * 14, 34, 5, 0, Math.PI * 2)
+        ctx.arc(w - 18 - (weapon.ammo - 1 - i) * 14, 34, 5, 0, Math.PI * 2)
         ctx.fill()
       }
       drawWeaponIcon(ctx, w, h, weaponId)
 
-      const banner = running && levelIndex === 0 ? cueText(cue, 1) : running && cue < 2 ? `ROUND ${levelIndex + 1}` : ''
-      if (banner) {
+      const title = !canShoot() ? cueText(cue) : banner > 0 ? `WAVE ${wave + 1}` : ''
+      if (title) {
         ctx.fillStyle = 'rgba(0,0,0,0.22)'
         ctx.fillRect(0, h * 0.4, w, 58)
         ctx.fillStyle = '#fff8e1'
         ctx.font = '900 40px ui-sans-serif, system-ui'
         ctx.textAlign = 'center'
-        ctx.fillText(banner, w / 2, h * 0.4 + 42)
+        ctx.fillText(title, w / 2, h * 0.4 + 42)
       }
 
       if (finger) {
@@ -563,10 +585,10 @@ export function HuntGame({ running, levelIndex, weaponId, onShot, onHit, onHud, 
       cool = weapon.cooldown
       recoil = 1
       flash = 1
-      shake = Math.max(shake, 0.55)
+      shake = Math.max(shake, 0.5)
       const { h } = size()
       trails.push({ x: aim.x, y: h - 36, tx: aim.x, ty: aim.y, t: 1 })
-      burst(aim.x, aim.y, false, false)
+      feathers(aim.x, aim.y, 'common', false)
       huntShotSound()
       onShotRef.current()
       const hit = [...ducks].reverse().find((duck) => {
@@ -580,21 +602,23 @@ export function HuntGame({ running, levelIndex, weaponId, onShot, onHit, onHud, 
         return
       }
       hit.state = 'fall'
-      hit.vy = 28
+      hit.vy = 26
       hits += 1
       combo += 1
-      const points = (hit.boss ? 800 : hit.gold ? 300 : 100) * Math.max(1, combo)
+      const base = hit.kind === 'last' ? 900 : hit.kind === 'gold' ? 350 : 100
+      const points = base * combo
       score += points
-      shake = hit.boss ? 2.4 : 1.3
-      slow = hit.boss ? 0.42 : 0.18
-      burst(hit.x, hit.y, hit.gold || hit.boss, hit.boss)
+      shake = hit.kind === 'last' ? 2.5 : 1.25
+      slow = hit.kind === 'last' ? 0.4 : 0.16
+      feathers(hit.x, hit.y, hit.kind, hit.kind === 'last')
       floats.push({ x: hit.x, y: hit.y - 14, t: 0.8, text: `HIT +${points}` })
-      if (combo > 1) floats.push({ x: hit.x, y: hit.y + 12, t: 0.55, text: `x${combo}` })
+      if (combo > 1) floats.push({ x: hit.x, y: hit.y + 12, t: 0.5, text: `x${combo}` })
       huntHitSound()
       onHitRef.current(points, combo)
-      if (hit.boss) {
-        climax = true
-        finale = 0.85
+      if (hit.kind === 'last') {
+        lastHit = true
+        verdict = 'perfect'
+        finale = 1.15
       }
     }
 
@@ -626,7 +650,7 @@ export function HuntGame({ running, levelIndex, weaponId, onShot, onHit, onHud, 
       canvas.removeEventListener('pointerup', onUp)
       canvas.removeEventListener('pointercancel', onUp)
     }
-  }, [running, levelIndex, weaponId])
+  }, [running, weaponId])
 
   return <canvas ref={canvasRef} className="absolute inset-0 block h-full w-full touch-none" />
 }
