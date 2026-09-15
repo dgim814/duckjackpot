@@ -39,7 +39,7 @@ export function HuntPage() {
   const [error, setError] = useState<string | null>(null)
   const [levelIndex, setLevelIndex] = useState(0)
   const [weaponId, setWeaponId] = useState<HuntWeaponId>('blaster')
-  const [hud, setHud] = useState<HuntHud>({ remaining: 48, hits: 0, required: 6, ammo: 3, ammoMax: 3, score: 0, combo: 0 })
+  const [hud, setHud] = useState<HuntHud>({ remaining: 24, hits: 0, required: 4, ammo: 3, ammoMax: 3, score: 0, combo: 0 })
   const [score, setScore] = useState(0)
   const [best, setBest] = useState(readHuntBest)
   const [xp, setXp] = useState(readHuntXp)

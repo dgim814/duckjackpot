@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { huntLevel } from './levels'
+import { huntLevel, HUNT_CUE_END } from './levels'
 import { huntHitSound, huntMissSound, huntShotSound } from './sound'
 import { huntWeapon, type HuntWeaponId } from './weapons'
 
@@ -16,12 +16,14 @@ type Duck = {
   rot: number
   life: number
   gold: boolean
+  boss: boolean
   turnIn: number
 }
 
 type Particle = { x: number; y: number; vx: number; vy: number; t: number; color: string }
 type Floater = { x: number; y: number; t: number; text: string }
 type Cloud = { x: number; y: number; s: number; v: number }
+type Trail = { x: number; y: number; tx: number; ty: number; t: number }
 
 export type HuntHud = {
   remaining: number
@@ -256,6 +258,7 @@ export function HuntGame({ running, levelIndex, weaponId, onShot, onHit, onHud, 
     const ducks: Duck[] = []
     const parts: Particle[] = []
     const floats: Floater[] = []
+    const trails: Trail[] = []
     const clouds: Cloud[] = [
       { x: 40, y: 48, s: 1, v: 12 },
       { x: 180, y: 72, s: 1.3, v: 8 },
@@ -267,7 +270,7 @@ export function HuntGame({ running, levelIndex, weaponId, onShot, onHit, onHud, 
     let ammo = weapon.ammo
     let ended = false
     let last = performance.now()
-    let elapsed = 0
+    let live = 0
     let cool = 0
     let raf = 0
     let shake = 0
@@ -276,7 +279,10 @@ export function HuntGame({ running, levelIndex, weaponId, onShot, onHit, onHud, 
     let flash = 0
     let dog = 0
     let cue = 0
-    let waveReady = true
+    let reload = 0
+    let climax = false
+    let finale = 0
+    let finger = false
     let aim = { x: 0, y: 0 }
     let clock = 0
 
@@ -290,26 +296,27 @@ export function HuntGame({ running, levelIndex, weaponId, onShot, onHit, onHud, 
       canvas.style.width = `${w}px`
       canvas.style.height = `${h}px`
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-      if (!aim.x) {
-        aim.x = w / 2
-        aim.y = h * 0.36
-      }
     }
     resize()
     window.addEventListener('resize', resize)
     const size = () => ({ w: canvas.clientWidth, h: canvas.clientHeight })
+    const canShoot = () => (levelIndex === 0 ? cue >= HUNT_CUE_END : cue >= 2)
 
-    const spawn = (gold = false) => {
+    const spawn = (opts?: { gold?: boolean; boss?: boolean; visible?: boolean }) => {
       const { w, h } = size()
+      const gold = Boolean(opts?.gold || opts?.boss)
+      const boss = Boolean(opts?.boss)
       const fromLeft = Math.random() > 0.5
       const dir: 1 | -1 = fromLeft ? 1 : -1
-      const fly = level.flyMin + Math.random() * (level.flyMax - level.flyMin)
+      const fly = boss ? 5.2 : level.flyMin + Math.random() * (level.flyMax - level.flyMin)
+      const visible = opts?.visible !== false
+      const x = visible ? (fromLeft ? w * 0.18 : w * 0.82) : fromLeft ? -40 : w + 40
       ducks.push({
-        x: fromLeft ? -40 : w + 40,
-        y: h * 0.16 + Math.random() * (h * 0.32),
+        x,
+        y: h * (boss ? 0.28 : 0.18 + Math.random() * 0.28),
         vx: dir * ((w + 80) / fly),
-        vy: (Math.random() - 0.5) * 50,
-        size: gold ? level.size + 10 : level.size,
+        vy: (Math.random() - 0.5) * (boss ? 20 : 40 + level.turn * 30),
+        size: boss ? 168 : gold ? level.size + 12 : level.size,
         phase: Math.random() * 6,
         flap: Math.random() * 8,
         dir,
@@ -317,28 +324,31 @@ export function HuntGame({ running, levelIndex, weaponId, onShot, onHit, onHud, 
         rot: 0,
         life: 1,
         gold,
-        turnIn: 0.6 + Math.random() * 1.1,
+        boss,
+        turnIn: boss ? 9 : level.turn < 0.3 ? 99 : 0.55 + Math.random() * 0.9,
       })
     }
 
-    const startWave = () => {
-      ammo = weapon.ammo
-      waveReady = false
-      const n = running ? level.ducks : 1
-      for (let i = 0; i < n; i += 1) spawn(running && Math.random() < level.gold)
+    const keepDucks = () => {
+      if (ended || climax) return
+      const need = level.ducks
+      while (ducks.filter((d) => d.state === 'fly').length < need) spawn({ visible: true, gold: Math.random() < level.gold })
     }
-    startWave()
+    spawn({ visible: true })
+    if (level.ducks > 1) spawn({ visible: true })
 
-    const burst = (x: number, y: number, gold: boolean) => {
-      for (let i = 0; i < 14; i += 1) {
-        const a = (i / 14) * Math.PI * 2
+    const burst = (x: number, y: number, gold: boolean, fat: boolean) => {
+      const n = fat ? 36 : 16
+      for (let i = 0; i < n; i += 1) {
+        const a = (i / n) * Math.PI * 2
+        const sp = fat ? 160 : 90
         parts.push({
           x,
           y,
-          vx: Math.cos(a) * (80 + Math.random() * 90),
-          vy: Math.sin(a) * (80 + Math.random() * 90),
-          t: 0.45,
-          color: gold ? '#ffe082' : '#ffca28',
+          vx: Math.cos(a) * (sp + Math.random() * sp),
+          vy: Math.sin(a) * (sp + Math.random() * sp),
+          t: fat ? 0.9 : 0.45,
+          color: gold ? '#ffe082' : i % 2 ? '#ffca28' : '#fff8e1',
         })
       }
     }
@@ -346,19 +356,21 @@ export function HuntGame({ running, levelIndex, weaponId, onShot, onHit, onHud, 
     const tick = (now: number) => {
       const raw = Math.min(0.05, (now - last) / 1000)
       last = now
-      const dt = raw * (slow > 0 ? 0.32 : 1)
+      const dt = raw * (slow > 0 ? 0.28 : 1)
       slow = Math.max(0, slow - raw)
       clock += dt
       const { w, h } = size()
       if (running && !ended) {
-        elapsed += dt
         cue += raw
+        if (canShoot()) live += dt
       }
       cool = Math.max(0, cool - raw)
-      recoil = Math.max(0, recoil - raw * 8)
-      flash = Math.max(0, flash - raw * 8)
-      shake = Math.max(0, shake - raw * 10)
+      recoil = Math.max(0, recoil - raw * 9)
+      flash = Math.max(0, flash - raw * 7)
+      shake = Math.max(0, shake - raw * 9)
       dog = Math.max(0, dog - raw)
+      reload = Math.max(0, reload - raw)
+      if (reload === 0 && ammo <= 0 && canShoot() && !ended) ammo = weapon.ammo
       for (const c of clouds) {
         c.x += c.v * dt * 0.35
         if (c.x > w + 80) c.x = -80
@@ -366,6 +378,17 @@ export function HuntGame({ running, levelIndex, weaponId, onShot, onHit, onHud, 
       drawField(ctx, w, h, clock, shake, clouds)
 
       const skyMax = h * 0.62
+      if (running && !ended && canShoot()) keepDucks()
+      if (!canShoot() && ducks.filter((d) => d.state === 'fly').length === 0) spawn({ visible: true })
+
+      if (levelIndex === 2 && canShoot() && !climax && !ended && live >= level.seconds - 7) {
+        climax = true
+        for (const duck of ducks) {
+          if (duck.state === 'fly' && !duck.boss) duck.state = 'fall'
+        }
+        spawn({ boss: true, visible: true })
+      }
+
       for (const duck of ducks) {
         duck.flap += dt * 16
         duck.phase += dt * 7
@@ -377,24 +400,49 @@ export function HuntGame({ running, levelIndex, weaponId, onShot, onHit, onHud, 
           duck.life -= dt * 1.2
         } else {
           duck.turnIn -= dt
-          if (duck.turnIn <= 0) {
+          if (duck.turnIn <= 0 && !duck.boss) {
             duck.vx *= -1
             duck.dir = duck.vx >= 0 ? 1 : -1
-            duck.vy = (Math.random() - 0.5) * 90 * (0.4 + level.turn)
-            duck.turnIn = Math.max(0.35, 1.4 - level.turn * 0.4 + Math.random() * 0.5)
+            duck.vy = (Math.random() - 0.5) * 90 * (0.35 + level.turn)
+            duck.turnIn = Math.max(0.32, 1.35 - level.turn * 0.4 + Math.random() * 0.45)
           }
           duck.x += duck.vx * dt
           duck.y += duck.vy * dt + Math.sin(duck.phase) * 18 * dt
-          duck.y = Math.max(36, Math.min(skyMax, duck.y))
+          duck.y = Math.max(40, Math.min(skyMax, duck.y))
+          if (duck.boss) {
+            if (duck.x < 50) {
+              duck.vx = Math.abs(duck.vx)
+              duck.dir = 1
+            }
+            if (duck.x > w - 50) {
+              duck.vx = -Math.abs(duck.vx)
+              duck.dir = -1
+            }
+          }
         }
       }
       for (let i = ducks.length - 1; i >= 0; i -= 1) {
         const duck = ducks[i]
-        if (duck.x < -60 || duck.x > w + 60 || duck.y > h + 40 || duck.life <= 0) ducks.splice(i, 1)
+        if (duck.boss && duck.state === 'fly') continue
+        if (duck.x < -70 || duck.x > w + 70 || duck.y > h + 40 || duck.life <= 0) ducks.splice(i, 1)
       }
       for (const duck of ducks) drawDuck(ctx, duck)
-      if (dog > 0) drawDog(ctx, w, h, dog)
+      if (dog > 0 || (!canShoot() && levelIndex > 0)) drawDog(ctx, w, h, canShoot() ? dog : 1)
 
+      for (let i = trails.length - 1; i >= 0; i -= 1) {
+        const tr = trails[i]
+        tr.t -= raw * 4
+        if (tr.t <= 0) {
+          trails.splice(i, 1)
+          continue
+        }
+        ctx.strokeStyle = `rgba(255, 230, 120, ${tr.t})`
+        ctx.lineWidth = 3
+        ctx.beginPath()
+        ctx.moveTo(tr.x, tr.y)
+        ctx.lineTo(tr.tx, tr.ty)
+        ctx.stroke()
+      }
       for (let i = parts.length - 1; i >= 0; i -= 1) {
         const p = parts[i]
         p.t -= dt
@@ -413,30 +461,37 @@ export function HuntGame({ running, levelIndex, weaponId, onShot, onHit, onHud, 
       for (let i = floats.length - 1; i >= 0; i -= 1) {
         const f = floats[i]
         f.t -= dt
-        f.y -= 40 * dt
+        f.y -= 48 * dt
         if (f.t <= 0) {
           floats.splice(i, 1)
           continue
         }
         ctx.globalAlpha = Math.min(1, f.t * 3)
         ctx.fillStyle = '#fff8e1'
-        ctx.font = '800 22px ui-sans-serif, system-ui'
+        ctx.font = '800 24px ui-sans-serif, system-ui'
         ctx.textAlign = 'center'
         ctx.fillText(f.text, f.x, f.y)
         ctx.globalAlpha = 1
       }
 
-      const flying = ducks.filter((d) => d.state === 'fly')
-      if (running && !ended) {
-        if (flying.length === 0 && ducks.length === 0) {
-          if (!waveReady) {
-            dog = 1.15
-            waveReady = true
-          } else if (dog <= 0) startWave()
+      if (finale > 0) {
+        finale -= raw
+        ctx.fillStyle = `rgba(255, 210, 60, ${Math.max(0, finale) * 0.35})`
+        ctx.fillRect(0, 0, w, h)
+        if (finale <= 0 && !ended) {
+          ended = true
+          onClearRef.current()
         }
-        const remaining = Math.max(0, level.seconds - elapsed)
+      }
+
+      if (running && !ended && finale <= 0) {
+        const remaining = Math.max(0, level.seconds - live)
         onHudRef.current({ remaining, hits, required: level.required, ammo, ammoMax: weapon.ammo, score, combo })
-        if (remaining <= 0) {
+        if (climax && live >= level.seconds && ducks.every((d) => !d.boss || d.state !== 'fly')) {
+          ended = true
+          if (hits >= level.required) onClearRef.current()
+          else onFailRef.current()
+        } else if (!climax && live >= level.seconds) {
           ended = true
           if (hits >= level.required) onClearRef.current()
           else onFailRef.current()
@@ -450,7 +505,7 @@ export function HuntGame({ running, levelIndex, weaponId, onShot, onHit, onHud, 
       ctx.textAlign = 'left'
       ctx.fillText(`SCORE ${score}`, 12, 20)
       ctx.textAlign = 'center'
-      ctx.fillText(`TIME ${Math.ceil(Math.max(0, level.seconds - elapsed))}`, w / 2, 20)
+      ctx.fillText(`TIME ${Math.ceil(Math.max(0, level.seconds - live))}`, w / 2, 20)
       ctx.textAlign = 'right'
       ctx.fillText('SHOTS', w - 12, 18)
       const dots = weapon.ammo
@@ -464,34 +519,36 @@ export function HuntGame({ running, levelIndex, weaponId, onShot, onHit, onHud, 
 
       const banner = running && levelIndex === 0 ? cueText(cue, 1) : running && cue < 2 ? `ROUND ${levelIndex + 1}` : ''
       if (banner) {
-        ctx.fillStyle = 'rgba(0,0,0,0.28)'
-        ctx.fillRect(0, h * 0.38, w, 64)
+        ctx.fillStyle = 'rgba(0,0,0,0.22)'
+        ctx.fillRect(0, h * 0.4, w, 58)
         ctx.fillStyle = '#fff8e1'
-        ctx.font = '900 42px ui-sans-serif, system-ui'
+        ctx.font = '900 40px ui-sans-serif, system-ui'
         ctx.textAlign = 'center'
-        ctx.fillText(banner, w / 2, h * 0.38 + 46)
+        ctx.fillText(banner, w / 2, h * 0.4 + 42)
       }
 
-      const ax = aim.x
-      const ay = aim.y - recoil * 10
-      ctx.strokeStyle = `rgba(20,20,20,0.85)`
-      ctx.lineWidth = 2
-      ctx.beginPath()
-      ctx.arc(ax, ay, 16, 0, Math.PI * 2)
-      ctx.moveTo(ax - 24, ay)
-      ctx.lineTo(ax - 8, ay)
-      ctx.moveTo(ax + 8, ay)
-      ctx.lineTo(ax + 24, ay)
-      ctx.moveTo(ax, ay - 24)
-      ctx.lineTo(ax, ay - 8)
-      ctx.moveTo(ax, ay + 8)
-      ctx.lineTo(ax, ay + 24)
-      ctx.stroke()
-      if (flash > 0) {
-        ctx.fillStyle = `rgba(255, 220, 80, ${flash})`
+      if (finger) {
+        const ax = aim.x
+        const ay = aim.y - recoil * 12
+        ctx.strokeStyle = 'rgba(20,20,20,0.9)'
+        ctx.lineWidth = 2.5
         ctx.beginPath()
-        ctx.arc(ax, ay, 18 + (1 - flash) * 16, 0, Math.PI * 2)
-        ctx.fill()
+        ctx.arc(ax, ay, 17, 0, Math.PI * 2)
+        ctx.moveTo(ax - 26, ay)
+        ctx.lineTo(ax - 8, ay)
+        ctx.moveTo(ax + 8, ay)
+        ctx.lineTo(ax + 26, ay)
+        ctx.moveTo(ax, ay - 26)
+        ctx.lineTo(ax, ay - 8)
+        ctx.moveTo(ax, ay + 8)
+        ctx.lineTo(ax, ay + 26)
+        ctx.stroke()
+        if (flash > 0) {
+          ctx.fillStyle = `rgba(255, 220, 80, ${flash})`
+          ctx.beginPath()
+          ctx.arc(ax, ay, 20 + (1 - flash) * 22, 0, Math.PI * 2)
+          ctx.fill()
+        }
       }
       raf = window.requestAnimationFrame(tick)
     }
@@ -499,11 +556,17 @@ export function HuntGame({ running, levelIndex, weaponId, onShot, onHit, onHud, 
     const shoot = (clientX: number, clientY: number) => {
       const rect = canvas.getBoundingClientRect()
       aim = { x: clientX - rect.left, y: clientY - rect.top }
-      if (!running || ended || ammo <= 0 || cool > 0) return
+      finger = true
+      if (!running || ended || finale > 0 || !canShoot() || ammo <= 0 || cool > 0) return
       ammo -= 1
+      if (ammo <= 0) reload = 0.28
       cool = weapon.cooldown
       recoil = 1
       flash = 1
+      shake = Math.max(shake, 0.55)
+      const { h } = size()
+      trails.push({ x: aim.x, y: h - 36, tx: aim.x, ty: aim.y, t: 1 })
+      burst(aim.x, aim.y, false, false)
       huntShotSound()
       onShotRef.current()
       const hit = [...ducks].reverse().find((duck) => {
@@ -514,21 +577,25 @@ export function HuntGame({ running, levelIndex, weaponId, onShot, onHit, onHud, 
       if (!hit) {
         huntMissSound()
         combo = 0
-        floats.push({ x: aim.x, y: aim.y, t: 0.45, text: 'MISS' })
         return
       }
       hit.state = 'fall'
-      hit.vy = 30
+      hit.vy = 28
       hits += 1
       combo += 1
-      const points = (hit.gold ? 300 : 100) * Math.max(1, combo)
+      const points = (hit.boss ? 800 : hit.gold ? 300 : 100) * Math.max(1, combo)
       score += points
-      shake = 1.2
-      slow = 0.16
-      burst(hit.x, hit.y, hit.gold)
-      floats.push({ x: hit.x, y: hit.y - 12, t: 0.7, text: hit.gold ? `HIT +${points}` : `HIT +${points}` })
+      shake = hit.boss ? 2.4 : 1.3
+      slow = hit.boss ? 0.42 : 0.18
+      burst(hit.x, hit.y, hit.gold || hit.boss, hit.boss)
+      floats.push({ x: hit.x, y: hit.y - 14, t: 0.8, text: `HIT +${points}` })
+      if (combo > 1) floats.push({ x: hit.x, y: hit.y + 12, t: 0.55, text: `x${combo}` })
       huntHitSound()
       onHitRef.current(points, combo)
+      if (hit.boss) {
+        climax = true
+        finale = 0.85
+      }
     }
 
     const onDown = (event: PointerEvent) => {
@@ -537,11 +604,18 @@ export function HuntGame({ running, levelIndex, weaponId, onShot, onHit, onHud, 
       shoot(event.clientX, event.clientY)
     }
     const onMove = (event: PointerEvent) => {
+      if (!finger && event.buttons === 0 && event.pointerType !== 'touch') return
       const rect = canvas.getBoundingClientRect()
       aim = { x: event.clientX - rect.left, y: event.clientY - rect.top }
+      finger = true
+    }
+    const onUp = () => {
+      finger = false
     }
     canvas.addEventListener('pointerdown', onDown)
     canvas.addEventListener('pointermove', onMove)
+    canvas.addEventListener('pointerup', onUp)
+    canvas.addEventListener('pointercancel', onUp)
     raf = window.requestAnimationFrame(tick)
     return () => {
       ended = true
@@ -549,6 +623,8 @@ export function HuntGame({ running, levelIndex, weaponId, onShot, onHit, onHud, 
       window.removeEventListener('resize', resize)
       canvas.removeEventListener('pointerdown', onDown)
       canvas.removeEventListener('pointermove', onMove)
+      canvas.removeEventListener('pointerup', onUp)
+      canvas.removeEventListener('pointercancel', onUp)
     }
   }, [running, levelIndex, weaponId])
 
