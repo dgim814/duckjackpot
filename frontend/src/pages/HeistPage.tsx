@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { HeistDuck } from '../heist/HeistDuck'
 import { HeistGame, type HeistEnd } from '../heist/HeistGame'
 import { useI18n } from '../i18n/LanguageProvider'
 
@@ -82,7 +83,7 @@ export function HeistPage() {
     <section className="relative h-[calc(100dvh-4.75rem-env(safe-area-inset-bottom))] overflow-hidden bg-[#120c10]">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(255,107,0,0.18),transparent_50%)]" />
       <div className="absolute inset-0 flex flex-col items-center justify-end px-5 pb-6">
-        <img src="/heist/duck.png" alt="" className="mb-4 h-40 w-40 object-contain" />
+        <HeistDuck className="mb-2" />
         <div className="w-full max-w-sm rounded-3xl border border-amber-400/35 bg-[#120c10]/88 p-4 backdrop-blur-md">
           <p className="text-center text-[11px] font-extrabold uppercase tracking-[0.2em] text-amber-200">{t('heistKicker')}</p>
           <h1 className="font-display mt-1 text-center text-3xl font-black text-amber-50">{t('heistTitle')}</h1>
