@@ -3,6 +3,8 @@ import WebApp from '@twa-dev/sdk'
 import { createHeistGame } from './phaser/createHeistGame'
 import type { HeistEnd } from './types'
 import type { HeistRunMods } from './progress'
+import { bindHeistI18n } from './heistI18n'
+import { useI18n } from '../i18n/LanguageProvider'
 
 export type { HeistEnd }
 
@@ -21,6 +23,12 @@ export function HeistGame({ running, mods, onDone }: HeistGameProps) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const onDoneRef = useRef(onDone)
   onDoneRef.current = onDone
+  const { t } = useI18n()
+  bindHeistI18n(t)
+
+  useEffect(() => {
+    bindHeistI18n(t)
+  }, [t])
 
   useEffect(() => {
     const wrap = wrapRef.current

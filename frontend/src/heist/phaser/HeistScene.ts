@@ -2,8 +2,8 @@ import Phaser from 'phaser'
 import { punchBackdrop } from '../sprite'
 import type { HeistEnd } from '../types'
 import type { HeistRunMods } from '../progress'
-import { coinDef, ensureCoinPlaceholders, SAFE_REWARD, type DuckCoinKind } from '../coinAssets'
-import { messages, type Lang, type MessageKey } from '../../i18n/messages'
+import { applyCoinSpriteSize, coinDef, ensureCoinPlaceholders, loadDuckCoinImages, SAFE_REWARD, type DuckCoinKind } from '../coinAssets'
+import { heistT } from '../heistI18n'
 
 const W = 1760
 const H = 1280
@@ -64,7 +64,6 @@ export class HeistScene extends Phaser.Scene {
   private uiGfx!: Phaser.GameObjects.Graphics
   private hud!: Phaser.GameObjects.Text
   private bagHud!: Phaser.GameObjects.Text
-  private debugHud!: Phaser.GameObjects.Text
   private crackHud!: Phaser.GameObjects.Text
   private crackHint!: Phaser.GameObjects.Text
   private fx!: Phaser.GameObjects.Particles.ParticleEmitter
@@ -117,7 +116,6 @@ export class HeistScene extends Phaser.Scene {
     if (slot === 'space' && down && !this.safeCrack) this.tryDash()
   }
   private facing = new Phaser.Math.Vector2(1, 0)
-  private moveAnim: MoveAnim = 'idle'
   private noise = 0
   private noiseR = 0
   private currentLoot = 0
@@ -142,6 +140,12 @@ export class HeistScene extends Phaser.Scene {
   private openId = -1
   private bagFullFlash = 0
   private openLabel!: Phaser.GameObjects.Text
+  private exitLabel!: Phaser.GameObjects.Text
+  private lobbyLabel!: Phaser.GameObjects.Text
+  private vaultLabel!: Phaser.GameObjects.Text
+  private sneakLabel!: Phaser.GameObjects.Text
+  private dashLabel!: Phaser.GameObjects.Text
+  private safeTitle!: Phaser.GameObjects.Text
   private safeOpenedAt = 0
   private hitHeld = false
 
@@ -172,15 +176,9 @@ export class HeistScene extends Phaser.Scene {
     this.mods = mods
   }
 
-  private t(key: MessageKey, vars?: Record<string, string | number>) {
-    const lang: Lang = document.documentElement.lang === 'en' ? 'en' : 'ru'
-    const raw = messages[lang][key]
-    if (!vars) return raw
-    return raw.replace(/\{(\w+)\}/g, (_, name: string) => String(vars[name] ?? ''))
-  }
-
   preload() {
     this.load.image('duck', '/heist/duck.png')
+    loadDuckCoinImages(this)
   }
 
   create() {
@@ -262,8 +260,8 @@ export class HeistScene extends Phaser.Scene {
     this.add.rectangle(x, y, 70, 58, 0x1a2228).setStrokeStyle(2, 0x8a9aa8).setDepth(6)
     this.add.circle(x + 18, y, 8, 0xc9a227).setDepth(7)
     this.add.circle(x + 18, y, 3, 0x1a1410).setDepth(8)
-    this.add
-      .text(x, y - 38, 'SAFE', {
+    this.safeTitle = this.add
+      .text(x, y - 38, heistT('heistSafeName'), {
         fontFamily: 'Unbounded, sans-serif',
         fontSize: '12px',
         color: '#ffe08a',
@@ -348,18 +346,18 @@ export class HeistScene extends Phaser.Scene {
     this.exitZone = this.add.rectangle(148, 1188, 150, 72, 0x163826, 0.92)
     this.exitZone.setStrokeStyle(3, 0x4ad080)
     this.physics.add.existing(this.exitZone, true)
-    this.add.text(148, 1188, 'EXIT', {
+    this.exitLabel = this.add.text(148, 1188, heistT('heistExit'), {
       fontFamily: 'Unbounded, sans-serif',
       fontSize: '18px',
       color: '#c8ffd8',
     }).setOrigin(0.5)
 
-    this.add.text(148, 1108, 'BANK LOBBY', {
+    this.lobbyLabel = this.add.text(148, 1108, heistT('heistRoomLobby'), {
       fontFamily: 'Unbounded, sans-serif',
       fontSize: '11px',
       color: '#8a7a62',
     }).setOrigin(0.5)
-    this.add.text(860, 200, 'VAULT', {
+    this.vaultLabel = this.add.text(860, 200, heistT('heistRoomVault'), {
       fontFamily: 'Unbounded, sans-serif',
       fontSize: '14px',
       color: '#8a7a62',
@@ -419,7 +417,7 @@ export class HeistScene extends Phaser.Scene {
       const x = Phaser.Math.Clamp(jitter(sx, 22), 70, W - 70)
       const y = Phaser.Math.Clamp(jitter(sy, 16), 70, H - 70)
       const s = this.physics.add.sprite(x, y, def.key)
-      s.setDisplaySize(def.size, def.size)
+      applyCoinSpriteSize(s, def)
       s.setDepth(6)
       s.setData('lootId', `loot-${i}`)
       s.setData('value', def.value)
@@ -445,11 +443,6 @@ export class HeistScene extends Phaser.Scene {
       .text(12, 26, '', { fontFamily: 'Unbounded, sans-serif', fontSize: '12px', color: '#f3e6c4' })
       .setScrollFactor(0)
       .setDepth(21)
-    this.debugHud = this.add
-      .text(12, 44, '', { fontFamily: 'Unbounded, sans-serif', fontSize: '10px', color: '#7a9aaa' })
-      .setScrollFactor(0)
-      .setDepth(21)
-      .setVisible(DEBUG)
     this.crackHud = this.add
       .text(0, 36, '', {
         fontFamily: 'Unbounded, sans-serif',
@@ -520,8 +513,8 @@ export class HeistScene extends Phaser.Scene {
       this.keys = { w: off, a: off, s: off, d: off, up: off, left: off, down: off, right: off, shift: off, space: off, e: off }
     }
 
-    this.add
-      .text(this.camW() - 62, this.camH() - 158, 'SNEAK', {
+    this.sneakLabel = this.add
+      .text(this.camW() - 62, this.camH() - 158, heistT('heistSneak'), {
         fontFamily: 'Unbounded, sans-serif',
         fontSize: '9px',
         color: '#ffe08a',
@@ -529,8 +522,8 @@ export class HeistScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setScrollFactor(0)
       .setDepth(22)
-    this.add
-      .text(this.camW() - 62, this.camH() - 78, 'DASH', {
+    this.dashLabel = this.add
+      .text(this.camW() - 62, this.camH() - 78, heistT('heistDash'), {
         fontFamily: 'Unbounded, sans-serif',
         fontSize: '9px',
         color: '#ffe08a',
@@ -539,7 +532,7 @@ export class HeistScene extends Phaser.Scene {
       .setScrollFactor(0)
       .setDepth(22)
     this.openLabel = this.add
-      .text(this.camW() - 62, this.camH() - 238, this.t('heistOpen'), {
+      .text(this.camW() - 62, this.camH() - 238, heistT('heistOpen'), {
         fontFamily: 'Unbounded, sans-serif',
         fontSize: '9px',
         color: '#ffe08a',
@@ -626,7 +619,7 @@ export class HeistScene extends Phaser.Scene {
     const x = this.player.x
     const y = this.player.y - 18
     const label = this.add
-      .text(x, y, `+${gained} DUCK COIN`, {
+      .text(x, y, heistT('heistSafeReward', { n: gained }), {
         fontFamily: 'Unbounded, sans-serif',
         fontSize: '14px',
         color: '#ffe08a',
@@ -717,7 +710,7 @@ export class HeistScene extends Phaser.Scene {
     const btn = this.btnOpen()
     this.openLabel.setPosition(btn.x, btn.y)
     if (this.safeOpened) {
-      this.safePrompt.setText(this.t('heistSafeOpenedTitle'))
+      this.safePrompt.setText(heistT('heistSafeOpenedTitle'))
       this.safePrompt.setColor('#b6e3b0')
       this.openLabel.setVisible(false)
       this.hitHeld = false
@@ -725,14 +718,14 @@ export class HeistScene extends Phaser.Scene {
     }
     if (this.safeCrack) {
       this.safePrompt.setText('')
-      this.openLabel.setText(this.t('heistHit'))
+      this.openLabel.setText(heistT('heistHit'))
       this.openLabel.setVisible(true)
       return
     }
     const show = this.nearSafe()
-    this.safePrompt.setText(show ? 'SAFE' : '')
+    this.safePrompt.setText(show ? heistT('heistSafeName') : '')
     this.safePrompt.setColor('#ffe08a')
-    this.openLabel.setText(this.t('heistOpen'))
+    this.openLabel.setText(heistT('heistOpen'))
     this.openLabel.setVisible(show)
     if (show && (this.openHeld || this.winKeys.e || this.keys.e.isDown)) this.tryOpenSafe()
   }
@@ -893,7 +886,6 @@ export class HeistScene extends Phaser.Scene {
   }
 
   private setMoveAnim(next: MoveAnim) {
-    this.moveAnim = next
     this.player.setData('moveState', next)
     // Sprite-sheet hook: if (this.anims.exists(next)) this.player.play(next, true)
   }
@@ -1235,34 +1227,46 @@ export class HeistScene extends Phaser.Scene {
     }
 
     const a = Math.round(this.alert * 100)
-    const band = a < 30 ? 'SAFE' : a < 70 ? 'SUSPICIOUS' : a < 100 && this.gState !== 'CHASE' ? 'DANGER' : 'CHASE'
+    const band =
+      a < 30
+        ? heistT('heistHudSafe')
+        : a < 70
+          ? heistT('heistHudSuspicious')
+          : a < 100 && this.gState !== 'CHASE'
+            ? heistT('heistHudDanger')
+            : heistT('heistHudChase')
     const color = a < 30 ? '#b6e3b0' : a < 70 ? '#ffe08a' : '#ff8a6a'
     const full = this.currentLoot >= this.mods.bagCap || this.time.now < this.bagFullFlash
     this.hud.setColor(full ? '#ffb070' : '#ffe08a')
-    this.hud.setText(`DUCK COIN ${this.currentLoot}${full ? '   BAG FULL' : ''}`)
-    this.bagHud.setColor(color)
-    const escape = this.escaping ? '    ESCAPE' : ''
-    this.bagHud.setText(
-      `BAG ${this.currentLoot}/${this.mods.bagCap}    ALERT ${a}% ${band}    ${formatClock(now - this.startedAt)}${escape}`,
+    this.hud.setText(
+      `${heistT('heistDuckCoin')} ${this.currentLoot}${full ? `   ${heistT('heistBagFull')}` : ''}`,
     )
+    this.bagHud.setColor(color)
+    const escape = this.escaping ? `    ${heistT('heistEscape')}` : ''
+    this.bagHud.setText(
+      `${heistT('heistBag')} ${this.currentLoot}/${this.mods.bagCap}    ${heistT('heistAlert')} ${a}% ${band}    ${heistT('heistTime')} ${formatClock(now - this.startedAt)}${escape}`,
+    )
+    this.exitLabel?.setText(heistT('heistExit'))
+    this.lobbyLabel?.setText(heistT('heistRoomLobby'))
+    this.vaultLabel?.setText(heistT('heistRoomVault'))
+    this.safeTitle?.setText(heistT('heistSafeName'))
+    this.sneakLabel?.setText(heistT('heistSneak'))
+    this.dashLabel?.setText(heistT('heistDash'))
     if (this.safeCrack) {
       this.crackHud.setVisible(true)
       this.crackHud.setText(
-        `${this.t('heistCrackTitle')}\n${this.t('heistRound', { n: Math.min(this.safeHits + 1, SAFE_HITS), total: SAFE_HITS })}`,
+        `${heistT('heistCrackTitle')}\n${heistT('heistRound', { n: Math.min(this.safeHits + 1, SAFE_HITS), total: SAFE_HITS })}`,
       )
       this.crackHint.setVisible(true)
-      this.crackHint.setText(this.t('heistHitHint'))
+      this.crackHint.setText(heistT('heistHitHint'))
     } else if (this.safeOpened && now - this.safeOpenedAt < 1800) {
       this.crackHud.setVisible(true)
       this.crackHud.setPosition(this.camW() / 2, 46)
-      this.crackHud.setText(`${this.t('heistSafeOpenedTitle')}\n${this.t('heistSafeReward', { n: SAFE_REWARD })}`)
+      this.crackHud.setText(`${heistT('heistSafeOpenedTitle')}\n${heistT('heistSafeReward', { n: SAFE_REWARD })}`)
       this.crackHint.setVisible(false)
     } else {
       this.crackHud.setVisible(false)
       this.crackHint.setVisible(false)
-    }
-    if (DEBUG) {
-      this.debugHud.setText(`${this.moveAnim}  ${this.gState}  hide:${this.hidden ? 1 : 0}`)
     }
   }
 }

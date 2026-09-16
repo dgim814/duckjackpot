@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react'
 import { HeistDuck } from '../heist/HeistDuck'
 import { HeistGame, type HeistEnd } from '../heist/HeistGame'
+import { bindHeistI18n } from '../heist/heistI18n'
+import { LangSwitch } from '../components/LangSwitch'
 import {
   PRICE_BIG_BAG,
   PRICE_DISGUISE,
@@ -24,6 +26,7 @@ type Screen = 'lobby' | 'play' | 'result' | 'shop'
 
 export function HeistPage() {
   const { t } = useI18n()
+  bindHeistI18n(t)
   const [screen, setScreen] = useState<Screen>('lobby')
   const [end, setEnd] = useState<HeistEnd | null>(null)
   const [progress, setProgress] = useState(loadProgress)
@@ -102,7 +105,7 @@ export function HeistPage() {
     return (
       <section className="relative h-[calc(100dvh-4.75rem-env(safe-area-inset-bottom))] overflow-y-auto bg-[#120c10] px-5 py-6">
         <div className="mx-auto w-full max-w-sm">
-          <p className="text-center text-[11px] font-extrabold tracking-[0.2em] text-amber-200">{t('heistShop')}</p>
+          <p className="text-center text-[11px] font-extrabold tracking-[0.2em] text-amber-200">{t('heistUpgrades')}</p>
           <p className="mt-3 text-center font-display text-4xl font-black text-amber-300">{progress.bankedDuckCoin}</p>
           <p className="text-center text-xs font-extrabold tracking-[0.18em] text-amber-100/80">{t('heistDuckCoin')}</p>
           <p className="mt-1 text-center text-xs text-zinc-400">
@@ -207,9 +210,12 @@ export function HeistPage() {
       <div className="absolute inset-0 flex flex-col items-center justify-end px-5 pb-6">
         <HeistDuck className="mb-2" />
         <div className="w-full max-w-sm rounded-3xl border border-amber-400/35 bg-[#120c10]/88 p-4 backdrop-blur-md">
+          <div className="mb-3 flex justify-center">
+            <LangSwitch gold />
+          </div>
           <p className="text-center text-[11px] font-extrabold uppercase tracking-[0.2em] text-amber-200">{t('heistKicker')}</p>
           <h1 className="font-display mt-1 text-center text-3xl font-black text-amber-50">{t('heistTitle')}</h1>
-          <p className="mt-2 text-center text-sm font-semibold text-amber-50/90">{t('heistHint')}</p>
+          <p className="mt-2 whitespace-pre-line text-center text-sm font-semibold text-amber-50/90">{t('heistHint')}</p>
           <div className="mt-3 flex justify-between text-sm text-zinc-300">
             <span>{t('heistBanked')}</span>
             <span className="font-mono font-bold text-amber-200">{progress.bankedDuckCoin}</span>

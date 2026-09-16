@@ -12,15 +12,28 @@ export type DuckCoinDef = {
 }
 
 export const DUCK_COIN_DEFS: DuckCoinDef[] = [
-  { kind: 'C10', value: 10, key: 'dc_10', size: 24, file: '/heist/coins/dc_10.png' },
-  { kind: 'C50', value: 50, key: 'dc_50', size: 32, file: '/heist/coins/dc_50.png' },
-  { kind: 'C100', value: 100, key: 'dc_100', size: 42, file: '/heist/coins/dc_100.png' },
+  { kind: 'C10', value: 10, key: 'dc_10', size: 44, file: '/heist/coins/duck_coin_10.png' },
+  { kind: 'C50', value: 50, key: 'dc_50', size: 56, file: '/heist/coins/duck_coin_50.png' },
+  { kind: 'C100', value: 100, key: 'dc_100', size: 68, file: '/heist/coins/duck_coin_100.png' },
 ]
 
 export const SAFE_REWARD = 500
 
 export function coinDef(kind: DuckCoinKind) {
   return DUCK_COIN_DEFS.find((d) => d.kind === kind) ?? DUCK_COIN_DEFS[0]
+}
+
+export function loadDuckCoinImages(scene: Phaser.Scene) {
+  for (const def of DUCK_COIN_DEFS) {
+    scene.load.image(def.key, def.file)
+  }
+}
+
+export function applyCoinSpriteSize(sprite: Phaser.GameObjects.Sprite, def: DuckCoinDef) {
+  const w = sprite.width || def.size
+  const h = sprite.height || def.size
+  const k = def.size / Math.max(w, h)
+  sprite.setDisplaySize(w * k, h * k)
 }
 
 function paintCoinPlaceholder(ctx: CanvasRenderingContext2D, size: number, value: number) {
