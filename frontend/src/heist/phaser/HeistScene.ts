@@ -4,7 +4,7 @@ import type { HeistEnd } from '../types'
 import type { HeistRunMods } from '../progress'
 import { applyCoinSpriteSize, coinDef, ensureCoinPlaceholders, loadDuckCoinImages, SAFE_REWARD, type DuckCoinKind } from '../coinAssets'
 import { heistT } from '../heistI18n'
-import { buildNavGrid, findPath, findPathAroundStuck, gridLineClear, type NavGrid } from '../guardPath'
+import { buildNavGrid, cellCenter, findPath, findPathAroundStuck, nearestWalkable, type NavGrid } from '../guardPath'
 
 const W = 1760
 const H = 1280
@@ -73,6 +73,7 @@ export class HeistScene extends Phaser.Scene {
   private uiGfx!: Phaser.GameObjects.Graphics
   private hud!: Phaser.GameObjects.Text
   private bagHud!: Phaser.GameObjects.Text
+  private gDbg!: Phaser.GameObjects.Text
   private crackHud!: Phaser.GameObjects.Text
   private crackHint!: Phaser.GameObjects.Text
   private fx!: Phaser.GameObjects.Particles.ParticleEmitter
@@ -176,6 +177,8 @@ export class HeistScene extends Phaser.Scene {
   private gWaypoints: Phaser.Math.Vector2[] = []
   private gWi = 0
   private gSearchT = 0
+  private gSearchPts: Phaser.Math.Vector2[] = []
+  private gSearchI = 0
   private gLastSeen = new Phaser.Math.Vector2()
   private gFacing = 0
   private nav!: NavGrid
@@ -500,23 +503,27 @@ export class HeistScene extends Phaser.Scene {
     pb.setDrag(0.0008, 0.0008)
     this.setMoveAnim('idle')
 
-    this.guard = this.physics.add.sprite(300, 490, 'guard')
+    this.gWaypoints = [
+      new Phaser.Math.Vector2(300, 490),
+      new Phaser.Math.Vector2(800, 240),
+      new Phaser.Math.Vector2(1580, 490),
+      new Phaser.Math.Vector2(1580, 780),
+      new Phaser.Math.Vector2(800, 820),
+      new Phaser.Math.Vector2(500, 1080),
+      new Phaser.Math.Vector2(150, 760),
+    ]
+    this.gWi = 1
+    this.guard = this.physics.add.sprite(this.gWaypoints[0].x, this.gWaypoints[0].y, 'guard')
     this.guard.setDisplaySize(GUARD_DISPLAY, GUARD_DISPLAY)
     this.guard.setDepth(11)
     const gb = this.guard.body as Phaser.Physics.Arcade.Body
-    gb.setSize(18, 20)
-    gb.setDamping(true)
-    gb.setDrag(0.001, 0.001)
+    gb.setAllowGravity(false)
+    gb.setDamping(false)
+    gb.setDrag(0, 0)
+    gb.setMaxVelocity(220, 220)
+    gb.setSize(16, 16)
+    gb.setOffset(this.guard.width / 2 - 8, this.guard.height / 2 - 8)
     this.tryLoadGuardPng()
-    this.gWaypoints = [
-      new Phaser.Math.Vector2(300, 490),
-      new Phaser.Math.Vector2(1400, 490),
-      new Phaser.Math.Vector2(800, 490),
-      new Phaser.Math.Vector2(800, 240),
-      new Phaser.Math.Vector2(1400, 840),
-      new Phaser.Math.Vector2(300, 840),
-    ]
-    this.gWi = 0
     this.gFacing = 0
     this.gLastPos.set(this.guard.x, this.guard.y)
 
@@ -569,6 +576,16 @@ export class HeistScene extends Phaser.Scene {
       .text(12, 26, '', { fontFamily: 'Unbounded, sans-serif', fontSize: '12px', color: '#f3e6c4' })
       .setScrollFactor(0)
       .setDepth(21)
+    this.gDbg = this.add
+      .text(12, 46, '', {
+        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+        fontSize: '10px',
+        color: '#8dffb0',
+        backgroundColor: '#000000cc',
+        padding: { x: 6, y: 4 },
+      })
+      .setScrollFactor(0)
+      .setDepth(30)
     this.crackHud = this.add
       .text(0, 36, '', {
         fontFamily: 'Unbounded, sans-serif',
@@ -697,6 +714,9 @@ export class HeistScene extends Phaser.Scene {
       this.textures.addImage('guard_png', img)
       this.guard.setTexture('guard_png')
       this.guard.setDisplaySize(GUARD_DISPLAY, GUARD_DISPLAY)
+      const gb = this.guard.body as Phaser.Physics.Arcade.Body
+      gb.setSize(16, 16)
+      gb.setOffset(this.guard.width / 2 - 8, this.guard.height / 2 - 8)
     }
     img.onerror = () => {
       /* keep generated guard until a PNG is added at GUARD_PNG */
@@ -1165,18 +1185,54 @@ export class HeistScene extends Phaser.Scene {
     this.gPath = []
     this.gRepathAt = 0
     this.gStuckTries = 0
-    if (s === 'SEARCH') this.gSearchT = 5.2
+    if (s === 'SEARCH') {
+      this.gSearchT = 5.2
+      this.gSearchI = 0
+      this.gSearchPts = this.makeSearchPts()
+    }
+  }
+
+  private makeSearchPts() {
+    const origin = this.gLastSeen
+    const offs = [
+      [0, 0],
+      [72, 0],
+      [0, 72],
+      [-72, 0],
+      [0, -72],
+      [52, 52],
+      [-52, 52],
+    ] as const
+    const pts: Phaser.Math.Vector2[] = []
+    for (const [dx, dy] of offs) {
+      const c = nearestWalkable(this.nav, origin.x + dx, origin.y + dy)
+      const q = cellCenter(this.nav, c.x, c.y)
+      if (Phaser.Math.Distance.Between(origin.x, origin.y, q.x, q.y) > 110) continue
+      if (pts.some((p) => Phaser.Math.Distance.Between(p.x, p.y, q.x, q.y) < 28)) continue
+      pts.push(new Phaser.Math.Vector2(q.x, q.y))
+    }
+    return pts.length ? pts : [origin.clone()]
+  }
+
+  private resumePatrol() {
+    let best = 0
+    let bestD = Number.POSITIVE_INFINITY
+    this.gWaypoints.forEach((wp, i) => {
+      const d = Phaser.Math.Distance.Between(this.guard.x, this.guard.y, wp.x, wp.y)
+      if (d < bestD) {
+        bestD = d
+        best = i
+      }
+    })
+    this.gWi = best
+    this.setG('RETURN')
   }
 
   private steerGuard(tx: number, ty: number, speed: number) {
     const dx = tx - this.guard.x
     const dy = ty - this.guard.y
-    const dist = Math.hypot(dx, dy)
+    const dist = Math.max(0.001, Math.hypot(dx, dy))
     const body = this.guard.body as Phaser.Physics.Arcade.Body
-    if (dist < 10) {
-      body.setVelocity(0, 0)
-      return dist
-    }
     this.gFacing = Math.atan2(dy, dx)
     body.setMaxVelocity(speed, speed)
     body.setVelocity((dx / dist) * speed, (dy / dist) * speed)
@@ -1188,7 +1244,7 @@ export class HeistScene extends Phaser.Scene {
     const gy = this.guard.y
     const distGoal = Phaser.Math.Distance.Between(gx, gy, tx, ty)
     const body = this.guard.body as Phaser.Physics.Arcade.Body
-    if (distGoal < 16) {
+    if (distGoal < 18) {
       this.gPath = []
       body.setVelocity(0, 0)
       this.gStuckT = 0
@@ -1198,8 +1254,10 @@ export class HeistScene extends Phaser.Scene {
     }
 
     const now = this.time.now
-    const destMoved = Phaser.Math.Distance.Between(this.gPathDest.x, this.gPathDest.y, tx, ty) > 36
-    const repathDue = now >= this.gRepathAt || this.gPath.length === 0 || destMoved
+    const destMoved = Phaser.Math.Distance.Between(this.gPathDest.x, this.gPathDest.y, tx, ty) > 48
+    const chase = this.gState === 'CHASE'
+    const repathDue =
+      this.gPath.length === 0 || destMoved || (chase && now >= this.gRepathAt) || this.gStuckT > 0.7
     if (repathDue) {
       const raw =
         this.gStuckTries > 0
@@ -1207,41 +1265,29 @@ export class HeistScene extends Phaser.Scene {
           : findPath(this.nav, gx, gy, tx, ty)
       this.gPath = raw ? raw.map((p) => new Phaser.Math.Vector2(p.x, p.y)) : []
       this.gPathDest.set(tx, ty)
-      this.gRepathAt = now + (this.gState === 'CHASE' ? 300 : 400)
+      this.gRepathAt = now + (chase ? 280 : 1e9)
+      if (this.gStuckT > 0.7) {
+        this.gStuckT = 0
+        this.gStuckTries += 1
+      }
     }
 
-    while (this.gPath.length && Phaser.Math.Distance.Between(gx, gy, this.gPath[0].x, this.gPath[0].y) < 16) {
+    while (this.gPath.length && Phaser.Math.Distance.Between(gx, gy, this.gPath[0].x, this.gPath[0].y) < 12) {
       this.gPath.shift()
     }
 
     const moved = Phaser.Math.Distance.Between(this.gLastPos.x, this.gLastPos.y, gx, gy)
     this.gLastPos.set(gx, gy)
-    if (moved < 2.4 && distGoal > 18) this.gStuckT += dt
+    if (moved < 1.2 && distGoal > 22) this.gStuckT += dt
     else {
       this.gStuckT = 0
       this.gStuckTries = 0
     }
-    if (this.gStuckT > 0.6) {
-      this.gStuckT = 0
-      this.gStuckTries += 1
-      this.gPath = []
-      this.gRepathAt = 0
-      body.setVelocity(0, 0)
-      return distGoal
-    }
 
-    if (!this.gPath.length) {
-      body.setVelocity(0, 0)
-      return distGoal
-    }
-
-    const wp = this.gPath[0]
-    if (!gridLineClear(this.nav, gx, gy, wp.x, wp.y) && this.gPath.length > 1) {
-      this.gPath.shift()
-      this.gRepathAt = 0
-      return distGoal
-    }
-    return this.steerGuard(wp.x, wp.y, speed)
+    const next = this.gPath[0]
+    if (next) this.steerGuard(next.x, next.y, speed)
+    else this.steerGuard(tx, ty, speed)
+    return distGoal
   }
 
   private updateCams(dt: number) {
@@ -1288,9 +1334,13 @@ export class HeistScene extends Phaser.Scene {
 
     if (this.gState === 'PATROL') {
       const wp = this.gWaypoints[this.gWi]
-      if (this.followTo(wp.x, wp.y, 72, dt) < 18) this.gWi = (this.gWi + 1) % this.gWaypoints.length
+      const d = this.followTo(wp.x, wp.y, 86, dt)
+      if (d < 18) {
+        this.gWi = (this.gWi + 1) % this.gWaypoints.length
+        this.gPath = []
+      }
     } else if (this.gState === 'INVESTIGATE') {
-      if (this.followTo(this.gLastSeen.x, this.gLastSeen.y, 118, dt) < 20) this.setG('SEARCH')
+      if (this.followTo(this.gLastSeen.x, this.gLastSeen.y, 118, dt) < 18) this.setG('SEARCH')
     } else if (this.gState === 'CHASE') {
       const targetX = seen ? this.player.x : this.gLastSeen.x
       const targetY = seen ? this.player.y : this.gLastSeen.y
@@ -1305,15 +1355,18 @@ export class HeistScene extends Phaser.Scene {
       }
     } else if (this.gState === 'SEARCH') {
       this.gSearchT -= dt
-      const aroundX = this.gLastSeen.x + Math.cos(this.time.now / 420) * 46
-      const aroundY = this.gLastSeen.y + Math.sin(this.time.now / 420) * 46
-      const atLast = Phaser.Math.Distance.Between(this.guard.x, this.guard.y, this.gLastSeen.x, this.gLastSeen.y) < 28
-      if (!atLast) this.followTo(this.gLastSeen.x, this.gLastSeen.y, 110, dt)
-      else this.followTo(aroundX, aroundY, 70, dt)
-      if (this.gSearchT <= 0) this.setG('RETURN')
+      const pt = this.gSearchPts[this.gSearchI] ?? this.gLastSeen
+      if (this.followTo(pt.x, pt.y, 86, dt) < 18) {
+        this.gSearchI = (this.gSearchI + 1) % Math.max(1, this.gSearchPts.length)
+        this.gPath = []
+      }
+      if (this.gSearchT <= 0) this.resumePatrol()
     } else if (this.gState === 'RETURN') {
       const wp = this.gWaypoints[this.gWi]
-      if (this.followTo(wp.x, wp.y, 86, dt) < 18) this.setG('PATROL')
+      if (this.followTo(wp.x, wp.y, 96, dt) < 18) {
+        this.gWi = (this.gWi + 1) % this.gWaypoints.length
+        this.setG('PATROL')
+      }
     }
   }
 
@@ -1476,6 +1529,22 @@ export class HeistScene extends Phaser.Scene {
     this.bagHud.setText(
       `${heistT('heistBag')} ${this.currentLoot}/${this.mods.bagCap}    ${heistT('heistAlert')} ${a}% ${band}    ${heistT('heistTime')} ${formatClock(now - this.startedAt)}${escape}`,
     )
+    if (this.gDbg) {
+      const tx = this.gPathDest.x
+      const ty = this.gPathDest.y
+      const body = this.guard.body as Phaser.Physics.Arcade.Body
+      const node = this.gPath[0]
+      this.gDbg.setText(
+        [
+          `GUARD STATE: ${this.gState}`,
+          `TARGET: ${Math.round(tx)}/${Math.round(ty)}`,
+          `POSITION: ${Math.round(this.guard.x)}/${Math.round(this.guard.y)}`,
+          `VELOCITY: ${Math.round(body.velocity.x)}/${Math.round(body.velocity.y)}`,
+          `PATH INDEX: ${node ? `${Math.round(node.x)}/${Math.round(node.y)}` : '-/-'}`,
+          `PATH LENGTH: ${this.gPath.length}`,
+        ].join('\n'),
+      )
+    }
     this.exitLabel?.setText(heistT('heistExit'))
     this.lobbyLabel?.setText(heistT('heistRoomLobby'))
     this.vaultLabel?.setText(heistT('heistRoomVault'))
