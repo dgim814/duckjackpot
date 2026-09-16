@@ -1,6 +1,7 @@
 import Phaser from 'phaser'
 import { punchBackdrop } from '../sprite'
 import type { HeistEnd } from '../types'
+import type { HeistRunMods } from '../progress'
 
 const W = 1760
 const H = 1280
@@ -19,13 +20,13 @@ const DEBUG = import.meta.env.DEV
 
 type GuardState = 'PATROL' | 'INVESTIGATE' | 'CHASE' | 'SEARCH' | 'RETURN'
 type MoveAnim = 'idle' | 'walk' | 'run' | 'sneak' | 'dash'
-type LootKind = 'COIN' | 'CASH' | 'CASE' | 'GOLD'
+type LootKind = 'SMALL' | 'MEDIUM' | 'BIG' | 'GOLD'
 
-const LOOT_DEFS: { kind: LootKind; value: number; key: string }[] = [
-  { kind: 'COIN', value: 10, key: 'loot_coin' },
-  { kind: 'CASH', value: 50, key: 'loot_cash' },
-  { kind: 'CASE', value: 150, key: 'loot_case' },
-  { kind: 'GOLD', value: 250, key: 'loot_gold' },
+const LOOT_DEFS: { kind: LootKind; value: number; key: string; size: number }[] = [
+  { kind: 'SMALL', value: 10, key: 'dc_small', size: 16 },
+  { kind: 'MEDIUM', value: 25, key: 'dc_med', size: 20 },
+  { kind: 'BIG', value: 50, key: 'dc_big', size: 26 },
+  { kind: 'GOLD', value: 100, key: 'dc_gold', size: 32 },
 ]
 
 type Wall = { x: number; y: number; w: number; h: number }
@@ -52,6 +53,7 @@ function formatClock(ms: number) {
 
 export class HeistScene extends Phaser.Scene {
   private onDone: (end: HeistEnd) => void
+  private mods: HeistRunMods
   private player!: Phaser.Physics.Arcade.Sprite
   private guard!: Phaser.Physics.Arcade.Sprite
   private walls!: Phaser.Physics.Arcade.StaticGroup
@@ -63,6 +65,7 @@ export class HeistScene extends Phaser.Scene {
   private worldGfx!: Phaser.GameObjects.Graphics
   private uiGfx!: Phaser.GameObjects.Graphics
   private hud!: Phaser.GameObjects.Text
+  private bagHud!: Phaser.GameObjects.Text
   private debugHud!: Phaser.GameObjects.Text
   private fx!: Phaser.GameObjects.Particles.ParticleEmitter
 
@@ -141,9 +144,10 @@ export class HeistScene extends Phaser.Scene {
   private gLastSeen = new Phaser.Math.Vector2()
   private gFacing = 0
 
-  constructor(onDone: (end: HeistEnd) => void) {
+  constructor(onDone: (end: HeistEnd) => void, mods: HeistRunMods) {
     super('HeistScene')
     this.onDone = onDone
+    this.mods = mods
   }
 
   preload() {
@@ -187,29 +191,31 @@ export class HeistScene extends Phaser.Scene {
       g.fillStyle(0x11161c)
       g.fillRect(2, 6, 6, 5)
     })
-    this.tex('loot_coin', 18, 18, (g) => {
-      g.fillStyle(0xc9a227)
-      g.fillCircle(9, 9, 8)
+    this.tex('dc_small', 16, 16, (g) => {
+      g.fillStyle(0xb8860b)
+      g.fillCircle(8, 8, 7)
       g.fillStyle(0xffe08a)
-      g.fillCircle(9, 9, 5)
+      g.fillCircle(8, 8, 4)
     })
-    this.tex('loot_cash', 22, 14, (g) => {
-      g.fillStyle(0x2f7a48)
-      g.fillRoundedRect(1, 1, 20, 12, 2)
-      g.fillStyle(0x8ee0a8)
-      g.fillRect(4, 5, 14, 4)
-    })
-    this.tex('loot_case', 24, 18, (g) => {
-      g.fillStyle(0x5a4028)
-      g.fillRoundedRect(1, 3, 22, 14, 2)
+    this.tex('dc_med', 20, 20, (g) => {
       g.fillStyle(0xc9a227)
-      g.fillRect(9, 1, 6, 5)
+      g.fillCircle(10, 10, 9)
+      g.fillStyle(0xfff3c0)
+      g.fillCircle(10, 10, 5)
     })
-    this.tex('loot_gold', 20, 16, (g) => {
-      g.fillStyle(0xd4a017)
-      g.fillRect(2, 6, 16, 8)
-      g.fillStyle(0xffe08a)
-      g.fillRect(4, 2, 12, 8)
+    this.tex('dc_big', 26, 26, (g) => {
+      g.fillStyle(0xe0b030)
+      g.fillCircle(13, 13, 12)
+      g.fillStyle(0xfff4b0)
+      g.fillCircle(13, 13, 6)
+    })
+    this.tex('dc_gold', 32, 32, (g) => {
+      g.fillStyle(0xffc107)
+      g.fillCircle(16, 16, 15)
+      g.fillStyle(0xfff8d0)
+      g.fillCircle(16, 16, 7)
+      g.fillStyle(0x8a5a10)
+      g.fillCircle(16, 16, 3)
     })
     this.tex('spark', 6, 6, (g) => {
       g.fillStyle(0xffe08a)
@@ -368,14 +374,14 @@ export class HeistScene extends Phaser.Scene {
 
     this.lootGroup = this.physics.add.group()
     const slots: [number, number, LootKind][] = [
-      [300, 1080, 'COIN'],
-      [120, 760, 'COIN'],
-      [120, 250, 'CASH'],
-      [400, 660, 'CASH'],
-      [860, 800, 'CASH'],
-      [1180, 660, 'CASE'],
-      [1620, 760, 'CASH'],
-      [720, 240, 'CASE'],
+      [300, 1080, 'SMALL'],
+      [120, 760, 'SMALL'],
+      [120, 250, 'MEDIUM'],
+      [400, 660, 'MEDIUM'],
+      [860, 800, 'MEDIUM'],
+      [1180, 660, 'BIG'],
+      [1620, 760, 'BIG'],
+      [720, 240, 'BIG'],
       [860, 280, 'GOLD'],
       [1020, 220, 'GOLD'],
     ]
@@ -384,6 +390,7 @@ export class HeistScene extends Phaser.Scene {
       const x = Phaser.Math.Clamp(jitter(sx, 22), 70, W - 70)
       const y = Phaser.Math.Clamp(jitter(sy, 16), 70, H - 70)
       const s = this.physics.add.sprite(x, y, def.key)
+      s.setDisplaySize(def.size, def.size)
       s.setDepth(6)
       s.setData('lootId', `loot-${i}`)
       s.setData('value', def.value)
@@ -402,11 +409,15 @@ export class HeistScene extends Phaser.Scene {
     this.visionGfx = this.add.graphics().setDepth(8)
     this.uiGfx = this.add.graphics().setScrollFactor(0).setDepth(20)
     this.hud = this.add
-      .text(12, 10, '', { fontFamily: 'Unbounded, sans-serif', fontSize: '13px', color: '#f3e6c4' })
+      .text(12, 8, '', { fontFamily: 'Unbounded, sans-serif', fontSize: '12px', color: '#f3e6c4' })
+      .setScrollFactor(0)
+      .setDepth(21)
+    this.bagHud = this.add
+      .text(12, 26, '', { fontFamily: 'Unbounded, sans-serif', fontSize: '12px', color: '#f3e6c4' })
       .setScrollFactor(0)
       .setDepth(21)
     this.debugHud = this.add
-      .text(12, 32, '', { fontFamily: 'Unbounded, sans-serif', fontSize: '10px', color: '#7a9aaa' })
+      .text(12, 44, '', { fontFamily: 'Unbounded, sans-serif', fontSize: '10px', color: '#7a9aaa' })
       .setScrollFactor(0)
       .setDepth(21)
       .setVisible(DEBUG)
@@ -526,17 +537,20 @@ export class HeistScene extends Phaser.Scene {
 
   private takeLoot(item: Phaser.Physics.Arcade.Sprite) {
     if (!item.active || item.getData('collected')) return
+    const room = this.mods.bagCap - this.currentLoot
+    if (room <= 0) return
+    const value = Number(item.getData('value') || 0)
+    const gained = Math.min(value, room)
     item.setData('collected', true)
     item.disableBody(true, false)
-    const value = Number(item.getData('value') || 0)
-    this.currentLoot += value
+    this.currentLoot += gained
     const now = this.time.now
     this.combo = now - this.lastPickup < 3800 ? this.combo + 1 : 1
     this.maxCombo = Math.max(this.maxCombo, this.combo)
     this.lastPickup = now
     this.fx.explode(12, item.x, item.y)
     const label = this.add
-      .text(item.x, item.y - 8, `+$${value}`, {
+      .text(item.x, item.y - 8, `+${gained}`, {
         fontFamily: 'Unbounded, sans-serif',
         fontSize: '14px',
         color: '#ffe08a',
@@ -574,7 +588,7 @@ export class HeistScene extends Phaser.Scene {
   }
 
   private updateExit(dt: number) {
-    if (this.currentLoot <= 0 || !this.inExit()) {
+    if (!this.inExit()) {
       this.exitHold = 0
       this.escaping = false
       return
@@ -732,7 +746,7 @@ export class HeistScene extends Phaser.Scene {
     if (dashing) {
       this.setMoveAnim('dash')
       spd = SPEED.dash
-      this.noise = NOISE.dash
+      this.noise = this.noiseOf('dash')
       if (!moving) {
         vx = this.facing.x
         vy = this.facing.y
@@ -740,15 +754,15 @@ export class HeistScene extends Phaser.Scene {
     } else if ((moving || sneaking) && sneaking && moving) {
       this.setMoveAnim('sneak')
       spd = this.hidden ? SPEED.sneak * 0.82 : SPEED.sneak
-      this.noise = NOISE.sneak
+      this.noise = this.noiseOf('sneak')
     } else if (moving && mag < 0.55) {
       this.setMoveAnim('walk')
       spd = SPEED.run * 0.72
-      this.noise = 22
+      this.noise = this.noiseOf('walk')
     } else if (moving) {
       this.setMoveAnim('run')
       spd = SPEED.run
-      this.noise = NOISE.run
+      this.noise = this.noiseOf('run')
     } else {
       this.setMoveAnim('idle')
       this.noise = 0
@@ -764,6 +778,17 @@ export class HeistScene extends Phaser.Scene {
     }
     this.player.setFlipX(this.facing.x < 0)
     void dt
+  }
+
+  private noiseOf(mode: 'sneak' | 'run' | 'dash' | 'walk') {
+    if (!this.mods.silentShoes) {
+      if (mode === 'walk') return 22
+      return NOISE[mode]
+    }
+    if (mode === 'sneak') return 5
+    if (mode === 'run') return 20
+    if (mode === 'dash') return 60
+    return 12
   }
 
   private los(ax: number, ay: number, bx: number, by: number) {
@@ -831,7 +856,7 @@ export class HeistScene extends Phaser.Scene {
       const seen = this.coneSees(cam.x, cam.y, cam.facing, CAM_VISION, CAM_FOV)
       if (seen && !this.hidden) {
         this.camSees = true
-        this.alert = Math.min(1, this.alert + dt * 0.42)
+        this.alert = Math.min(1, this.alert + dt * 0.42 * this.mods.disguiseMul)
         this.gLastSeen.set(this.player.x, this.player.y)
         if (this.alert > 0.55 && this.gState === 'PATROL') this.setG('INVESTIGATE')
       }
@@ -843,7 +868,7 @@ export class HeistScene extends Phaser.Scene {
     const hideMul = this.hidden ? 0.22 : 1
     if (seen) {
       this.gLastSeen.set(this.player.x, this.player.y)
-      this.detect = Math.min(1, this.detect + dt * (1.05 + this.noise / 90) * hideMul)
+      this.detect = Math.min(1, this.detect + dt * (1.05 + this.noise / 90) * hideMul * this.mods.disguiseMul)
       if (this.detect >= 1) this.setG('CHASE')
       else if (this.gState === 'PATROL' || this.gState === 'RETURN') this.setG('INVESTIGATE')
     } else {
@@ -886,7 +911,7 @@ export class HeistScene extends Phaser.Scene {
       return
     }
     if (this.seesPlayer()) {
-      this.alert = Math.min(1, this.alert + dt * (0.32 + this.detect * 0.4))
+      this.alert = Math.min(1, this.alert + dt * (0.32 + this.detect * 0.4) * this.mods.disguiseMul)
       return
     }
     if (this.camSees) return
@@ -909,15 +934,16 @@ export class HeistScene extends Phaser.Scene {
     gb.setVelocity(0, 0)
     gb.setAcceleration(0, 0)
     this.physics.pause()
-    const loot = this.currentLoot
+    const coins = this.currentLoot
     const timeMs = this.time.now - this.startedAt
-    const xp = verdict === 'escaped' ? Math.floor(loot / 5) + this.maxCombo * 8 : 0
+    const bonus = verdict === 'escaped' && this.alert < 0.3 && coins > 0 ? Math.max(5, Math.floor(coins * 0.1)) : 0
     this.onDone({
       verdict,
-      loot,
-      combo: this.maxCombo,
+      coins,
+      bonus,
+      banked: 0,
       timeMs,
-      xp,
+      alert: this.alert,
     })
   }
 
@@ -994,9 +1020,14 @@ export class HeistScene extends Phaser.Scene {
     const a = Math.round(this.alert * 100)
     const band = a < 30 ? 'SAFE' : a < 70 ? 'SUSPICIOUS' : a < 100 && this.gState !== 'CHASE' ? 'DANGER' : 'CHASE'
     const color = a < 30 ? '#b6e3b0' : a < 70 ? '#ffe08a' : '#ff8a6a'
-    this.hud.setColor(color)
+    const full = this.currentLoot >= this.mods.bagCap
+    this.hud.setColor(full ? '#ffb070' : '#ffe08a')
+    this.hud.setText(`DUCK COIN ${this.currentLoot}${full ? '   BAG FULL' : ''}`)
+    this.bagHud.setColor(color)
     const escape = this.escaping ? '    ESCAPE' : ''
-    this.hud.setText(`LOOT $${this.currentLoot}    ALERT ${a}% ${band}    ${formatClock(now - this.startedAt)}${escape}`)
+    this.bagHud.setText(
+      `BAG ${this.currentLoot}/${this.mods.bagCap}    ALERT ${a}% ${band}    ${formatClock(now - this.startedAt)}${escape}`,
+    )
     if (DEBUG) {
       this.debugHud.setText(`${this.moveAnim}  ${this.gState}  hide:${this.hidden ? 1 : 0}`)
     }

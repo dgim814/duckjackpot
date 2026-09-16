@@ -2,11 +2,13 @@ import { useEffect, useRef } from 'react'
 import WebApp from '@twa-dev/sdk'
 import { createHeistGame } from './phaser/createHeistGame'
 import type { HeistEnd } from './types'
+import type { HeistRunMods } from './progress'
 
 export type { HeistEnd }
 
 type HeistGameProps = {
   running: boolean
+  mods: HeistRunMods
   onDone: (end: HeistEnd) => void
 }
 
@@ -15,7 +17,7 @@ function telegramApp() {
   return tg ?? WebApp
 }
 
-export function HeistGame({ running, onDone }: HeistGameProps) {
+export function HeistGame({ running, mods, onDone }: HeistGameProps) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const onDoneRef = useRef(onDone)
   onDoneRef.current = onDone
@@ -48,7 +50,7 @@ export function HeistGame({ running, onDone }: HeistGameProps) {
       /* ignore */
     }
 
-    const game = createHeistGame(wrap, (end) => onDoneRef.current(end))
+    const game = createHeistGame(wrap, (end) => onDoneRef.current(end), mods)
 
     return () => {
       game.destroy(true)
@@ -65,7 +67,7 @@ export function HeistGame({ running, onDone }: HeistGameProps) {
         /* ignore */
       }
     }
-  }, [running])
+  }, [running, mods])
 
   return (
     <div

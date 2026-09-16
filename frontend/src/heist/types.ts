@@ -1,7 +1,8 @@
 export type HeistEnd = {
   verdict: 'escaped' | 'caught'
-  loot: number
-  combo: number
+  coins: number
+  bonus: number
+  banked: number
   timeMs: number
-  xp: number
+  alert: number
 }
