@@ -4,6 +4,7 @@ import type { HeistEnd } from '../types'
 import type { HeistRunMods } from '../progress'
 import { applyCoinSpriteSize, coinDef, ensureCoinPlaceholders, loadDuckCoinImages, SAFE_REWARD, type DuckCoinKind } from '../coinAssets'
 import { heistT } from '../heistI18n'
+import { buildNavGrid, findPath, findPathAroundStuck, gridLineClear, type NavGrid } from '../guardPath'
 
 const W = 1760
 const H = 1280
@@ -29,6 +30,7 @@ const SAFE_HITS = 3
 
 type Wall = { x: number; y: number; w: number; h: number }
 type HideZone = Wall
+type SolidKind = 'wall' | 'desk' | 'column' | 'cabinet'
 type SecCam = {
   x: number
   y: number
@@ -37,7 +39,14 @@ type SecCam = {
   sweep: number
   speed: number
   sprite: Phaser.GameObjects.Image
+  beam: Phaser.GameObjects.Image
+  led: Phaser.GameObjects.Arc
+  hot: boolean
 }
+
+/** Drop a real top-down PNG here later; until then the generated `guard` texture is used. */
+const GUARD_PNG = '/heist/guard.png'
+const GUARD_DISPLAY = 36
 
 function jitter(n: number, amt: number) {
   return n + (Math.random() * 2 - 1) * amt
@@ -169,6 +178,13 @@ export class HeistScene extends Phaser.Scene {
   private gSearchT = 0
   private gLastSeen = new Phaser.Math.Vector2()
   private gFacing = 0
+  private nav!: NavGrid
+  private gPath: Phaser.Math.Vector2[] = []
+  private gPathDest = new Phaser.Math.Vector2()
+  private gRepathAt = 0
+  private gStuckT = 0
+  private gStuckTries = 0
+  private gLastPos = new Phaser.Math.Vector2()
 
   constructor(onDone: (end: HeistEnd) => void, mods: HeistRunMods) {
     super('HeistScene')
@@ -200,29 +216,84 @@ export class HeistScene extends Phaser.Scene {
   }
 
   private buildTextures() {
-    this.tex('guard', 28, 42, (g) => {
+    this.tex('guard', 48, 48, (g) => {
+      g.fillStyle(0x000000, 0.28)
+      g.fillEllipse(24, 28, 22, 14)
       g.fillStyle(0x1a2430)
-      g.fillRoundedRect(4, 14, 20, 26, 4)
-      g.fillStyle(0xd8c49a)
-      g.fillCircle(14, 10, 8)
-      g.fillStyle(0x11161c)
-      g.fillRect(4, 4, 20, 7)
+      g.fillEllipse(24, 24, 16, 22)
       g.fillStyle(0xc9a227)
-      g.fillRect(6, 26, 16, 5)
+      g.fillRect(22, 16, 4, 14)
+      g.fillStyle(0x111820)
+      g.fillCircle(33, 24, 9)
+      g.fillStyle(0x2c3a48)
+      g.fillCircle(35, 24, 6)
+      g.fillStyle(0x8ab4c8, 0.85)
+      g.fillCircle(38, 24, 2.4)
     })
-    this.tex('cam', 22, 16, (g) => {
-      g.fillStyle(0x2a323c)
-      g.fillRoundedRect(1, 3, 20, 11, 3)
-      g.fillStyle(0x6ad0ff)
-      g.fillCircle(15, 8, 4)
-      g.fillStyle(0x11161c)
-      g.fillRect(2, 6, 6, 5)
+    this.tex('cam', 56, 28, (g) => {
+      g.fillStyle(0x1a1410)
+      g.fillRoundedRect(2, 6, 10, 16, 2)
+      g.lineStyle(1.5, 0xc9a227, 0.85)
+      g.strokeRoundedRect(2, 6, 10, 16, 2)
+      g.fillStyle(0x242a32)
+      g.fillRoundedRect(10, 7, 22, 14, 3)
+      g.fillStyle(0x15181e)
+      g.fillRoundedRect(28, 8, 14, 12, 2)
+      g.fillStyle(0x0c0e12)
+      g.fillCircle(44, 14, 8)
+      g.lineStyle(2, 0xc9a227, 0.9)
+      g.strokeCircle(44, 14, 8)
+      g.fillStyle(0x3a4a55)
+      g.fillCircle(44, 14, 4.5)
+      g.fillStyle(0xd8eef8, 0.45)
+      g.fillCircle(45.5, 12.5, 1.8)
+      g.fillStyle(0xc9a227)
+      g.fillCircle(16, 10, 1.6)
     })
+    this.makeCamBeamTexture()
     ensureCoinPlaceholders(this)
     this.tex('spark', 6, 6, (g) => {
       g.fillStyle(0xffe08a)
       g.fillCircle(3, 3, 3)
     })
+  }
+
+  private makeCamBeamTexture() {
+    const distPx = 256
+    const half = distPx * Math.tan(CAM_FOV / 2)
+    const w = distPx
+    const h = Math.ceil(half * 2)
+    const c = document.createElement('canvas')
+    c.width = w
+    c.height = h
+    const ctx = c.getContext('2d')
+    if (!ctx) return
+    const oy = h / 2
+    ctx.beginPath()
+    ctx.moveTo(0, oy)
+    ctx.lineTo(w, oy - half)
+    ctx.lineTo(w, oy + half)
+    ctx.closePath()
+    ctx.clip()
+    const along = ctx.createLinearGradient(0, oy, w, oy)
+    along.addColorStop(0, 'rgba(232, 196, 106, 0.22)')
+    along.addColorStop(0.12, 'rgba(201, 162, 39, 0.14)')
+    along.addColorStop(0.42, 'rgba(201, 162, 39, 0.06)')
+    along.addColorStop(0.78, 'rgba(201, 162, 39, 0.02)')
+    along.addColorStop(1, 'rgba(201, 162, 39, 0)')
+    ctx.fillStyle = along
+    ctx.fillRect(0, 0, w, h)
+    const across = ctx.createLinearGradient(0, 0, 0, h)
+    across.addColorStop(0, 'rgba(0,0,0,1)')
+    across.addColorStop(0.18, 'rgba(0,0,0,0.35)')
+    across.addColorStop(0.5, 'rgba(0,0,0,0)')
+    across.addColorStop(0.82, 'rgba(0,0,0,0.35)')
+    across.addColorStop(1, 'rgba(0,0,0,1)')
+    ctx.globalCompositeOperation = 'destination-out'
+    ctx.fillStyle = across
+    ctx.fillRect(0, 0, w, h)
+    if (this.textures.exists('cam_beam')) this.textures.remove('cam_beam')
+    this.textures.addCanvas('cam_beam', c)
   }
 
   private makeDuckTexture() {
@@ -238,10 +309,30 @@ export class HeistScene extends Phaser.Scene {
     return 'duck'
   }
 
-  private addSolid(x: number, y: number, w: number, h: number, color: number, shade = 0x1a1410) {
-    this.add.rectangle(x + w / 2, y + h / 2 + 4, w, h, shade, 0.45)
-    const r = this.add.rectangle(x + w / 2, y + h / 2, w, h, color)
-    r.setStrokeStyle(1, 0x000000, 0.35)
+  private addSolid(x: number, y: number, w: number, h: number, kind: SolidKind) {
+    const cx = x + w / 2
+    const cy = y + h / 2
+    const fill = kind === 'wall' ? 0x2a241e : kind === 'column' ? 0x4a3c30 : kind === 'cabinet' ? 0x3a2e24 : 0x3c3026
+    this.add.rectangle(cx + 3, cy + 5, w, h, 0x080604, 0.42).setDepth(3)
+    const r = this.add.rectangle(cx, cy, w, h, fill).setDepth(4)
+    r.setStrokeStyle(1, 0x0a0806, 0.9)
+    const trim = this.add.graphics().setDepth(5)
+    if (kind === 'wall') {
+      trim.lineStyle(2, 0xc9a227, 0.22)
+      trim.strokeRect(x + 1.5, y + 1.5, w - 3, h - 3)
+    } else if (kind === 'desk') {
+      this.add.rectangle(cx, cy - h / 2 + 7, Math.max(12, w - 10), 7, 0x5a4a38).setDepth(5)
+      trim.lineStyle(1, 0xa08048, 0.35)
+      trim.strokeRect(x + 3, y + 3, w - 6, h - 6)
+    } else if (kind === 'column') {
+      this.add.rectangle(cx, cy, w - 10, h - 10, 0x3a3228).setDepth(5)
+      trim.lineStyle(2, 0xc9a227, 0.3)
+      trim.strokeRect(x + 4, y + 4, w - 8, h - 8)
+    } else {
+      this.add.rectangle(cx, cy, w - 10, 4, 0xc9a227, 0.35).setDepth(5)
+      trim.lineStyle(1, 0x1a1410, 0.5)
+      trim.strokeRect(x + 2, y + 2, w - 4, h - 4)
+    }
     this.physics.add.existing(r, true)
     this.walls.add(r)
     this.wallRects.push({ x, y, w, h })
@@ -252,16 +343,47 @@ export class HeistScene extends Phaser.Scene {
     this.hideZones.push({ x, y, w, h })
   }
 
+  private paintHideMats() {
+    const g = this.add.graphics().setDepth(1)
+    g.fillStyle(0x0c0a08, 0.42)
+    for (const z of this.hideZones) {
+      g.fillRoundedRect(z.x + 2, z.y + 2, z.w - 4, z.h - 4, 6)
+    }
+  }
+
   private buildSafe() {
     const x = this.safePos.x
     const y = this.safePos.y
-    this.add.rectangle(x, y + 6, 118, 96, 0x1a1410, 0.45).setDepth(5)
-    this.add.rectangle(x, y, 112, 90, 0x3a4650).setStrokeStyle(3, 0xc9a227).setDepth(5)
-    this.add.rectangle(x, y, 70, 58, 0x1a2228).setStrokeStyle(2, 0x8a9aa8).setDepth(6)
-    this.add.circle(x + 18, y, 8, 0xc9a227).setDepth(7)
-    this.add.circle(x + 18, y, 3, 0x1a1410).setDepth(8)
+    const g = this.add.graphics().setDepth(5)
+    g.fillStyle(0x080604, 0.5)
+    g.fillRoundedRect(x - 62, y - 48, 124, 108, 10)
+    g.fillStyle(0x2a3238)
+    g.fillRoundedRect(x - 56, y - 44, 112, 96, 8)
+    g.lineStyle(3, 0xc9a227, 0.95)
+    g.strokeRoundedRect(x - 56, y - 44, 112, 96, 8)
+    g.fillStyle(0x161c22)
+    g.fillCircle(x, y + 2, 34)
+    g.lineStyle(3, 0xe0c56a, 0.9)
+    g.strokeCircle(x, y + 2, 34)
+    g.lineStyle(2, 0x8a9aa8, 0.55)
+    g.strokeCircle(x, y + 2, 24)
+    g.fillStyle(0xc9a227)
+    g.fillCircle(x + 16, y + 2, 7)
+    g.fillStyle(0x1a1410)
+    g.fillCircle(x + 16, y + 2, 3)
+    for (const [dx, dy] of [
+      [-40, -28],
+      [40, -28],
+      [-40, 32],
+      [40, 32],
+    ] as const) {
+      g.fillStyle(0x1a2228)
+      g.fillCircle(x + dx, y + dy, 4)
+      g.fillStyle(0xc9a227, 0.7)
+      g.fillCircle(x + dx, y + dy, 2)
+    }
     this.safeTitle = this.add
-      .text(x, y - 38, heistT('heistSafeName'), {
+      .text(x, y - 58, heistT('heistSafeName'), {
         fontFamily: 'Unbounded, sans-serif',
         fontSize: '12px',
         color: '#ffe08a',
@@ -269,7 +391,7 @@ export class HeistScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setDepth(8)
     this.safePrompt = this.add
-      .text(x, y + 58, '', {
+      .text(x, y + 62, '', {
         fontFamily: 'Unbounded, sans-serif',
         fontSize: '11px',
         color: '#ffe08a',
@@ -289,79 +411,81 @@ export class HeistScene extends Phaser.Scene {
     this.hideZones = []
 
     const T = 40
-    const wall = 0x3d342c
-    const wood = 0x5a4636
-    const col = 0x6a5a4a
 
-    this.addSolid(0, 0, W, T, wall)
-    this.addSolid(0, H - T, W, T, wall)
-    this.addSolid(0, 0, T, H, wall)
-    this.addSolid(W - T, 0, T, H, wall)
+    this.addSolid(0, 0, W, T, 'wall')
+    this.addSolid(0, H - T, W, T, 'wall')
+    this.addSolid(0, 0, T, H, 'wall')
+    this.addSolid(W - T, 0, T, H, 'wall')
 
     // Lobby divider with 3 routes: west / center / east
-    this.addSolid(T, 900, 48, 28, wall)
-    this.addSolid(196, 900, 228, 28, wall)
-    this.addSolid(560, 900, 620, 28, wall)
-    this.addSolid(1328, 900, W - T - 1328, 28, wall)
+    this.addSolid(T, 900, 48, 28, 'wall')
+    this.addSolid(196, 900, 228, 28, 'wall')
+    this.addSolid(560, 900, 620, 28, 'wall')
+    this.addSolid(1328, 900, W - T - 1328, 28, 'wall')
 
     // West corridor inner wall (gap 500–640)
-    this.addSolid(236, T, 28, 460, wall)
-    this.addSolid(236, 640, 28, 260, wall)
+    this.addSolid(236, T, 28, 460, 'wall')
+    this.addSolid(236, 640, 28, 260, 'wall')
 
     // East corridor inner wall (gap 500–640)
-    this.addSolid(1488, T, 28, 460, wall)
-    this.addSolid(1488, 640, 28, 260, wall)
+    this.addSolid(1488, T, 28, 460, 'wall')
+    this.addSolid(1488, 640, 28, 260, 'wall')
 
     // Vault wall with center door
-    this.addSolid(T, 380, 620, 28, wall)
-    this.addSolid(980, 380, W - T - 980, 28, wall)
+    this.addSolid(T, 380, 620, 28, 'wall')
+    this.addSolid(980, 380, W - T - 980, 28, 'wall')
 
     // Hall desks / counters
-    this.addSolid(320, 540, 170, 46, wood)
+    this.addSolid(320, 540, 170, 46, 'desk')
     this.addHide(320, 586, 170, 48)
-    this.addSolid(320, 730, 170, 46, wood)
+    this.addSolid(320, 730, 170, 46, 'desk')
     this.addHide(320, 776, 170, 48)
-    this.addSolid(980, 540, 170, 46, wood)
+    this.addSolid(980, 540, 170, 46, 'desk')
     this.addHide(980, 586, 170, 48)
-    this.addSolid(980, 730, 170, 46, wood)
+    this.addSolid(980, 730, 170, 46, 'desk')
     this.addHide(980, 776, 170, 48)
 
     // Columns
-    this.addSolid(620, 620, 46, 46, col)
+    this.addSolid(620, 620, 46, 46, 'column')
     this.addHide(608, 666, 70, 40)
-    this.addSolid(1088, 620, 46, 46, col)
+    this.addSolid(1088, 620, 46, 46, 'column')
     this.addHide(1076, 666, 70, 40)
 
     // Cabinets
-    this.addSolid(64, 180, 72, 150, wood)
+    this.addSolid(64, 180, 72, 150, 'cabinet')
     this.addHide(136, 190, 50, 130)
-    this.addSolid(1610, 180, 86, 160, wood)
+    this.addSolid(1610, 180, 86, 160, 'cabinet')
     this.addHide(1560, 190, 50, 140)
-    this.addSolid(64, 1020, 90, 70, wood)
+    this.addSolid(64, 1020, 90, 70, 'cabinet')
     this.addHide(154, 1020, 44, 70)
+
+    this.paintHideMats()
+    this.nav = buildNavGrid(W, H, 24, this.wallRects, 22)
 
     this.buildSafe()
 
     // EXIT door (overlap only)
-    this.exitZone = this.add.rectangle(148, 1188, 150, 72, 0x163826, 0.92)
-    this.exitZone.setStrokeStyle(3, 0x4ad080)
+    this.add.rectangle(148, 1188, 168, 90, 0x0c1610).setDepth(3)
+    this.exitZone = this.add.rectangle(148, 1188, 150, 72, 0x163826, 0.88)
+    this.exitZone.setStrokeStyle(3, 0xc9a227, 0.55)
+    this.exitZone.setDepth(3)
     this.physics.add.existing(this.exitZone, true)
     this.exitLabel = this.add.text(148, 1188, heistT('heistExit'), {
       fontFamily: 'Unbounded, sans-serif',
-      fontSize: '18px',
-      color: '#c8ffd8',
-    }).setOrigin(0.5)
+      fontSize: '16px',
+      color: '#e8d7a0',
+    }).setOrigin(0.5).setDepth(4)
 
     this.lobbyLabel = this.add.text(148, 1108, heistT('heistRoomLobby'), {
       fontFamily: 'Unbounded, sans-serif',
-      fontSize: '11px',
-      color: '#8a7a62',
-    }).setOrigin(0.5)
+      fontSize: '10px',
+      color: '#b49a62',
+    }).setOrigin(0.5).setDepth(4)
     this.vaultLabel = this.add.text(860, 200, heistT('heistRoomVault'), {
       fontFamily: 'Unbounded, sans-serif',
-      fontSize: '14px',
-      color: '#8a7a62',
-    }).setOrigin(0.5)
+      fontSize: '12px',
+      color: '#b49a62',
+    }).setOrigin(0.5).setDepth(4)
 
     const duckKey = this.makeDuckTexture()
     this.player = this.physics.add.sprite(420, 1070, duckKey)
@@ -377,12 +501,13 @@ export class HeistScene extends Phaser.Scene {
     this.setMoveAnim('idle')
 
     this.guard = this.physics.add.sprite(300, 490, 'guard')
-    this.guard.setDisplaySize(28, 42)
+    this.guard.setDisplaySize(GUARD_DISPLAY, GUARD_DISPLAY)
     this.guard.setDepth(11)
     const gb = this.guard.body as Phaser.Physics.Arcade.Body
     gb.setSize(18, 20)
     gb.setDamping(true)
     gb.setDrag(0.001, 0.001)
+    this.tryLoadGuardPng()
     this.gWaypoints = [
       new Phaser.Math.Vector2(300, 490),
       new Phaser.Math.Vector2(1400, 490),
@@ -393,6 +518,7 @@ export class HeistScene extends Phaser.Scene {
     ]
     this.gWi = 0
     this.gFacing = 0
+    this.gLastPos.set(this.guard.x, this.guard.y)
 
     this.cams = [
       this.makeCam(700, 430, Math.PI / 2, 0.85, 0.55),
@@ -432,8 +558,8 @@ export class HeistScene extends Phaser.Scene {
     this.physics.add.collider(this.player, this.walls)
     this.physics.add.collider(this.guard, this.walls)
 
-    this.worldGfx = this.add.graphics().setDepth(7)
-    this.visionGfx = this.add.graphics().setDepth(8)
+    this.worldGfx = this.add.graphics().setDepth(10)
+    this.visionGfx = this.add.graphics().setDepth(2)
     this.uiGfx = this.add.graphics().setScrollFactor(0).setDepth(20)
     this.hud = this.add
       .text(12, 8, '', { fontFamily: 'Unbounded, sans-serif', fontSize: '12px', color: '#f3e6c4' })
@@ -563,32 +689,59 @@ export class HeistScene extends Phaser.Scene {
     }
   }
 
+  private tryLoadGuardPng() {
+    const img = new Image()
+    img.onload = () => {
+      if (!this.guard?.active || img.naturalWidth < 8) return
+      if (this.textures.exists('guard_png')) this.textures.remove('guard_png')
+      this.textures.addImage('guard_png', img)
+      this.guard.setTexture('guard_png')
+      this.guard.setDisplaySize(GUARD_DISPLAY, GUARD_DISPLAY)
+    }
+    img.onerror = () => {
+      /* keep generated guard until a PNG is added at GUARD_PNG */
+    }
+    img.src = GUARD_PNG
+  }
+
   private drawFloor() {
-    const g = this.add.graphics()
-    g.fillStyle(0x1a1612)
+    const g = this.add.graphics().setDepth(0)
+    g.fillStyle(0x14110f)
     g.fillRect(0, 0, W, H)
-    const tile = 64
+    const tile = 96
     for (let y = 0; y < H; y += tile) {
       for (let x = 0; x < W; x += tile) {
         const odd = ((x / tile) + (y / tile)) % 2 === 0
-        g.fillStyle(odd ? 0x211c18 : 0x1c1814, 1)
+        g.fillStyle(odd ? 0x1a1613 : 0x161310, 1)
         g.fillRect(x, y, tile, tile)
       }
     }
-    g.lineStyle(1, 0x000000, 0.18)
-    for (let x = 0; x < W; x += tile) g.lineBetween(x, 0, x, H)
-    for (let y = 0; y < H; y += tile) g.lineBetween(0, y, W, y)
-    g.fillStyle(0x151812, 1)
-    g.fillRect(40, 920, 500, 300)
-    g.fillStyle(0x18140f, 1)
-    g.fillRect(40, 40, 700, 340)
-    g.setDepth(0)
+    g.lineStyle(1, 0xc9a227, 0.05)
+    for (let x = 0; x < W; x += tile * 2) g.lineBetween(x, 0, x, H)
+    for (let y = 0; y < H; y += tile * 2) g.lineBetween(0, y, W, y)
+    g.fillStyle(0x1c1812, 0.55)
+    g.fillRect(40, 920, 520, 300)
+    g.fillStyle(0x121418, 0.5)
+    g.fillRect(40, 40, 1680, 340)
+    g.lineStyle(2, 0xc9a227, 0.18)
+    g.strokeRect(48, 48, 1664, 324)
+    g.lineStyle(2, 0xc9a227, 0.22)
+    g.strokeRect(648, 372, 344, 20)
   }
 
   private makeCam(x: number, y: number, base: number, sweep: number, speed: number): SecCam {
+    const beamH = 2 * CAM_VISION * Math.tan(CAM_FOV / 2)
+    const beam = this.add.image(x, y, 'cam_beam').setDepth(2)
+    beam.setOrigin(0, 0.5)
+    beam.setDisplaySize(CAM_VISION, beamH)
+    beam.setRotation(base)
+    beam.setAlpha(0.9)
     const sprite = this.add.image(x, y, 'cam').setDepth(9)
-    this.add.circle(x, y - 10, 4, 0xff4a4a).setDepth(9)
-    return { x, y, facing: base, base, sweep, speed, sprite }
+    sprite.setOrigin(0.22, 0.5)
+    sprite.setDisplaySize(32, 16)
+    sprite.setRotation(base)
+    const led = this.add.circle(x, y, 2.4, 0xc9a227).setDepth(10)
+    return { x, y, facing: base, base, sweep, speed, sprite, beam, led, hot: false }
   }
 
   private takeLoot(item: Phaser.Physics.Arcade.Sprite) {
@@ -1009,7 +1162,10 @@ export class HeistScene extends Phaser.Scene {
   private setG(s: GuardState) {
     if (this.gState === s) return
     this.gState = s
-    if (s === 'SEARCH') this.gSearchT = 3.1
+    this.gPath = []
+    this.gRepathAt = 0
+    this.gStuckTries = 0
+    if (s === 'SEARCH') this.gSearchT = 5.2
   }
 
   private steerGuard(tx: number, ty: number, speed: number) {
@@ -1017,15 +1173,75 @@ export class HeistScene extends Phaser.Scene {
     const dy = ty - this.guard.y
     const dist = Math.hypot(dx, dy)
     const body = this.guard.body as Phaser.Physics.Arcade.Body
-    if (dist < 12) {
+    if (dist < 10) {
       body.setVelocity(0, 0)
       return dist
     }
     this.gFacing = Math.atan2(dy, dx)
     body.setMaxVelocity(speed, speed)
     body.setVelocity((dx / dist) * speed, (dy / dist) * speed)
-    this.guard.setFlipX(dx < 0)
     return dist
+  }
+
+  private followTo(tx: number, ty: number, speed: number, dt: number) {
+    const gx = this.guard.x
+    const gy = this.guard.y
+    const distGoal = Phaser.Math.Distance.Between(gx, gy, tx, ty)
+    const body = this.guard.body as Phaser.Physics.Arcade.Body
+    if (distGoal < 16) {
+      this.gPath = []
+      body.setVelocity(0, 0)
+      this.gStuckT = 0
+      this.gStuckTries = 0
+      this.gLastPos.set(gx, gy)
+      return distGoal
+    }
+
+    const now = this.time.now
+    const destMoved = Phaser.Math.Distance.Between(this.gPathDest.x, this.gPathDest.y, tx, ty) > 36
+    const repathDue = now >= this.gRepathAt || this.gPath.length === 0 || destMoved
+    if (repathDue) {
+      const raw =
+        this.gStuckTries > 0
+          ? findPathAroundStuck(this.nav, gx, gy, tx, ty, this.gStuckTries)
+          : findPath(this.nav, gx, gy, tx, ty)
+      this.gPath = raw ? raw.map((p) => new Phaser.Math.Vector2(p.x, p.y)) : []
+      this.gPathDest.set(tx, ty)
+      this.gRepathAt = now + (this.gState === 'CHASE' ? 300 : 400)
+    }
+
+    while (this.gPath.length && Phaser.Math.Distance.Between(gx, gy, this.gPath[0].x, this.gPath[0].y) < 16) {
+      this.gPath.shift()
+    }
+
+    const moved = Phaser.Math.Distance.Between(this.gLastPos.x, this.gLastPos.y, gx, gy)
+    this.gLastPos.set(gx, gy)
+    if (moved < 2.4 && distGoal > 18) this.gStuckT += dt
+    else {
+      this.gStuckT = 0
+      this.gStuckTries = 0
+    }
+    if (this.gStuckT > 0.6) {
+      this.gStuckT = 0
+      this.gStuckTries += 1
+      this.gPath = []
+      this.gRepathAt = 0
+      body.setVelocity(0, 0)
+      return distGoal
+    }
+
+    if (!this.gPath.length) {
+      body.setVelocity(0, 0)
+      return distGoal
+    }
+
+    const wp = this.gPath[0]
+    if (!gridLineClear(this.nav, gx, gy, wp.x, wp.y) && this.gPath.length > 1) {
+      this.gPath.shift()
+      this.gRepathAt = 0
+      return distGoal
+    }
+    return this.steerGuard(wp.x, wp.y, speed)
   }
 
   private updateCams(dt: number) {
@@ -1033,12 +1249,20 @@ export class HeistScene extends Phaser.Scene {
     for (const cam of this.cams) {
       cam.facing = cam.base + Math.sin(this.time.now / 1000 * cam.speed) * cam.sweep
       cam.sprite.setRotation(cam.facing)
+      cam.beam.setRotation(cam.facing)
+      cam.beam.setPosition(cam.x, cam.y)
+      cam.beam.setTint(cam.hot ? 0xffd2a8 : 0xffffff)
+      cam.beam.setAlpha(cam.hot ? 1 : 0.82)
       const seen = this.coneSees(cam.x, cam.y, cam.facing, CAM_VISION, CAM_FOV)
+      cam.hot = seen && !this.hidden
+      cam.led.setPosition(cam.x + Math.cos(cam.facing) * 11, cam.y + Math.sin(cam.facing) * 11)
+      cam.led.setFillStyle(cam.hot ? 0xffe08a : 0xc9a227, cam.hot ? 1 : 0.85)
       if (seen && !this.hidden) {
         this.camSees = true
         this.alert = Math.min(1, this.alert + dt * 0.42 * this.mods.disguiseMul)
         this.gLastSeen.set(this.player.x, this.player.y)
-        if (this.alert > 0.55 && this.gState === 'PATROL') this.setG('INVESTIGATE')
+        if (this.gState === 'PATROL' || this.gState === 'RETURN') this.setG('INVESTIGATE')
+        if (this.alert >= 1 && this.gState !== 'CHASE') this.setG('CHASE')
       }
     }
   }
@@ -1049,9 +1273,9 @@ export class HeistScene extends Phaser.Scene {
     if (seen) {
       this.gLastSeen.set(this.player.x, this.player.y)
       this.detect = Math.min(1, this.detect + dt * (1.05 + this.noise / 90) * hideMul * this.mods.disguiseMul)
-      if (this.detect >= 1) this.setG('CHASE')
+      if (this.detect >= 1 || this.gState === 'SEARCH' || this.gState === 'CHASE') this.setG('CHASE')
       else if (this.gState === 'PATROL' || this.gState === 'RETURN') this.setG('INVESTIGATE')
-    } else {
+    } else if (this.gState !== 'CHASE') {
       this.detect = Math.max(0, this.detect - dt * 0.32)
     }
     if (!seen && this.hearsPlayer() && this.gState !== 'CHASE') {
@@ -1064,24 +1288,32 @@ export class HeistScene extends Phaser.Scene {
 
     if (this.gState === 'PATROL') {
       const wp = this.gWaypoints[this.gWi]
-      if (this.steerGuard(wp.x, wp.y, 72) < 18) this.gWi = (this.gWi + 1) % this.gWaypoints.length
+      if (this.followTo(wp.x, wp.y, 72, dt) < 18) this.gWi = (this.gWi + 1) % this.gWaypoints.length
     } else if (this.gState === 'INVESTIGATE') {
-      if (this.steerGuard(this.gLastSeen.x, this.gLastSeen.y, 118) < 20) this.setG('SEARCH')
+      if (this.followTo(this.gLastSeen.x, this.gLastSeen.y, 118, dt) < 20) this.setG('SEARCH')
     } else if (this.gState === 'CHASE') {
-      this.steerGuard(this.player.x, this.player.y, 168)
+      const targetX = seen ? this.player.x : this.gLastSeen.x
+      const targetY = seen ? this.player.y : this.gLastSeen.y
+      this.followTo(targetX, targetY, 168, dt)
       if (Phaser.Math.Distance.Between(this.guard.x, this.guard.y, this.player.x, this.player.y) < 28) {
         this.finish('caught')
+      } else if (
+        !seen &&
+        Phaser.Math.Distance.Between(this.guard.x, this.guard.y, this.gLastSeen.x, this.gLastSeen.y) < 22
+      ) {
+        this.setG('SEARCH')
       }
-      if (!seen && this.detect < 0.18) this.setG('SEARCH')
     } else if (this.gState === 'SEARCH') {
       this.gSearchT -= dt
-      this.gFacing += dt * 1.7
-      const body = this.guard.body as Phaser.Physics.Arcade.Body
-      body.setVelocity(0, 0)
+      const aroundX = this.gLastSeen.x + Math.cos(this.time.now / 420) * 46
+      const aroundY = this.gLastSeen.y + Math.sin(this.time.now / 420) * 46
+      const atLast = Phaser.Math.Distance.Between(this.guard.x, this.guard.y, this.gLastSeen.x, this.gLastSeen.y) < 28
+      if (!atLast) this.followTo(this.gLastSeen.x, this.gLastSeen.y, 110, dt)
+      else this.followTo(aroundX, aroundY, 70, dt)
       if (this.gSearchT <= 0) this.setG('RETURN')
     } else if (this.gState === 'RETURN') {
       const wp = this.gWaypoints[this.gWi]
-      if (this.steerGuard(wp.x, wp.y, 86) < 18) this.setG('PATROL')
+      if (this.followTo(wp.x, wp.y, 86, dt) < 18) this.setG('PATROL')
     }
   }
 
@@ -1127,17 +1359,19 @@ export class HeistScene extends Phaser.Scene {
     })
   }
 
-  private drawCone(ox: number, oy: number, facing: number, dist: number, fov: number, color: number, alpha: number) {
+  private drawCone(ox: number, oy: number, facing: number, dist: number, fov: number, color: number, alpha: number, edge: number) {
     this.visionGfx.fillStyle(color, alpha)
     this.visionGfx.beginPath()
     this.visionGfx.moveTo(ox, oy)
-    const steps = 12
+    const steps = 14
     for (let i = 0; i <= steps; i += 1) {
       const a = facing - fov / 2 + (fov * i) / steps
       this.visionGfx.lineTo(ox + Math.cos(a) * dist, oy + Math.sin(a) * dist)
     }
     this.visionGfx.closePath()
     this.visionGfx.fillPath()
+    this.visionGfx.lineStyle(1.5, edge, 0.28)
+    this.visionGfx.strokePath()
   }
 
   private drawWorldFx() {
@@ -1149,26 +1383,22 @@ export class HeistScene extends Phaser.Scene {
       this.gFacing,
       GUARD_VISION,
       GUARD_FOV,
-      hot ? 0xff5533 : 0xffaa44,
-      0.14 + this.detect * 0.16,
+      hot ? 0xc45a3a : 0xc9a227,
+      hot ? 0.12 : 0.07,
+      hot ? 0xff8a6a : 0xe8c36a,
     )
-    for (const cam of this.cams) {
-      this.drawCone(cam.x, cam.y, cam.facing, CAM_VISION, CAM_FOV, 0x66d0ff, 0.12)
-    }
-    if (DEBUG && this.noiseR > 4) {
-      this.visionGfx.lineStyle(1, 0x88ddff, 0.4)
-      this.visionGfx.strokeCircle(this.player.x, this.player.y, this.noiseR)
-    }
     this.worldGfx.clear()
-    if (DEBUG) {
-      this.worldGfx.lineStyle(1, 0x80ffb0, 0.35)
-      for (const z of this.hideZones) this.worldGfx.strokeRect(z.x, z.y, z.w, z.h)
-    }
+    this.worldGfx.fillStyle(0x000000, 0.28)
+    this.worldGfx.fillEllipse(this.player.x, this.player.y + 14, 22, 10)
+    this.worldGfx.fillEllipse(this.guard.x, this.guard.y + 12, 20, 10)
+    this.guard.setRotation(this.gFacing)
   }
 
   private drawUi() {
     const h = this.camH()
     this.uiGfx.clear()
+    this.uiGfx.fillStyle(0x080604, 0.55)
+    this.uiGfx.fillRoundedRect(6, 4, Math.min(this.camW() - 12, 360), 44, 8)
     const sx = this.stick.active ? this.stick.ox : 72
     const sy = this.stick.active ? this.stick.oy : h - 86
     this.uiGfx.fillStyle(0x000000, 0.32)
