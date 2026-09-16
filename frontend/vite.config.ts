@@ -8,7 +8,7 @@ export default defineConfig({
     global: 'globalThis',
   },
   optimizeDeps: {
-    include: ['@ton/core'],
+    include: ['@ton/core', 'phaser'],
   },
   server: {
     port: 5173,
