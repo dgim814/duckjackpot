@@ -143,7 +143,6 @@ export class HeistScene extends Phaser.Scene {
   private bagFullFlash = 0
   private openLabel!: Phaser.GameObjects.Text
   private safeOpenedAt = 0
-  private lastSafeGain = 0
   private hitHeld = false
 
   private keys!: {
@@ -785,7 +784,6 @@ export class HeistScene extends Phaser.Scene {
     this.safeOpenedAt = this.time.now
     const room = Math.max(0, this.mods.bagCap - this.currentLoot)
     const gained = Math.min(SAFE_REWARD, room)
-    this.lastSafeGain = gained
     this.hitHeld = false
     this.currentLoot += gained
     if (gained > 0) this.floatGain(gained)
