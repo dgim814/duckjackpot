@@ -421,6 +421,13 @@ const ru = {
   heistBonus: 'BONUS',
   heistCoinsCollected: 'COINS COLLECTED',
   heistLostRun: 'CURRENT RUN LOST',
+  heistOpen: 'OPEN',
+  heistHit: 'ПОПАСТЬ',
+  heistCrackTitle: 'CRACK THE SAFE',
+  heistRound: 'ROUND {n}/{total}',
+  heistHitHint: 'Нажми HIT, когда маркер в зелёной зоне',
+  heistSafeOpenedTitle: 'СЕЙФ ВЗЛОМАН!',
+  heistSafeReward: '+{n} DUCK COIN',
 } as const
 
 const en: Record<keyof typeof ru, string> = {
@@ -846,6 +853,13 @@ const en: Record<keyof typeof ru, string> = {
   heistBonus: 'BONUS',
   heistCoinsCollected: 'COINS COLLECTED',
   heistLostRun: 'CURRENT RUN LOST',
+  heistOpen: 'OPEN',
+  heistHit: 'HIT',
+  heistCrackTitle: 'CRACK THE SAFE',
+  heistRound: 'ROUND {n}/{total}',
+  heistHitHint: 'Tap HIT when the marker is in the green zone',
+  heistSafeOpenedTitle: 'SAFE OPENED!',
+  heistSafeReward: '+{n} DUCK COIN',
 }
 
 export const messages = { ru, en } as const

@@ -3,6 +3,7 @@ import { punchBackdrop } from '../sprite'
 import type { HeistEnd } from '../types'
 import type { HeistRunMods } from '../progress'
 import { coinDef, ensureCoinPlaceholders, SAFE_REWARD, type DuckCoinKind } from '../coinAssets'
+import { messages, type Lang, type MessageKey } from '../../i18n/messages'
 
 const W = 1760
 const H = 1280
@@ -65,6 +66,7 @@ export class HeistScene extends Phaser.Scene {
   private bagHud!: Phaser.GameObjects.Text
   private debugHud!: Phaser.GameObjects.Text
   private crackHud!: Phaser.GameObjects.Text
+  private crackHint!: Phaser.GameObjects.Text
   private fx!: Phaser.GameObjects.Particles.ParticleEmitter
 
   private stick = { active: false, x: 0, y: 0, id: -1, ox: 0, oy: 0 }
@@ -141,6 +143,8 @@ export class HeistScene extends Phaser.Scene {
   private bagFullFlash = 0
   private openLabel!: Phaser.GameObjects.Text
   private safeOpenedAt = 0
+  private lastSafeGain = 0
+  private hitHeld = false
 
   private keys!: {
     w: { isDown: boolean }
@@ -167,6 +171,13 @@ export class HeistScene extends Phaser.Scene {
     super('HeistScene')
     this.onDone = onDone
     this.mods = mods
+  }
+
+  private t(key: MessageKey, vars?: Record<string, string | number>) {
+    const lang: Lang = document.documentElement.lang === 'en' ? 'en' : 'ru'
+    const raw = messages[lang][key]
+    if (!vars) return raw
+    return raw.replace(/\{(\w+)\}/g, (_, name: string) => String(vars[name] ?? ''))
   }
 
   preload() {
@@ -441,11 +452,23 @@ export class HeistScene extends Phaser.Scene {
       .setDepth(21)
       .setVisible(DEBUG)
     this.crackHud = this.add
-      .text(0, 48, '', {
+      .text(0, 36, '', {
         fontFamily: 'Unbounded, sans-serif',
         fontSize: '13px',
         color: '#ffe08a',
         align: 'center',
+      })
+      .setOrigin(0.5, 0)
+      .setScrollFactor(0)
+      .setDepth(24)
+      .setVisible(false)
+    this.crackHint = this.add
+      .text(0, 148, '', {
+        fontFamily: 'Unbounded, sans-serif',
+        fontSize: '10px',
+        color: '#d8c49a',
+        align: 'center',
+        wordWrap: { width: 280 },
       })
       .setOrigin(0.5, 0)
       .setScrollFactor(0)
@@ -517,7 +540,7 @@ export class HeistScene extends Phaser.Scene {
       .setScrollFactor(0)
       .setDepth(22)
     this.openLabel = this.add
-      .text(this.camW() - 150, this.camH() - 78, 'OPEN', {
+      .text(this.camW() - 62, this.camH() - 238, this.t('heistOpen'), {
         fontFamily: 'Unbounded, sans-serif',
         fontSize: '9px',
         color: '#ffe08a',
@@ -683,7 +706,7 @@ export class HeistScene extends Phaser.Scene {
     return { x: this.camW() - 62, y: this.camH() - 78, r: BTN_R }
   }
   private btnOpen() {
-    return { x: this.camW() - 150, y: this.camH() - 78, r: BTN_R }
+    return { x: this.camW() - 62, y: this.camH() - 238, r: BTN_R }
   }
 
   private nearSafe() {
@@ -692,20 +715,25 @@ export class HeistScene extends Phaser.Scene {
 
   private updateSafePrompt() {
     if (!this.safePrompt || !this.openLabel) return
+    const btn = this.btnOpen()
+    this.openLabel.setPosition(btn.x, btn.y)
     if (this.safeOpened) {
-      this.safePrompt.setText('SAFE OPENED')
+      this.safePrompt.setText(this.t('heistSafeOpenedTitle'))
       this.safePrompt.setColor('#b6e3b0')
       this.openLabel.setVisible(false)
+      this.hitHeld = false
       return
     }
     if (this.safeCrack) {
-      this.safePrompt.setText('CRACK THE SAFE')
-      this.openLabel.setVisible(false)
+      this.safePrompt.setText('')
+      this.openLabel.setText(this.t('heistHit'))
+      this.openLabel.setVisible(true)
       return
     }
     const show = this.nearSafe()
-    this.safePrompt.setText(show ? 'SAFE\nOPEN' : '')
+    this.safePrompt.setText(show ? 'SAFE' : '')
     this.safePrompt.setColor('#ffe08a')
+    this.openLabel.setText(this.t('heistOpen'))
     this.openLabel.setVisible(show)
     if (show && (this.openHeld || this.winKeys.e || this.keys.e.isDown)) this.tryOpenSafe()
   }
@@ -757,6 +785,8 @@ export class HeistScene extends Phaser.Scene {
     this.safeOpenedAt = this.time.now
     const room = Math.max(0, this.mods.bagCap - this.currentLoot)
     const gained = Math.min(SAFE_REWARD, room)
+    this.lastSafeGain = gained
+    this.hitHeld = false
     this.currentLoot += gained
     if (gained > 0) this.floatGain(gained)
     else this.bagFullFlash = this.time.now + 900
@@ -780,21 +810,26 @@ export class HeistScene extends Phaser.Scene {
     this.sneakId = -1
     this.openHeld = false
     this.openId = -1
+    this.hitHeld = false
   }
 
   private onDown(p: Phaser.Input.Pointer) {
     if (this.ended) return
-    if (this.safeCrack) {
-      this.trySafeHit()
-      return
-    }
     const x = p.x
     const y = p.y
+    const open = this.btnOpen()
+    if (this.safeCrack) {
+      if (Phaser.Math.Distance.Between(x, y, open.x, open.y) < open.r) {
+        this.hitHeld = true
+        this.openId = p.id
+        this.trySafeHit()
+      }
+      return
+    }
     const w = this.camW()
     const h = this.camH()
     const dash = this.btnDash()
     const sneak = this.btnSneak()
-    const open = this.btnOpen()
     if (this.nearSafe() && !this.safeOpened && Phaser.Math.Distance.Between(x, y, open.x, open.y) < open.r) {
       this.openHeld = true
       this.openId = p.id
@@ -833,6 +868,7 @@ export class HeistScene extends Phaser.Scene {
     if (p.id === this.openId) {
       this.openHeld = false
       this.openId = -1
+      this.hitHeld = false
     }
   }
 
@@ -1164,10 +1200,12 @@ export class HeistScene extends Phaser.Scene {
     this.uiGfx.fillStyle(now < this.dashUntil ? 0xff6a4a : cooling ? 0x2a2018 : 0x1a1410, 0.82)
     this.uiGfx.fillCircle(dash.x, dash.y, 38)
     this.uiGfx.strokeCircle(dash.x, dash.y, 38)
-    if (this.nearSafe() && !this.safeOpened && !this.safeCrack) {
-      this.uiGfx.fillStyle(this.openHeld || this.winKeys.e ? 0xc9a227 : 0x1a1410, 0.86)
-      this.uiGfx.fillCircle(open.x, open.y, 36)
-      this.uiGfx.strokeCircle(open.x, open.y, 36)
+    const showOpen = this.nearSafe() && !this.safeOpened && !this.safeCrack
+    const showHit = this.safeCrack
+    if (showOpen || showHit) {
+      this.uiGfx.fillStyle(this.openHeld || this.hitHeld || this.winKeys.e ? 0xc9a227 : 0x1a1410, 0.86)
+      this.uiGfx.fillCircle(open.x, open.y, 38)
+      this.uiGfx.strokeCircle(open.x, open.y, 38)
     }
     if (cooling) {
       const t = 1 - (this.dashReady - now) / (DASH_CD - DASH_MS)
@@ -1179,21 +1217,23 @@ export class HeistScene extends Phaser.Scene {
 
     if (this.safeCrack) {
       const ox = this.camW() / 2
-      const oy = 92
-      this.uiGfx.fillStyle(0x000000, 0.72)
-      this.uiGfx.fillRoundedRect(ox - 150, oy - 58, 300, 118, 12)
+      const oy = Math.min(128, Math.max(108, this.camH() * 0.18))
+      this.uiGfx.fillStyle(0x000000, 0.78)
+      this.uiGfx.fillRoundedRect(ox - 154, oy - 58, 308, 128, 12)
       this.uiGfx.lineStyle(2, 0xc9a227, 0.9)
-      this.uiGfx.strokeRoundedRect(ox - 150, oy - 58, 300, 118, 12)
+      this.uiGfx.strokeRoundedRect(ox - 154, oy - 58, 308, 128, 12)
       const barX = ox - 120
-      const barY = oy + 8
+      const barY = oy + 10
       const barW = 240
       this.uiGfx.fillStyle(0x1a1410, 1)
-      this.uiGfx.fillRoundedRect(barX, barY, barW, 16, 8)
+      this.uiGfx.fillRoundedRect(barX, barY, barW, 18, 8)
       const zone = this.safeZone()
       this.uiGfx.fillStyle(0x3d8a4a, 0.95)
-      this.uiGfx.fillRect(barX + (zone.center - zone.width / 2) * barW, barY, zone.width * barW, 16)
+      this.uiGfx.fillRect(barX + (zone.center - zone.width / 2) * barW, barY, zone.width * barW, 18)
       this.uiGfx.fillStyle(0xffe08a, 1)
-      this.uiGfx.fillRect(barX + this.safeMarker * barW - 3, barY - 4, 6, 24)
+      this.uiGfx.fillRect(barX + this.safeMarker * barW - 3, barY - 5, 6, 28)
+      this.crackHud.setPosition(ox, oy - 52)
+      this.crackHint.setPosition(ox, oy + 36)
     }
 
     const a = Math.round(this.alert * 100)
@@ -1209,14 +1249,19 @@ export class HeistScene extends Phaser.Scene {
     )
     if (this.safeCrack) {
       this.crackHud.setVisible(true)
-      this.crackHud.setPosition(this.camW() / 2, 42)
-      this.crackHud.setText(`CRACK THE SAFE\nROUND ${Math.min(this.safeHits + 1, SAFE_HITS)}/${SAFE_HITS}`)
-    } else if (this.safeOpened && now - this.safeOpenedAt < 1400) {
+      this.crackHud.setText(
+        `${this.t('heistCrackTitle')}\n${this.t('heistRound', { n: Math.min(this.safeHits + 1, SAFE_HITS), total: SAFE_HITS })}`,
+      )
+      this.crackHint.setVisible(true)
+      this.crackHint.setText(this.t('heistHitHint'))
+    } else if (this.safeOpened && now - this.safeOpenedAt < 1800) {
       this.crackHud.setVisible(true)
-      this.crackHud.setPosition(this.camW() / 2, 42)
-      this.crackHud.setText('SAFE OPENED')
+      this.crackHud.setPosition(this.camW() / 2, 46)
+      this.crackHud.setText(`${this.t('heistSafeOpenedTitle')}\n${this.t('heistSafeReward', { n: SAFE_REWARD })}`)
+      this.crackHint.setVisible(false)
     } else {
       this.crackHud.setVisible(false)
+      this.crackHint.setVisible(false)
     }
     if (DEBUG) {
       this.debugHud.setText(`${this.moveAnim}  ${this.gState}  hide:${this.hidden ? 1 : 0}`)
