@@ -6,8 +6,11 @@ const W = 1760
 const H = 1280
 const NOISE = { sneak: 10, run: 35, dash: 80 } as const
 const SPEED = { sneak: 70, run: 140, dash: 320 } as const
-const DASH_MS = 220
+const DASH_MS = 200
 const DASH_CD = 1100
+const PICKUP_R = 42
+const EXIT_HOLD = 0.62
+const BTN_R = 52
 const GUARD_VISION = 255
 const GUARD_FOV = Phaser.Math.DegToRad(54)
 const CAM_VISION = 210
@@ -66,9 +69,10 @@ export class HeistScene extends Phaser.Scene {
   private stick = { active: false, x: 0, y: 0, id: -1, ox: 0, oy: 0 }
   private sneakHeld = false
   private sneakId = -1
-  private dashQueuedUntil = 0
   private dashUntil = 0
   private dashReady = 0
+  private exitHold = 0
+  private escaping = false
   private camSees = false
   private winKeys = {
     w: false,
@@ -100,7 +104,7 @@ export class HeistScene extends Phaser.Scene {
     if (!slot) return
     e.preventDefault()
     this.winKeys[slot] = down
-    if (slot === 'space' && down) this.dashQueuedUntil = this.time.now + 280
+    if (slot === 'space' && down) this.tryDash()
   }
   private facing = new Phaser.Math.Vector2(1, 0)
   private moveAnim: MoveAnim = 'idle'
@@ -329,7 +333,7 @@ export class HeistScene extends Phaser.Scene {
     }).setOrigin(0.5)
 
     const duckKey = this.makeDuckTexture()
-    this.player = this.physics.add.sprite(280, 1070, duckKey)
+    this.player = this.physics.add.sprite(420, 1070, duckKey)
     this.player.setDisplaySize(44, 44)
     this.player.setDepth(12)
     this.player.setCollideWorldBounds(true)
@@ -375,24 +379,24 @@ export class HeistScene extends Phaser.Scene {
       [860, 280, 'GOLD'],
       [1020, 220, 'GOLD'],
     ]
-    for (const [sx, sy, kind] of slots) {
+    slots.forEach(([sx, sy, kind], i) => {
       const def = LOOT_DEFS.find((d) => d.kind === kind) ?? LOOT_DEFS[0]
       const x = Phaser.Math.Clamp(jitter(sx, 22), 70, W - 70)
       const y = Phaser.Math.Clamp(jitter(sy, 16), 70, H - 70)
       const s = this.physics.add.sprite(x, y, def.key)
       s.setDepth(6)
+      s.setData('lootId', `loot-${i}`)
       s.setData('value', def.value)
+      s.setData('collected', false)
       const b = s.body as Phaser.Physics.Arcade.Body
       b.setAllowGravity(false)
       b.setImmovable(true)
-      b.setCircle(8)
+      b.setCircle(20)
       this.lootGroup.add(s)
-    }
+    })
 
     this.physics.add.collider(this.player, this.walls)
     this.physics.add.collider(this.guard, this.walls)
-    this.physics.add.overlap(this.player, this.lootGroup, (_p, obj) => this.takeLoot(obj as Phaser.Physics.Arcade.Sprite))
-    this.physics.add.overlap(this.player, this.exitZone, () => this.tryExit())
 
     this.worldGfx = this.add.graphics().setDepth(7)
     this.visionGfx = this.add.graphics().setDepth(8)
@@ -420,11 +424,17 @@ export class HeistScene extends Phaser.Scene {
     this.cameras.main.setDeadzone(28, 28)
 
     this.input.addPointer(3)
+    this.input.setTopOnly(false)
     this.input.on('pointerdown', (p: Phaser.Input.Pointer) => this.onDown(p))
     this.input.on('pointerup', (p: Phaser.Input.Pointer) => this.onUp(p))
+    this.input.on('pointerupoutside', (p: Phaser.Input.Pointer) => this.onUp(p))
+    this.input.on('gameout', () => this.releaseTouches())
     this.input.on('pointermove', (p: Phaser.Input.Pointer) => {
       if (this.stick.active && p.id === this.stick.id) this.setStick(p.x, p.y)
     })
+    const cancel = () => this.releaseTouches()
+    this.game.canvas.addEventListener('pointercancel', cancel)
+    this.game.canvas.addEventListener('touchcancel', cancel)
 
     const off = { isDown: false }
     const kb = this.input.keyboard
@@ -476,6 +486,8 @@ export class HeistScene extends Phaser.Scene {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       window.removeEventListener('keydown', down)
       window.removeEventListener('keyup', up)
+      this.game.canvas.removeEventListener('pointercancel', cancel)
+      this.game.canvas.removeEventListener('touchcancel', cancel)
       const w = window as Window & { __heist?: HeistScene }
       if (w.__heist === this) delete w.__heist
     })
@@ -513,7 +525,8 @@ export class HeistScene extends Phaser.Scene {
   }
 
   private takeLoot(item: Phaser.Physics.Arcade.Sprite) {
-    if (!item.active) return
+    if (!item.active || item.getData('collected')) return
+    item.setData('collected', true)
     item.disableBody(true, false)
     const value = Number(item.getData('value') || 0)
     this.currentLoot += value
@@ -546,9 +559,29 @@ export class HeistScene extends Phaser.Scene {
     })
   }
 
-  private tryExit() {
-    if (this.currentLoot <= 0) return
-    this.finish('escaped')
+  private collectNearbyLoot() {
+    const items = this.lootGroup.getChildren() as Phaser.Physics.Arcade.Sprite[]
+    for (const item of items) {
+      if (!item.active || item.getData('collected')) continue
+      if (Phaser.Math.Distance.Between(this.player.x, this.player.y, item.x, item.y) <= PICKUP_R) {
+        this.takeLoot(item)
+      }
+    }
+  }
+
+  private inExit() {
+    return Math.abs(this.player.x - this.exitZone.x) < this.exitZone.width / 2 && Math.abs(this.player.y - this.exitZone.y) < this.exitZone.height / 2
+  }
+
+  private updateExit(dt: number) {
+    if (this.currentLoot <= 0 || !this.inExit()) {
+      this.exitHold = 0
+      this.escaping = false
+      return
+    }
+    this.escaping = true
+    this.exitHold += dt
+    if (this.exitHold >= EXIT_HOLD) this.finish('escaped')
   }
 
   update(_t: number, dtMs: number) {
@@ -556,6 +589,8 @@ export class HeistScene extends Phaser.Scene {
     const dt = Math.min(0.033, dtMs / 1000)
     this.updateHidden()
     this.updatePlayer(dt)
+    this.collectNearbyLoot()
+    this.updateExit(dt)
     this.updateCams(dt)
     this.updateGuard(dt)
     this.updateAlert(dt)
@@ -570,15 +605,40 @@ export class HeistScene extends Phaser.Scene {
     return this.scale.width
   }
 
+  private btnSneak() {
+    return { x: this.camW() - 62, y: this.camH() - 158, r: BTN_R }
+  }
+  private btnDash() {
+    return { x: this.camW() - 62, y: this.camH() - 78, r: BTN_R }
+  }
+
+  private tryDash() {
+    if (this.ended) return
+    const now = this.time.now
+    if (now < this.dashReady) return
+    this.dashUntil = now + DASH_MS
+    this.dashReady = now + DASH_CD
+  }
+
+  private releaseTouches() {
+    this.stick.active = false
+    this.stick.id = -1
+    this.stick.x = 0
+    this.stick.y = 0
+    this.sneakHeld = false
+    this.sneakId = -1
+  }
+
   private onDown(p: Phaser.Input.Pointer) {
+    if (this.ended) return
     const x = p.x
     const y = p.y
     const w = this.camW()
     const h = this.camH()
-    const dash = { x: w - 62, y: h - 78, r: 34 }
-    const sneak = { x: w - 62, y: h - 158, r: 34 }
+    const dash = this.btnDash()
+    const sneak = this.btnSneak()
     if (Phaser.Math.Distance.Between(x, y, dash.x, dash.y) < dash.r) {
-      this.dashQueuedUntil = this.time.now + 280
+      this.tryDash()
       return
     }
     if (Phaser.Math.Distance.Between(x, y, sneak.x, sneak.y) < sneak.r) {
@@ -586,11 +646,11 @@ export class HeistScene extends Phaser.Scene {
       this.sneakId = p.id
       return
     }
-    if (x < w * 0.48 && y > h * 0.38 && !this.stick.active) {
+    if (x < w * 0.52 && y > h * 0.32 && !this.stick.active) {
       this.stick.active = true
       this.stick.id = p.id
-      this.stick.ox = Phaser.Math.Clamp(x, 56, w * 0.42)
-      this.stick.oy = Phaser.Math.Clamp(y, h * 0.48, h - 56)
+      this.stick.ox = Phaser.Math.Clamp(x, 48, w * 0.46)
+      this.stick.oy = Phaser.Math.Clamp(y, h * 0.38, h - 48)
       this.setStick(p.x, p.y)
     }
   }
@@ -663,20 +723,21 @@ export class HeistScene extends Phaser.Scene {
     const now = this.time.now
     const space = this.keys.space
     const spaceTap = 'justDown' in space ? Phaser.Input.Keyboard.JustDown(space as Phaser.Input.Keyboard.Key) : false
-    if (spaceTap) this.dashQueuedUntil = now + 280
-    if (now < this.dashQueuedUntil && now >= this.dashReady && moving) {
-      this.dashUntil = now + DASH_MS
-      this.dashReady = now + DASH_CD
-      this.dashQueuedUntil = 0
-    }
+    if (spaceTap) this.tryDash()
     const sneaking = this.sneakHeld || this.keys.shift.isDown || this.winKeys.shift || this.hidden
     const dashing = now < this.dashUntil
     let spd = 0
+    let vx = jx
+    let vy = jy
     if (dashing) {
       this.setMoveAnim('dash')
       spd = SPEED.dash
       this.noise = NOISE.dash
-    } else if (moving && sneaking) {
+      if (!moving) {
+        vx = this.facing.x
+        vy = this.facing.y
+      }
+    } else if ((moving || sneaking) && sneaking && moving) {
       this.setMoveAnim('sneak')
       spd = this.hidden ? SPEED.sneak * 0.82 : SPEED.sneak
       this.noise = NOISE.sneak
@@ -694,10 +755,10 @@ export class HeistScene extends Phaser.Scene {
     }
     this.noiseR = this.noise * 2.15
     const body = this.player.body as Phaser.Physics.Arcade.Body
-    if (moving) {
-      this.facing.set(jx, jy).normalize()
+    if (dashing || moving) {
+      this.facing.set(vx, vy).normalize()
       body.setMaxVelocity(spd, spd)
-      body.setVelocity(jx * spd, jy * spd)
+      body.setVelocity(vx * spd, vy * spd)
     } else {
       body.setVelocity(0, 0)
     }
@@ -839,8 +900,15 @@ export class HeistScene extends Phaser.Scene {
   private finish(verdict: HeistEnd['verdict']) {
     if (this.ended) return
     this.ended = true
+    this.releaseTouches()
+    this.input.enabled = false
     const body = this.player.body as Phaser.Physics.Arcade.Body
     body.setVelocity(0, 0)
+    body.setAcceleration(0, 0)
+    const gb = this.guard.body as Phaser.Physics.Arcade.Body
+    gb.setVelocity(0, 0)
+    gb.setAcceleration(0, 0)
+    this.physics.pause()
     const loot = this.currentLoot
     const timeMs = this.time.now - this.startedAt
     const xp = verdict === 'escaped' ? Math.floor(loot / 5) + this.maxCombo * 8 : 0
@@ -893,7 +961,6 @@ export class HeistScene extends Phaser.Scene {
   }
 
   private drawUi() {
-    const w = this.camW()
     const h = this.camH()
     this.uiGfx.clear()
     const sx = this.stick.active ? this.stick.ox : 72
@@ -905,22 +972,31 @@ export class HeistScene extends Phaser.Scene {
     this.uiGfx.fillStyle(0xffe08a, 0.95)
     this.uiGfx.fillCircle(sx + this.stick.x * 36, sy + this.stick.y * 36, 18)
 
-    const sneak = { x: w - 62, y: h - 158 }
-    const dash = { x: w - 62, y: h - 78 }
+    const sneak = this.btnSneak()
+    const dash = this.btnDash()
     this.uiGfx.fillStyle(this.sneakHeld || this.keys.shift.isDown || this.winKeys.shift ? 0xc9a227 : 0x1a1410, 0.82)
-    this.uiGfx.fillCircle(sneak.x, sneak.y, 32)
+    this.uiGfx.fillCircle(sneak.x, sneak.y, 36)
     this.uiGfx.lineStyle(2, 0xc9a227, 0.7)
-    this.uiGfx.strokeCircle(sneak.x, sneak.y, 32)
-    const cooling = this.time.now < this.dashReady && this.time.now >= this.dashUntil
-    this.uiGfx.fillStyle(this.time.now < this.dashUntil ? 0xff6a4a : cooling ? 0x2a2018 : 0x1a1410, 0.82)
-    this.uiGfx.fillCircle(dash.x, dash.y, 34)
-    this.uiGfx.strokeCircle(dash.x, dash.y, 34)
+    this.uiGfx.strokeCircle(sneak.x, sneak.y, 36)
+    const now = this.time.now
+    const cooling = now < this.dashReady && now >= this.dashUntil
+    this.uiGfx.fillStyle(now < this.dashUntil ? 0xff6a4a : cooling ? 0x2a2018 : 0x1a1410, 0.82)
+    this.uiGfx.fillCircle(dash.x, dash.y, 38)
+    this.uiGfx.strokeCircle(dash.x, dash.y, 38)
+    if (cooling) {
+      const t = 1 - (this.dashReady - now) / (DASH_CD - DASH_MS)
+      this.uiGfx.lineStyle(4, 0xc9a227, 0.9)
+      this.uiGfx.beginPath()
+      this.uiGfx.arc(dash.x, dash.y, 38, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Phaser.Math.Clamp(t, 0, 1), false)
+      this.uiGfx.strokePath()
+    }
 
     const a = Math.round(this.alert * 100)
     const band = a < 30 ? 'SAFE' : a < 70 ? 'SUSPICIOUS' : a < 100 && this.gState !== 'CHASE' ? 'DANGER' : 'CHASE'
     const color = a < 30 ? '#b6e3b0' : a < 70 ? '#ffe08a' : '#ff8a6a'
     this.hud.setColor(color)
-    this.hud.setText(`LOOT $${this.currentLoot}    ALERT ${a}% ${band}    ${formatClock(this.time.now - this.startedAt)}`)
+    const escape = this.escaping ? '    ESCAPE' : ''
+    this.hud.setText(`LOOT $${this.currentLoot}    ALERT ${a}% ${band}    ${formatClock(now - this.startedAt)}${escape}`)
     if (DEBUG) {
       this.debugHud.setText(`${this.moveAnim}  ${this.gState}  hide:${this.hidden ? 1 : 0}`)
     }
