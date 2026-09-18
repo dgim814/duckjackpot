@@ -109,6 +109,17 @@ export class HeistScene extends Phaser.Scene {
     e: false,
   }
   private onWinKey = (e: KeyboardEvent, down: boolean) => {
+    if (e.code === 'Escape') {
+      if (down) {
+        e.preventDefault()
+        this.togglePause()
+      }
+      return
+    }
+    if (this.paused) {
+      e.preventDefault()
+      return
+    }
     const map: Record<string, keyof typeof this.winKeys> = {
       KeyW: 'w',
       KeyA: 'a',
@@ -142,6 +153,14 @@ export class HeistScene extends Phaser.Scene {
   private detect = 0
   private hidden = false
   private ended = false
+  private paused = false
+  private pauseAt = 0
+  private pauseShift = 0
+  private pauseGfx!: Phaser.GameObjects.Graphics
+  private pauseHudLbl!: Phaser.GameObjects.Text
+  private pauseTitle!: Phaser.GameObjects.Text
+  private pauseResumeLbl!: Phaser.GameObjects.Text
+  private pauseAbortLbl!: Phaser.GameObjects.Text
   private startedAt = 0
   private combo = 0
   private maxCombo = 0
@@ -690,6 +709,46 @@ export class HeistScene extends Phaser.Scene {
     this.worldGfx = this.add.graphics().setDepth(10)
     this.visionGfx = this.add.graphics().setDepth(2)
     this.uiGfx = this.add.graphics().setScrollFactor(0).setDepth(20)
+    this.pauseGfx = this.add.graphics().setScrollFactor(0).setDepth(50)
+    this.pauseHudLbl = this.add
+      .text(0, 0, heistT('heistPause'), {
+        fontFamily: 'Unbounded, sans-serif',
+        fontSize: '8px',
+        color: '#ffe08a',
+      })
+      .setOrigin(0.5)
+      .setScrollFactor(0)
+      .setDepth(51)
+    this.pauseTitle = this.add
+      .text(0, 0, heistT('heistPaused'), {
+        fontFamily: 'Unbounded, sans-serif',
+        fontSize: '22px',
+        color: '#ffe08a',
+      })
+      .setOrigin(0.5)
+      .setScrollFactor(0)
+      .setDepth(51)
+      .setVisible(false)
+    this.pauseResumeLbl = this.add
+      .text(0, 0, heistT('heistResume'), {
+        fontFamily: 'Unbounded, sans-serif',
+        fontSize: '14px',
+        color: '#120c10',
+      })
+      .setOrigin(0.5)
+      .setScrollFactor(0)
+      .setDepth(51)
+      .setVisible(false)
+    this.pauseAbortLbl = this.add
+      .text(0, 0, heistT('heistAbortRaid'), {
+        fontFamily: 'Unbounded, sans-serif',
+        fontSize: '13px',
+        color: '#ffe08a',
+      })
+      .setOrigin(0.5)
+      .setScrollFactor(0)
+      .setDepth(51)
+      .setVisible(false)
     this.hud = this.add
       .text(12, 8, '', { fontFamily: 'Unbounded, sans-serif', fontSize: '12px', color: '#f3e6c4' })
       .setScrollFactor(0)
@@ -746,6 +805,7 @@ export class HeistScene extends Phaser.Scene {
     this.input.on('pointerupoutside', (p: Phaser.Input.Pointer) => this.onUp(p))
     this.input.on('gameout', () => this.releaseTouches())
     this.input.on('pointermove', (p: Phaser.Input.Pointer) => {
+      if (this.paused) return
       if (this.stick.active && p.id === this.stick.id) this.setStick(p.x, p.y)
     })
     const cancel = () => this.releaseTouches()
@@ -871,7 +931,7 @@ export class HeistScene extends Phaser.Scene {
     item.setData('collected', true)
     item.disableBody(true, false)
     this.currentLoot += gained
-    const now = this.time.now
+    const now = this.gameNow()
     this.combo = now - this.lastPickup < 3800 ? this.combo + 1 : 1
     this.maxCombo = Math.max(this.maxCombo, this.combo)
     this.lastPickup = now
@@ -914,7 +974,7 @@ export class HeistScene extends Phaser.Scene {
       duration: 700,
       onComplete: () => label.destroy(),
     })
-    if (this.currentLoot >= this.mods.bagCap) this.bagFullFlash = this.time.now + 900
+    if (this.currentLoot >= this.mods.bagCap) this.bagFullFlash = this.gameNow() + 900
   }
 
   private collectNearbyLoot() {
@@ -944,6 +1004,10 @@ export class HeistScene extends Phaser.Scene {
 
   update(_t: number, dtMs: number) {
     if (this.ended || !this.player) return
+    if (this.paused) {
+      this.drawUi()
+      return
+    }
     const dt = Math.min(0.033, dtMs / 1000)
     this.updateHidden()
     if (this.safeCrack) {
@@ -970,6 +1034,62 @@ export class HeistScene extends Phaser.Scene {
   }
   private camW() {
     return this.scale.width
+  }
+
+  private btnPause() {
+    return { x: this.camW() - 34, y: 28, r: 20 }
+  }
+  private btnResume() {
+    return { x: this.camW() / 2, y: this.camH() / 2 + 10, w: 220, h: 44 }
+  }
+  private btnAbort() {
+    return { x: this.camW() / 2, y: this.camH() / 2 + 64, w: 220, h: 40 }
+  }
+
+  private gameNow() {
+    if (this.paused) return this.pauseAt - this.pauseShift
+    return this.time.now - this.pauseShift
+  }
+
+  private inUiRect(x: number, y: number, btn: { x: number; y: number; w: number; h: number }) {
+    return x >= btn.x - btn.w / 2 && x <= btn.x + btn.w / 2 && y >= btn.y - btn.h / 2 && y <= btn.y + btn.h / 2
+  }
+
+  private togglePause() {
+    if (this.ended) return
+    this.setPaused(!this.paused)
+  }
+
+  private setPaused(on: boolean) {
+    if (this.ended || this.paused === on) return
+    if (on) {
+      this.pauseAt = this.time.now
+      this.paused = true
+      this.releaseTouches()
+      const body = this.player.body as Phaser.Physics.Arcade.Body
+      body.setVelocity(0, 0)
+      const gb = this.guard.body as Phaser.Physics.Arcade.Body
+      gb.setVelocity(0, 0)
+      this.physics.pause()
+      this.tweens.pauseAll()
+      this.anims.pauseAll()
+    } else {
+      this.pauseShift += this.time.now - this.pauseAt
+      this.paused = false
+      this.physics.resume()
+      this.tweens.resumeAll()
+      this.anims.resumeAll()
+    }
+  }
+
+  private abortHeist() {
+    if (this.ended) return
+    if (this.paused) {
+      this.pauseShift += this.time.now - this.pauseAt
+      this.paused = false
+      this.physics.resume()
+    }
+    this.finish('caught')
   }
 
   private btnSneak() {
@@ -1012,7 +1132,7 @@ export class HeistScene extends Phaser.Scene {
   }
 
   private tryOpenSafe() {
-    if (this.ended || this.safeOpened || this.safeCrack || !this.nearSafe()) return
+    if (this.ended || this.paused || this.safeOpened || this.safeCrack || !this.nearSafe()) return
     this.safeCrack = true
     this.safeHits = 0
     this.safeMarker = 0.08
@@ -1040,9 +1160,9 @@ export class HeistScene extends Phaser.Scene {
   }
 
   private trySafeHit() {
-    if (!this.safeCrack || this.ended) return
-    if (this.time.now < this.safeHitLock) return
-    this.safeHitLock = this.time.now + 220
+    if (!this.safeCrack || this.ended || this.paused) return
+    if (this.gameNow() < this.safeHitLock) return
+    this.safeHitLock = this.gameNow() + 220
     const zone = this.safeZone()
     if (Math.abs(this.safeMarker - zone.center) <= zone.width / 2) {
       this.safeHits += 1
@@ -1055,19 +1175,19 @@ export class HeistScene extends Phaser.Scene {
   private openSafeReward() {
     this.safeCrack = false
     this.safeOpened = true
-    this.safeOpenedAt = this.time.now
+    this.safeOpenedAt = this.gameNow()
     const room = Math.max(0, this.mods.bagCap - this.currentLoot)
     const gained = Math.min(SAFE_REWARD, room)
     this.hitHeld = false
     this.currentLoot += gained
     if (gained > 0) this.floatGain(gained)
-    else this.bagFullFlash = this.time.now + 900
+    else this.bagFullFlash = this.gameNow() + 900
     this.fx?.explode(18, this.safePos.x, this.safePos.y)
   }
 
   private tryDash() {
-    if (this.ended) return
-    const now = this.time.now
+    if (this.ended || this.paused) return
+    const now = this.gameNow()
     if (now < this.dashReady) return
     this.dashUntil = now + DASH_MS
     this.dashReady = now + DASH_CD
@@ -1089,6 +1209,16 @@ export class HeistScene extends Phaser.Scene {
     if (this.ended) return
     const x = p.x
     const y = p.y
+    const pause = this.btnPause()
+    if (Phaser.Math.Distance.Between(x, y, pause.x, pause.y) < pause.r) {
+      this.togglePause()
+      return
+    }
+    if (this.paused) {
+      if (this.inUiRect(x, y, this.btnResume())) this.setPaused(false)
+      else if (this.inUiRect(x, y, this.btnAbort())) this.abortHeist()
+      return
+    }
     const open = this.btnOpen()
     if (this.safeCrack) {
       if (Phaser.Math.Distance.Between(x, y, open.x, open.y) < open.r) {
@@ -1219,7 +1349,7 @@ export class HeistScene extends Phaser.Scene {
     }
     const mag = Math.hypot(jx, jy)
     const moving = mag > 0.08
-    const now = this.time.now
+    const now = this.gameNow()
     const space = this.keys.space
     const spaceTap = 'justDown' in space ? Phaser.Input.Keyboard.JustDown(space as Phaser.Input.Keyboard.Key) : false
     if (spaceTap) this.tryDash()
@@ -1385,7 +1515,7 @@ export class HeistScene extends Phaser.Scene {
       return distGoal
     }
 
-    const now = this.time.now
+    const now = this.gameNow()
     const destMoved = Phaser.Math.Distance.Between(this.gPathDest.x, this.gPathDest.y, tx, ty) > 48
     const chase = this.gState === 'CHASE'
     const repathDue =
@@ -1425,7 +1555,7 @@ export class HeistScene extends Phaser.Scene {
   private updateCams(dt: number) {
     this.camSees = false
     for (const cam of this.cams) {
-      cam.facing = cam.base + Math.sin(this.time.now / 1000 * cam.speed) * cam.sweep
+      cam.facing = cam.base + Math.sin(this.gameNow() / 1000 * cam.speed) * cam.sweep
       cam.sprite.setRotation(cam.facing)
       cam.beam.setRotation(cam.facing)
       cam.beam.setPosition(cam.x, cam.y)
@@ -1641,7 +1771,7 @@ export class HeistScene extends Phaser.Scene {
     gb.setAcceleration(0, 0)
     this.physics.pause()
     const coins = this.currentLoot
-    const timeMs = this.time.now - this.startedAt
+    const timeMs = this.gameNow() - this.startedAt
     const bonus = verdict === 'escaped' && this.alert < 0.3 && coins > 0 ? Math.max(5, Math.floor(coins * 0.1)) : 0
     this.onDone({
       verdict,
@@ -1691,7 +1821,7 @@ export class HeistScene extends Phaser.Scene {
     const h = this.camH()
     this.uiGfx.clear()
     this.uiGfx.fillStyle(0x080604, 0.55)
-    this.uiGfx.fillRoundedRect(6, 4, Math.min(this.camW() - 12, 360), 44, 8)
+    this.uiGfx.fillRoundedRect(6, 4, Math.min(this.camW() - 78, 340), 44, 8)
     const sx = this.stick.active ? this.stick.ox : 72
     const sy = this.stick.active ? this.stick.oy : h - 86
     this.uiGfx.fillStyle(0x000000, 0.32)
@@ -1708,7 +1838,7 @@ export class HeistScene extends Phaser.Scene {
     this.uiGfx.fillCircle(sneak.x, sneak.y, 36)
     this.uiGfx.lineStyle(2, 0xc9a227, 0.7)
     this.uiGfx.strokeCircle(sneak.x, sneak.y, 36)
-    const now = this.time.now
+    const now = this.gameNow()
     const cooling = now < this.dashReady && now >= this.dashUntil
     this.uiGfx.fillStyle(now < this.dashUntil ? 0xff6a4a : cooling ? 0x2a2018 : 0x1a1410, 0.82)
     this.uiGfx.fillCircle(dash.x, dash.y, 38)
@@ -1759,7 +1889,7 @@ export class HeistScene extends Phaser.Scene {
             ? heistT('heistHudDanger')
             : heistT('heistHudChase')
     const color = a < 30 ? '#b6e3b0' : a < 70 ? '#ffe08a' : '#ff8a6a'
-    const full = this.currentLoot >= this.mods.bagCap || this.time.now < this.bagFullFlash
+    const full = this.currentLoot >= this.mods.bagCap || this.gameNow() < this.bagFullFlash
     this.hud.setColor(full ? '#ffb070' : '#ffe08a')
     this.hud.setText(
       `${heistT('heistDuckCoin')} ${this.currentLoot}${full ? `   ${heistT('heistBagFull')}` : ''}`,
@@ -1791,5 +1921,51 @@ export class HeistScene extends Phaser.Scene {
       this.crackHud.setVisible(false)
       this.crackHint.setVisible(false)
     }
+    this.drawPauseUi()
+  }
+
+  private drawPauseUi() {
+    const pause = this.btnPause()
+    this.uiGfx.fillStyle(0x1a1410, 0.92)
+    this.uiGfx.fillCircle(pause.x, pause.y, pause.r)
+    this.uiGfx.lineStyle(2, 0xc9a227, 0.85)
+    this.uiGfx.strokeCircle(pause.x, pause.y, pause.r)
+    this.uiGfx.fillStyle(0xffe08a, 0.95)
+    this.uiGfx.fillRect(pause.x - 5, pause.y - 7, 3.5, 14)
+    this.uiGfx.fillRect(pause.x + 1.5, pause.y - 7, 3.5, 14)
+    this.pauseHudLbl.setPosition(pause.x, pause.y + 22)
+    this.pauseHudLbl.setText(heistT('heistPause'))
+    this.pauseGfx.clear()
+    if (!this.paused) {
+      this.pauseTitle.setVisible(false)
+      this.pauseResumeLbl.setVisible(false)
+      this.pauseAbortLbl.setVisible(false)
+      return
+    }
+    const w = this.camW()
+    const h = this.camH()
+    this.pauseGfx.fillStyle(0x050308, 0.72)
+    this.pauseGfx.fillRect(0, 0, w, h)
+    this.pauseGfx.fillStyle(0x120c10, 0.96)
+    this.pauseGfx.fillRoundedRect(w / 2 - 130, h / 2 - 92, 260, 196, 16)
+    this.pauseGfx.lineStyle(2, 0xc9a227, 0.85)
+    this.pauseGfx.strokeRoundedRect(w / 2 - 130, h / 2 - 92, 260, 196, 16)
+    const resume = this.btnResume()
+    const abort = this.btnAbort()
+    this.pauseGfx.fillStyle(0xc9a227, 1)
+    this.pauseGfx.fillRoundedRect(resume.x - resume.w / 2, resume.y - resume.h / 2, resume.w, resume.h, 10)
+    this.pauseGfx.fillStyle(0x1a1410, 1)
+    this.pauseGfx.fillRoundedRect(abort.x - abort.w / 2, abort.y - abort.h / 2, abort.w, abort.h, 10)
+    this.pauseGfx.lineStyle(2, 0xc9a227, 0.7)
+    this.pauseGfx.strokeRoundedRect(abort.x - abort.w / 2, abort.y - abort.h / 2, abort.w, abort.h, 10)
+    this.pauseTitle.setText(heistT('heistPaused'))
+    this.pauseTitle.setPosition(w / 2, h / 2 - 52)
+    this.pauseTitle.setVisible(true)
+    this.pauseResumeLbl.setText(heistT('heistResume'))
+    this.pauseResumeLbl.setPosition(resume.x, resume.y)
+    this.pauseResumeLbl.setVisible(true)
+    this.pauseAbortLbl.setText(heistT('heistAbortRaid'))
+    this.pauseAbortLbl.setPosition(abort.x, abort.y)
+    this.pauseAbortLbl.setVisible(true)
   }
 }

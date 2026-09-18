@@ -437,6 +437,10 @@ const ru = {
   heistHudChase: 'ПОГОНЯ',
   heistSneak: 'КРАСТЬСЯ',
   heistDash: 'РЫВОК',
+  heistPause: 'PAUSE',
+  heistPaused: 'ПАУЗА',
+  heistResume: '▶ ПРОДОЛЖИТЬ',
+  heistAbortRaid: 'ВЫЙТИ ИЗ РЕЙДА',
 } as const
 
 const en: Record<keyof typeof ru, string> = {
@@ -878,6 +882,10 @@ const en: Record<keyof typeof ru, string> = {
   heistHudChase: 'CHASE',
   heistSneak: 'SNEAK',
   heistDash: 'DASH',
+  heistPause: 'PAUSE',
+  heistPaused: 'PAUSED',
+  heistResume: '▶ RESUME',
+  heistAbortRaid: 'EXIT HEIST',
 }
 
 export const messages = { ru, en } as const
