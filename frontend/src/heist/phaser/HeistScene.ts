@@ -1037,7 +1037,16 @@ export class HeistScene extends Phaser.Scene {
   }
 
   private btnPause() {
-    return { x: this.camW() - 34, y: 28, r: 20 }
+    const w = this.camW()
+    const r = 20
+    const inset = w < 440 ? Math.max(r + 8, 22) : 34
+    return { x: w - inset, y: w < 440 ? 24 : 28, r }
+  }
+
+  private hudBarWidth() {
+    const pause = this.btnPause()
+    const gap = 10
+    return Math.min(340, Math.max(148, pause.x - pause.r - gap - 6))
   }
   private btnResume() {
     return { x: this.camW() / 2, y: this.camH() / 2 + 10, w: 220, h: 44 }
@@ -1821,7 +1830,10 @@ export class HeistScene extends Phaser.Scene {
     const h = this.camH()
     this.uiGfx.clear()
     this.uiGfx.fillStyle(0x080604, 0.55)
-    this.uiGfx.fillRoundedRect(6, 4, Math.min(this.camW() - 78, 340), 44, 8)
+    const barW = this.hudBarWidth()
+    this.uiGfx.fillRoundedRect(6, 4, barW, 44, 8)
+    this.hud.setWordWrapWidth(barW - 14, true)
+    this.bagHud.setWordWrapWidth(barW - 14, true)
     const sx = this.stick.active ? this.stick.ox : 72
     const sy = this.stick.active ? this.stick.oy : h - 86
     this.uiGfx.fillStyle(0x000000, 0.32)
