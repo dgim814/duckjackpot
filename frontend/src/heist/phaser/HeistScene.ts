@@ -44,8 +44,10 @@ type SecCam = {
   hot: boolean
 }
 
-/** Top-down guard sprite; default facing is +X so `setRotation(gFacing)` is correct. */
+/** Top-down still used as fallback texture on disk; walk cycle is `guard_sheet`. */
 const GUARD_PNG = '/heist/guard.png'
+const GUARD_SHEET = '/heist/guard_sheet.png'
+const GUARD_FRAME = 256
 const GUARD_DISPLAY = 36
 
 function jitter(n: number, amt: number) {
@@ -197,6 +199,7 @@ export class HeistScene extends Phaser.Scene {
   preload() {
     this.load.image('duck', '/heist/duck.png')
     this.load.image('guard', GUARD_PNG)
+    this.load.spritesheet('guard_sheet', GUARD_SHEET, { frameWidth: GUARD_FRAME, frameHeight: GUARD_FRAME })
     loadDuckCoinImages(this)
   }
 
@@ -499,7 +502,8 @@ export class HeistScene extends Phaser.Scene {
       new Phaser.Math.Vector2(150, 760),
     ]
     this.gWi = 1
-    this.guard = this.physics.add.sprite(this.gWaypoints[0].x, this.gWaypoints[0].y, 'guard')
+    this.createGuardAnims()
+    this.guard = this.physics.add.sprite(this.gWaypoints[0].x, this.gWaypoints[0].y, 'guard_sheet', 0)
     this.guard.setOrigin(0.5, 0.5)
     this.guard.setDisplaySize(GUARD_DISPLAY, GUARD_DISPLAY)
     this.guard.setDepth(11)
@@ -512,6 +516,7 @@ export class HeistScene extends Phaser.Scene {
     gb.setOffset(this.guard.width / 2 - 8, this.guard.height / 2 - 8)
     this.gFacing = 0
     this.gLastPos.set(this.guard.x, this.guard.y)
+    this.guard.play('guard-idle')
 
     this.cams = [
       this.makeCam(700, 430, Math.PI / 2, 0.85, 0.55),
@@ -1337,6 +1342,43 @@ export class HeistScene extends Phaser.Scene {
         this.setG('PATROL')
       }
     }
+    this.syncGuardAnim()
+  }
+
+  private createGuardAnims() {
+    if (this.anims.exists('guard-idle')) return
+    this.anims.create({
+      key: 'guard-idle',
+      frames: this.anims.generateFrameNumbers('guard_sheet', { start: 0, end: 3 }),
+      frameRate: 4,
+      repeat: -1,
+    })
+    this.anims.create({
+      key: 'guard-walk',
+      frames: this.anims.generateFrameNumbers('guard_sheet', { start: 4, end: 11 }),
+      frameRate: 9,
+      repeat: -1,
+    })
+    this.anims.create({
+      key: 'guard-run',
+      frames: this.anims.generateFrameNumbers('guard_sheet', { start: 12, end: 15 }),
+      frameRate: 11,
+      repeat: -1,
+    })
+  }
+
+  private syncGuardAnim() {
+    if (!this.guard?.active) return
+    const body = this.guard.body as Phaser.Physics.Arcade.Body
+    const moving = Math.hypot(body.velocity.x, body.velocity.y) > 10
+    let key = 'guard-idle'
+    if (moving) {
+      key = this.gState === 'CHASE' ? 'guard-run' : 'guard-walk'
+    }
+    if (this.guard.anims.currentAnim?.key !== key) this.guard.play(key, true)
+    const vx = body.velocity.x
+    if (Math.abs(vx) > 6) this.guard.setFlipX(vx < 0)
+    else if (Math.abs(Math.cos(this.gFacing)) > 0.2) this.guard.setFlipX(Math.cos(this.gFacing) < 0)
   }
 
   private updateAlert(dt: number) {
@@ -1413,7 +1455,6 @@ export class HeistScene extends Phaser.Scene {
     this.worldGfx.fillStyle(0x000000, 0.28)
     this.worldGfx.fillEllipse(this.player.x, this.player.y + 14, 22, 10)
     this.worldGfx.fillEllipse(this.guard.x, this.guard.y + 12, 20, 10)
-    this.guard.setRotation(this.gFacing)
   }
 
   private drawUi() {
