@@ -12,9 +12,9 @@ export type DuckCoinDef = {
 }
 
 export const DUCK_COIN_DEFS: DuckCoinDef[] = [
-  { kind: 'C10', value: 10, key: 'dc_10', size: 44, file: '/heist/coins/duck_coin_10.png' },
-  { kind: 'C50', value: 50, key: 'dc_50', size: 56, file: '/heist/coins/duck_coin_50.png' },
-  { kind: 'C100', value: 100, key: 'dc_100', size: 68, file: '/heist/coins/duck_coin_100.png' },
+  { kind: 'C10', value: 10, key: 'dc_10', size: 44, file: '/heist/coin_10.png' },
+  { kind: 'C50', value: 50, key: 'dc_50', size: 56, file: '/heist/coin_50.png' },
+  { kind: 'C100', value: 100, key: 'dc_100', size: 68, file: '/heist/coin_100.png' },
 ]
 
 export const SAFE_REWARD = 500
@@ -34,6 +34,60 @@ export function applyCoinSpriteSize(sprite: Phaser.GameObjects.Sprite, def: Duck
   const h = sprite.height || def.size
   const k = def.size / Math.max(w, h)
   sprite.setDisplaySize(w * k, h * k)
+}
+
+export function stopCoinIdle(scene: Phaser.Scene, sprite: Phaser.GameObjects.Sprite) {
+  const tweens = sprite.getData('coinIdleTweens') as Phaser.Tweens.Tween[] | undefined
+  if (Array.isArray(tweens)) {
+    tweens.forEach((tw) => tw.stop())
+  }
+  sprite.setData('coinIdleTweens', [])
+  const idle = sprite.getData('coinIdle')
+  if (idle) scene.tweens.killTweensOf(idle)
+  scene.tweens.killTweensOf(sprite)
+}
+
+export function playCoinIdle(scene: Phaser.Scene, sprite: Phaser.GameObjects.Sprite, seed: number) {
+  stopCoinIdle(scene, sprite)
+  const body = sprite.body as Phaser.Physics.Arcade.Body | undefined
+  if (body) {
+    body.moves = false
+    body.enable = false
+  }
+  sprite.setOrigin(0.5, 0.5)
+  const baseY = sprite.y
+  const idle = { bob: 0, tilt: 0, shine: 1 }
+  sprite.setData('idleBaseY', baseY)
+  sprite.setData('coinIdle', idle)
+  const motion = scene.tweens.add({
+    targets: idle,
+    bob: 4,
+    tilt: 1,
+    duration: 1520 + seed * 90,
+    yoyo: true,
+    repeat: -1,
+    ease: 'Sine.easeInOut',
+    delay: seed * 45,
+    onUpdate: () => {
+      if (!sprite.active) return
+      sprite.y = baseY - idle.bob
+      sprite.angle = -6 + idle.tilt * 12
+    },
+  })
+  const shine = scene.tweens.add({
+    targets: idle,
+    shine: 0.9,
+    duration: 1180 + seed * 50,
+    yoyo: true,
+    repeat: -1,
+    ease: 'Sine.easeInOut',
+    delay: seed * 35,
+    onUpdate: () => {
+      if (!sprite.active) return
+      sprite.alpha = idle.shine
+    },
+  })
+  sprite.setData('coinIdleTweens', [motion, shine])
 }
 
 function paintCoinPlaceholder(ctx: CanvasRenderingContext2D, size: number, value: number) {

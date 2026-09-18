@@ -2,7 +2,7 @@ import Phaser from 'phaser'
 import { punchBackdrop } from '../sprite'
 import type { HeistEnd } from '../types'
 import type { HeistRunMods } from '../progress'
-import { applyCoinSpriteSize, coinDef, ensureCoinPlaceholders, loadDuckCoinImages, SAFE_REWARD, type DuckCoinKind } from '../coinAssets'
+import { applyCoinSpriteSize, coinDef, ensureCoinPlaceholders, loadDuckCoinImages, playCoinIdle, stopCoinIdle, SAFE_REWARD, type DuckCoinKind } from '../coinAssets'
 import { heistT } from '../heistI18n'
 import { buildNavGrid, cellCenter, findPath, findPathAroundStuck, nearestWalkable, type NavGrid } from '../guardPath'
 
@@ -44,7 +44,7 @@ type SecCam = {
   hot: boolean
 }
 
-/** Drop a real top-down PNG here later; until then the generated `guard` texture is used. */
+/** Top-down guard sprite; default facing is +X so `setRotation(gFacing)` is correct. */
 const GUARD_PNG = '/heist/guard.png'
 const GUARD_DISPLAY = 36
 
@@ -73,7 +73,6 @@ export class HeistScene extends Phaser.Scene {
   private uiGfx!: Phaser.GameObjects.Graphics
   private hud!: Phaser.GameObjects.Text
   private bagHud!: Phaser.GameObjects.Text
-  private gDbg!: Phaser.GameObjects.Text
   private crackHud!: Phaser.GameObjects.Text
   private crackHint!: Phaser.GameObjects.Text
   private fx!: Phaser.GameObjects.Particles.ParticleEmitter
@@ -197,6 +196,7 @@ export class HeistScene extends Phaser.Scene {
 
   preload() {
     this.load.image('duck', '/heist/duck.png')
+    this.load.image('guard', GUARD_PNG)
     loadDuckCoinImages(this)
   }
 
@@ -219,20 +219,6 @@ export class HeistScene extends Phaser.Scene {
   }
 
   private buildTextures() {
-    this.tex('guard', 48, 48, (g) => {
-      g.fillStyle(0x000000, 0.28)
-      g.fillEllipse(24, 28, 22, 14)
-      g.fillStyle(0x1a2430)
-      g.fillEllipse(24, 24, 16, 22)
-      g.fillStyle(0xc9a227)
-      g.fillRect(22, 16, 4, 14)
-      g.fillStyle(0x111820)
-      g.fillCircle(33, 24, 9)
-      g.fillStyle(0x2c3a48)
-      g.fillCircle(35, 24, 6)
-      g.fillStyle(0x8ab4c8, 0.85)
-      g.fillCircle(38, 24, 2.4)
-    })
     this.tex('cam', 56, 28, (g) => {
       g.fillStyle(0x1a1410)
       g.fillRoundedRect(2, 6, 10, 16, 2)
@@ -514,6 +500,7 @@ export class HeistScene extends Phaser.Scene {
     ]
     this.gWi = 1
     this.guard = this.physics.add.sprite(this.gWaypoints[0].x, this.gWaypoints[0].y, 'guard')
+    this.guard.setOrigin(0.5, 0.5)
     this.guard.setDisplaySize(GUARD_DISPLAY, GUARD_DISPLAY)
     this.guard.setDepth(11)
     const gb = this.guard.body as Phaser.Physics.Arcade.Body
@@ -523,7 +510,6 @@ export class HeistScene extends Phaser.Scene {
     gb.setMaxVelocity(220, 220)
     gb.setSize(16, 16)
     gb.setOffset(this.guard.width / 2 - 8, this.guard.height / 2 - 8)
-    this.tryLoadGuardPng()
     this.gFacing = 0
     this.gLastPos.set(this.guard.x, this.guard.y)
 
@@ -560,6 +546,7 @@ export class HeistScene extends Phaser.Scene {
       b.setImmovable(true)
       b.setCircle(20)
       this.lootGroup.add(s)
+      playCoinIdle(this, s, i)
     })
 
     this.physics.add.collider(this.player, this.walls)
@@ -576,16 +563,6 @@ export class HeistScene extends Phaser.Scene {
       .text(12, 26, '', { fontFamily: 'Unbounded, sans-serif', fontSize: '12px', color: '#f3e6c4' })
       .setScrollFactor(0)
       .setDepth(21)
-    this.gDbg = this.add
-      .text(12, 46, '', {
-        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-        fontSize: '10px',
-        color: '#8dffb0',
-        backgroundColor: '#000000cc',
-        padding: { x: 6, y: 4 },
-      })
-      .setScrollFactor(0)
-      .setDepth(30)
     this.crackHud = this.add
       .text(0, 36, '', {
         fontFamily: 'Unbounded, sans-serif',
@@ -706,24 +683,6 @@ export class HeistScene extends Phaser.Scene {
     }
   }
 
-  private tryLoadGuardPng() {
-    const img = new Image()
-    img.onload = () => {
-      if (!this.guard?.active || img.naturalWidth < 8) return
-      if (this.textures.exists('guard_png')) this.textures.remove('guard_png')
-      this.textures.addImage('guard_png', img)
-      this.guard.setTexture('guard_png')
-      this.guard.setDisplaySize(GUARD_DISPLAY, GUARD_DISPLAY)
-      const gb = this.guard.body as Phaser.Physics.Arcade.Body
-      gb.setSize(16, 16)
-      gb.setOffset(this.guard.width / 2 - 8, this.guard.height / 2 - 8)
-    }
-    img.onerror = () => {
-      /* keep generated guard until a PNG is added at GUARD_PNG */
-    }
-    img.src = GUARD_PNG
-  }
-
   private drawFloor() {
     const g = this.add.graphics().setDepth(0)
     g.fillStyle(0x14110f)
@@ -777,14 +736,24 @@ export class HeistScene extends Phaser.Scene {
     this.combo = now - this.lastPickup < 3800 ? this.combo + 1 : 1
     this.maxCombo = Math.max(this.maxCombo, this.combo)
     this.lastPickup = now
-    this.fx.explode(12, item.x, item.y)
+    this.fx.explode(8, item.x, item.y)
     this.floatGain(gained)
+    stopCoinIdle(this, item)
+    const sc = item.scale
     this.tweens.add({
       targets: item,
-      scale: 0.2,
-      alpha: 0,
-      duration: 140,
-      onComplete: () => item.destroy(),
+      scale: sc * 1.2,
+      duration: 80,
+      ease: 'Quad.easeOut',
+      onComplete: () => {
+        this.tweens.add({
+          targets: item,
+          scale: sc * 0.18,
+          alpha: 0,
+          duration: 150,
+          onComplete: () => item.destroy(),
+        })
+      },
     })
   }
 
@@ -1529,22 +1498,6 @@ export class HeistScene extends Phaser.Scene {
     this.bagHud.setText(
       `${heistT('heistBag')} ${this.currentLoot}/${this.mods.bagCap}    ${heistT('heistAlert')} ${a}% ${band}    ${heistT('heistTime')} ${formatClock(now - this.startedAt)}${escape}`,
     )
-    if (this.gDbg) {
-      const tx = this.gPathDest.x
-      const ty = this.gPathDest.y
-      const body = this.guard.body as Phaser.Physics.Arcade.Body
-      const node = this.gPath[0]
-      this.gDbg.setText(
-        [
-          `GUARD STATE: ${this.gState}`,
-          `TARGET: ${Math.round(tx)}/${Math.round(ty)}`,
-          `POSITION: ${Math.round(this.guard.x)}/${Math.round(this.guard.y)}`,
-          `VELOCITY: ${Math.round(body.velocity.x)}/${Math.round(body.velocity.y)}`,
-          `PATH INDEX: ${node ? `${Math.round(node.x)}/${Math.round(node.y)}` : '-/-'}`,
-          `PATH LENGTH: ${this.gPath.length}`,
-        ].join('\n'),
-      )
-    }
     this.exitLabel?.setText(heistT('heistExit'))
     this.lobbyLabel?.setText(heistT('heistRoomLobby'))
     this.vaultLabel?.setText(heistT('heistRoomVault'))
