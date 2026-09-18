@@ -49,6 +49,13 @@ const GUARD_PNG = '/heist/guard.png'
 const GUARD_SHEET = '/heist/guard_sheet.png'
 const GUARD_FRAME = 256
 const GUARD_DISPLAY = 36
+const DUCK_SHEET = '/heist/duck_sheet.png'
+const DUCK_FRAME = 256
+const DUCK_DISPLAY = 64
+const DUCK_BODY_W = 20
+const DUCK_BODY_H = 22
+/** Previous visual size; keep world hitbox identical when display scale changes. */
+const DUCK_HITBOX_FROM = 44
 
 function jitter(n: number, amt: number) {
   return n + (Math.random() * 2 - 1) * amt
@@ -64,6 +71,7 @@ export class HeistScene extends Phaser.Scene {
   private onDone: (end: HeistEnd) => void
   private mods: HeistRunMods
   private player!: Phaser.Physics.Arcade.Sprite
+  private duckAnimsReady = false
   private guard!: Phaser.Physics.Arcade.Sprite
   private walls!: Phaser.Physics.Arcade.StaticGroup
   private wallRects: Wall[] = []
@@ -77,7 +85,7 @@ export class HeistScene extends Phaser.Scene {
   private bagHud!: Phaser.GameObjects.Text
   private crackHud!: Phaser.GameObjects.Text
   private crackHint!: Phaser.GameObjects.Text
-  private fx!: Phaser.GameObjects.Particles.ParticleEmitter
+  private fx?: Phaser.GameObjects.Particles.ParticleEmitter
 
   private stick = { active: false, x: 0, y: 0, id: -1, ox: 0, oy: 0 }
   private sneakHeld = false
@@ -198,9 +206,13 @@ export class HeistScene extends Phaser.Scene {
 
   preload() {
     this.load.image('duck', '/heist/duck.png')
+    this.load.spritesheet('duck_sheet', DUCK_SHEET, { frameWidth: DUCK_FRAME, frameHeight: DUCK_FRAME })
     this.load.image('guard', GUARD_PNG)
     this.load.spritesheet('guard_sheet', GUARD_SHEET, { frameWidth: GUARD_FRAME, frameHeight: GUARD_FRAME })
     loadDuckCoinImages(this)
+    this.load.on(Phaser.Loader.Events.FILE_LOAD_ERROR, (file: { key?: string }) => {
+      if (file?.key === 'duck_sheet') this.duckAnimsReady = false
+    })
   }
 
   create() {
@@ -209,7 +221,10 @@ export class HeistScene extends Phaser.Scene {
       this.buildWorld()
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      this.add.text(16, 16, `HEIST ERROR\n${msg}`, { fontSize: '14px', color: '#ff8080', wordWrap: { width: 360 } })
+      this.add
+        .text(16, 16, `HEIST ERROR\n${msg}`, { fontSize: '14px', color: '#ff8080', wordWrap: { width: 360 } })
+        .setScrollFactor(0)
+        .setDepth(1000)
       console.error(err)
     }
   }
@@ -479,14 +494,20 @@ export class HeistScene extends Phaser.Scene {
       color: '#b49a62',
     }).setOrigin(0.5).setDepth(4)
 
-    const duckKey = this.makeDuckTexture()
-    this.player = this.physics.add.sprite(420, 1070, duckKey)
-    this.player.setDisplaySize(44, 44)
+    this.makeDuckTexture()
+    const duckKey = this.tryCreateDuckAnims() ? 'duck_sheet' : this.makeDuckTexture()
+    try {
+      this.player = this.physics.add.sprite(420, 1070, duckKey, duckKey === 'duck_sheet' ? 0 : undefined)
+    } catch (err) {
+      console.error(err)
+      this.duckAnimsReady = false
+      this.player = this.physics.add.sprite(420, 1070, this.makeDuckTexture())
+    }
+    this.player.setOrigin(0.5, 0.5)
+    this.pinDuckVisual()
     this.player.setDepth(12)
     this.player.setCollideWorldBounds(true)
     const pb = this.player.body as Phaser.Physics.Arcade.Body
-    pb.setSize(20, 22)
-    pb.setOffset(this.player.width / 2 - 10, this.player.height / 2 - 8)
     pb.setMaxVelocity(SPEED.run, SPEED.run)
     pb.setDamping(true)
     pb.setDrag(0.0008, 0.0008)
@@ -502,8 +523,8 @@ export class HeistScene extends Phaser.Scene {
       new Phaser.Math.Vector2(150, 760),
     ]
     this.gWi = 1
-    this.createGuardAnims()
-    this.guard = this.physics.add.sprite(this.gWaypoints[0].x, this.gWaypoints[0].y, 'guard_sheet', 0)
+    const guardKey = this.tryCreateGuardAnims() ? 'guard_sheet' : 'guard'
+    this.guard = this.physics.add.sprite(this.gWaypoints[0].x, this.gWaypoints[0].y, guardKey, guardKey === 'guard_sheet' ? 0 : undefined)
     this.guard.setOrigin(0.5, 0.5)
     this.guard.setDisplaySize(GUARD_DISPLAY, GUARD_DISPLAY)
     this.guard.setDepth(11)
@@ -516,7 +537,7 @@ export class HeistScene extends Phaser.Scene {
     gb.setOffset(this.guard.width / 2 - 8, this.guard.height / 2 - 8)
     this.gFacing = 0
     this.gLastPos.set(this.guard.x, this.guard.y)
-    this.guard.play('guard-idle')
+    if (this.anims.exists('guard-idle')) this.guard.play('guard-idle')
 
     this.cams = [
       this.makeCam(700, 430, Math.PI / 2, 0.85, 0.55),
@@ -592,13 +613,18 @@ export class HeistScene extends Phaser.Scene {
       .setDepth(24)
       .setVisible(false)
 
-    this.fx = this.add.particles(0, 0, 'spark', {
-      speed: { min: 40, max: 120 },
-      lifespan: 420,
-      scale: { start: 1, end: 0 },
-      emitting: false,
-    })
-    this.fx.setDepth(14)
+    try {
+      this.fx = this.add.particles(0, 0, 'spark', {
+        frame: '__BASE',
+        speed: { min: 40, max: 120 },
+        lifespan: 420,
+        scale: { start: 1, end: 0 },
+        emitting: false,
+      })
+      this.fx.setDepth(14)
+    } catch (err) {
+      console.error(err)
+    }
 
     this.cameras.main.startFollow(this.player, true, 0.14, 0.14)
     this.cameras.main.setBounds(0, 0, W, H)
@@ -741,7 +767,7 @@ export class HeistScene extends Phaser.Scene {
     this.combo = now - this.lastPickup < 3800 ? this.combo + 1 : 1
     this.maxCombo = Math.max(this.maxCombo, this.combo)
     this.lastPickup = now
-    this.fx.explode(8, item.x, item.y)
+    this.fx?.explode(8, item.x, item.y)
     this.floatGain(gained)
     stopCoinIdle(this, item)
     const sc = item.scale
@@ -928,7 +954,7 @@ export class HeistScene extends Phaser.Scene {
     this.currentLoot += gained
     if (gained > 0) this.floatGain(gained)
     else this.bagFullFlash = this.time.now + 900
-    this.fx.explode(18, this.safePos.x, this.safePos.y)
+    this.fx?.explode(18, this.safePos.x, this.safePos.y)
   }
 
   private tryDash() {
@@ -1023,6 +1049,7 @@ export class HeistScene extends Phaser.Scene {
   private kdir() {
     let x = 0
     let y = 0
+    if (!this.keys) return { x: 0, y: 0 }
     if (this.keys.a.isDown || this.keys.left.isDown || this.winKeys.a || this.winKeys.left) x -= 1
     if (this.keys.d.isDown || this.keys.right.isDown || this.winKeys.d || this.winKeys.right) x += 1
     if (this.keys.w.isDown || this.keys.up.isDown || this.winKeys.w || this.winKeys.up) y -= 1
@@ -1034,7 +1061,30 @@ export class HeistScene extends Phaser.Scene {
 
   private setMoveAnim(next: MoveAnim) {
     this.player.setData('moveState', next)
-    // Sprite-sheet hook: if (this.anims.exists(next)) this.player.play(next, true)
+    if (!this.duckAnimsReady) return
+    let key = 'duck-idle'
+    if (next === 'dash') key = 'duck-run'
+    else if (next === 'sneak') key = 'duck-sneak'
+    else if (next !== 'idle') key = 'duck-walk'
+    if (!this.anims.exists(key)) return
+    try {
+      if (this.player.anims.currentAnim?.key !== key) {
+        this.player.play(key, true)
+        this.pinDuckVisual()
+      }
+    } catch (err) {
+      console.error(err)
+      this.duckAnimsReady = false
+    }
+  }
+
+  private pinDuckVisual() {
+    this.player.setDisplaySize(DUCK_DISPLAY, DUCK_DISPLAY)
+    const pb = this.player.body as Phaser.Physics.Arcade.Body | undefined
+    if (!pb) return
+    const k = DUCK_HITBOX_FROM / DUCK_DISPLAY
+    pb.setSize(DUCK_BODY_W * k, DUCK_BODY_H * k, false)
+    pb.setOffset((this.player.width / 2 - DUCK_BODY_W / 2) * k, (this.player.height / 2 - 8) * k)
   }
 
   private inRect(z: HideZone, x: number, y: number) {
@@ -1345,6 +1395,77 @@ export class HeistScene extends Phaser.Scene {
     this.syncGuardAnim()
   }
 
+  private duckSheetReady() {
+    return this.sheetReady('duck_sheet')
+  }
+
+  private tryCreateDuckAnims() {
+    if (!this.duckSheetReady()) {
+      this.duckAnimsReady = false
+      return false
+    }
+    try {
+      this.createDuckAnims()
+      this.duckAnimsReady = this.anims.exists('duck-idle')
+      return this.duckAnimsReady
+    } catch (err) {
+      console.error(err)
+      this.duckAnimsReady = false
+      return false
+    }
+  }
+
+  private createDuckAnims() {
+    if (this.anims.exists('duck-idle')) return
+    this.anims.create({
+      key: 'duck-idle',
+      frames: this.anims.generateFrameNumbers('duck_sheet', { start: 0, end: 3 }),
+      frameRate: 4,
+      repeat: -1,
+      skipMissedFrames: false,
+    })
+    this.anims.create({
+      key: 'duck-walk',
+      frames: this.anims.generateFrameNumbers('duck_sheet', { start: 4, end: 11 }),
+      frameRate: 9,
+      repeat: -1,
+      skipMissedFrames: false,
+    })
+    this.anims.create({
+      key: 'duck-sneak',
+      frames: this.anims.generateFrameNumbers('duck_sheet', { start: 4, end: 11 }),
+      frameRate: 5,
+      repeat: -1,
+      skipMissedFrames: false,
+    })
+    this.anims.create({
+      key: 'duck-run',
+      frames: this.anims.generateFrameNumbers('duck_sheet', { start: 12, end: 15 }),
+      frameRate: 11,
+      repeat: -1,
+      skipMissedFrames: false,
+    })
+  }
+
+  private sheetReady(key: string) {
+    if (!this.textures.exists(key)) return false
+    const tex = this.textures.get(key)
+    const src = tex.getSourceImage() as HTMLImageElement | undefined
+    if (!src || src.width !== 256 * 4 || src.height !== 256 * 4) return false
+    return tex.getFrameNames(false).length >= 16
+  }
+
+  private tryCreateGuardAnims() {
+    if (!this.sheetReady('guard_sheet')) return false
+    try {
+      this.createGuardAnims()
+      return this.anims.exists('guard-idle')
+    } catch (err) {
+      console.error(err)
+      return false
+    }
+  }
+
   private createGuardAnims() {
     if (this.anims.exists('guard-idle')) return
     this.anims.create({
@@ -1375,6 +1496,7 @@ export class HeistScene extends Phaser.Scene {
     if (moving) {
       key = this.gState === 'CHASE' ? 'guard-run' : 'guard-walk'
     }
+    if (!this.anims.exists(key)) return
     if (this.guard.anims.currentAnim?.key !== key) this.guard.play(key, true)
     const vx = body.velocity.x
     if (Math.abs(vx) > 6) this.guard.setFlipX(vx < 0)
