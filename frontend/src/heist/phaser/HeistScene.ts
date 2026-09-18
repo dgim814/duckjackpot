@@ -237,25 +237,36 @@ export class HeistScene extends Phaser.Scene {
   }
 
   private buildTextures() {
-    this.tex('cam', 56, 28, (g) => {
-      g.fillStyle(0x1a1410)
-      g.fillRoundedRect(2, 6, 10, 16, 2)
-      g.lineStyle(1.5, 0xc9a227, 0.85)
-      g.strokeRoundedRect(2, 6, 10, 16, 2)
-      g.fillStyle(0x242a32)
-      g.fillRoundedRect(10, 7, 22, 14, 3)
-      g.fillStyle(0x15181e)
-      g.fillRoundedRect(28, 8, 14, 12, 2)
-      g.fillStyle(0x0c0e12)
-      g.fillCircle(44, 14, 8)
-      g.lineStyle(2, 0xc9a227, 0.9)
-      g.strokeCircle(44, 14, 8)
-      g.fillStyle(0x3a4a55)
-      g.fillCircle(44, 14, 4.5)
-      g.fillStyle(0xd8eef8, 0.45)
-      g.fillCircle(45.5, 12.5, 1.8)
+    this.makeFloorTexture()
+    this.tex('cam_mount', 36, 36, (g) => {
+      g.fillStyle(0x0a090e)
+      g.fillRoundedRect(4, 4, 28, 28, 4)
+      g.lineStyle(1.5, 0xc9a227, 0.5)
+      g.strokeRoundedRect(5, 5, 26, 26, 3)
+      g.fillStyle(0x16141c)
+      g.fillCircle(18, 18, 9)
+      g.fillStyle(0x0c0c12)
+      g.fillCircle(18, 18, 5)
+    })
+    this.tex('cam', 80, 40, (g) => {
+      g.fillStyle(0x0e0c12)
+      g.fillRoundedRect(2, 12, 18, 16, 3)
+      g.fillStyle(0x1a1820)
+      g.fillRoundedRect(16, 9, 30, 22, 5)
+      g.lineStyle(1.5, 0xc9a227, 0.75)
+      g.strokeRoundedRect(16, 9, 30, 22, 5)
+      g.fillStyle(0x0a0c10)
+      g.fillCircle(64, 20, 14)
+      g.lineStyle(2, 0xa8883a, 0.9)
+      g.strokeCircle(64, 20, 14)
+      g.fillStyle(0x1c2830)
+      g.fillCircle(64, 20, 9)
+      g.fillStyle(0x4a5a66)
+      g.fillCircle(64, 20, 5.5)
+      g.fillStyle(0xd8eef8, 0.5)
+      g.fillCircle(67, 17, 2)
       g.fillStyle(0xc9a227)
-      g.fillCircle(16, 10, 1.6)
+      g.fillCircle(24, 14, 2.2)
     })
     this.makeCamBeamTexture()
     ensureCoinPlaceholders(this)
@@ -263,6 +274,35 @@ export class HeistScene extends Phaser.Scene {
       g.fillStyle(0xffe08a)
       g.fillCircle(3, 3, 3)
     })
+  }
+
+  private makeFloorTexture() {
+    const s = 256
+    const c = document.createElement('canvas')
+    c.width = s
+    c.height = s
+    const ctx = c.getContext('2d')
+    if (!ctx) return
+    ctx.fillStyle = '#15131a'
+    ctx.fillRect(0, 0, s, s)
+    for (let i = 0; i < 48; i += 1) {
+      const x = (i * 53) % s
+      const y = (i * 97) % s
+      const rad = 16 + (i % 7) * 7
+      const grad = ctx.createRadialGradient(x, y, 0, x, y, rad)
+      grad.addColorStop(0, i % 2 === 0 ? 'rgba(36,32,44,0.5)' : 'rgba(10,8,14,0.45)')
+      grad.addColorStop(1, 'rgba(0,0,0,0)')
+      ctx.fillStyle = grad
+      ctx.beginPath()
+      ctx.arc(x, y, rad, 0, Math.PI * 2)
+      ctx.fill()
+    }
+    ctx.fillStyle = 'rgba(201,162,39,0.028)'
+    for (let i = 0; i < 60; i += 1) {
+      ctx.fillRect((i * 37) % s, (i * 71) % s, 2, 1)
+    }
+    if (this.textures.exists('floor_tile')) this.textures.remove('floor_tile')
+    this.textures.addCanvas('floor_tile', c)
   }
 
   private makeCamBeamTexture() {
@@ -283,10 +323,10 @@ export class HeistScene extends Phaser.Scene {
     ctx.closePath()
     ctx.clip()
     const along = ctx.createLinearGradient(0, oy, w, oy)
-    along.addColorStop(0, 'rgba(232, 196, 106, 0.22)')
-    along.addColorStop(0.12, 'rgba(201, 162, 39, 0.14)')
-    along.addColorStop(0.42, 'rgba(201, 162, 39, 0.06)')
-    along.addColorStop(0.78, 'rgba(201, 162, 39, 0.02)')
+    along.addColorStop(0, 'rgba(232, 196, 106, 0.32)')
+    along.addColorStop(0.1, 'rgba(201, 162, 39, 0.2)')
+    along.addColorStop(0.4, 'rgba(201, 162, 39, 0.08)')
+    along.addColorStop(0.75, 'rgba(201, 162, 39, 0.03)')
     along.addColorStop(1, 'rgba(201, 162, 39, 0)')
     ctx.fillStyle = along
     ctx.fillRect(0, 0, w, h)
@@ -319,26 +359,46 @@ export class HeistScene extends Phaser.Scene {
   private addSolid(x: number, y: number, w: number, h: number, kind: SolidKind) {
     const cx = x + w / 2
     const cy = y + h / 2
-    const fill = kind === 'wall' ? 0x2a241e : kind === 'column' ? 0x4a3c30 : kind === 'cabinet' ? 0x3a2e24 : 0x3c3026
-    this.add.rectangle(cx + 3, cy + 5, w, h, 0x080604, 0.42).setDepth(3)
+    const fill = kind === 'wall' ? 0x1c1a22 : kind === 'column' ? 0x2a2430 : kind === 'cabinet' ? 0x241e28 : 0x2a241c
+    this.add.rectangle(cx + 5, cy + 8, w + 2, h + 2, 0x050308, 0.48).setDepth(3)
     const r = this.add.rectangle(cx, cy, w, h, fill).setDepth(4)
-    r.setStrokeStyle(1, 0x0a0806, 0.9)
+    r.setStrokeStyle(1, 0x0a080c, 1)
     const trim = this.add.graphics().setDepth(5)
+    trim.lineStyle(1.25, 0xc9a227, kind === 'wall' ? 0.22 : 0.42)
+    trim.strokeRect(x + 2, y + 2, w - 4, h - 4)
+    trim.fillStyle(0xe8d7a0, 0.14)
+    trim.fillRect(x + 2, y + 1, w - 4, 3)
     if (kind === 'wall') {
-      trim.lineStyle(2, 0xc9a227, 0.22)
-      trim.strokeRect(x + 1.5, y + 1.5, w - 3, h - 3)
+      trim.fillStyle(0x141218, 0.35)
+      if (w >= h && w > 64) {
+        for (let px = x + 28; px < x + w - 12; px += 36) trim.fillRect(px, y + 5, 1, h - 10)
+      } else if (h > 64) {
+        for (let py = y + 28; py < y + h - 12; py += 36) trim.fillRect(x + 5, py, w - 10, 1)
+      }
     } else if (kind === 'desk') {
-      this.add.rectangle(cx, cy - h / 2 + 7, Math.max(12, w - 10), 7, 0x5a4a38).setDepth(5)
-      trim.lineStyle(1, 0xa08048, 0.35)
-      trim.strokeRect(x + 3, y + 3, w - 6, h - 6)
+      this.add.rectangle(cx, cy - h / 2 + 8, Math.max(14, w - 12), 9, 0x3a3228).setDepth(5)
+      this.add.rectangle(cx, cy - h / 2 + 6, Math.max(10, w - 18), 3, 0xc9a227, 0.45).setDepth(6)
+      this.add.rectangle(cx - w / 4, cy + 2, 10, h - 14, 0x1a1614).setDepth(5)
+      this.add.rectangle(cx + w / 4, cy + 2, 10, h - 14, 0x1a1614).setDepth(5)
+      trim.fillStyle(0x8ab4c8, 0.14)
+      trim.fillRect(x + 22, y - 18, w - 44, 18)
+      trim.lineStyle(1, 0xc9a227, 0.28)
+      trim.strokeRect(x + 22, y - 18, w - 44, 18)
+      trim.fillStyle(0xe8d7a0, 0.35)
+      trim.fillCircle(cx + 40, cy - h / 2 + 4, 3)
     } else if (kind === 'column') {
-      this.add.rectangle(cx, cy, w - 10, h - 10, 0x3a3228).setDepth(5)
-      trim.lineStyle(2, 0xc9a227, 0.3)
-      trim.strokeRect(x + 4, y + 4, w - 8, h - 8)
+      this.add.rectangle(cx, cy, w - 12, h - 12, 0x1a181e).setDepth(5)
+      trim.lineStyle(2, 0xc9a227, 0.55)
+      trim.strokeRect(x + 6, y + 6, w - 12, h - 12)
+      trim.fillStyle(0xc9a227, 0.35)
+      trim.fillCircle(cx, cy, 4)
     } else {
-      this.add.rectangle(cx, cy, w - 10, 4, 0xc9a227, 0.35).setDepth(5)
-      trim.lineStyle(1, 0x1a1410, 0.5)
-      trim.strokeRect(x + 2, y + 2, w - 4, h - 4)
+      trim.fillStyle(0xc9a227, 0.28)
+      trim.fillRect(cx - w / 2 + 8, cy - 8, w - 16, 3)
+      trim.lineStyle(1, 0x100c12, 0.65)
+      trim.strokeRect(x + 8, y + 14, w - 16, 18)
+      trim.strokeRect(x + 8, y + 36, w - 16, 18)
+      trim.strokeRect(x + 8, y + 58, w - 16, Math.max(12, h - 72))
     }
     this.physics.add.existing(r, true)
     this.walls.add(r)
@@ -352,9 +412,29 @@ export class HeistScene extends Phaser.Scene {
 
   private paintHideMats() {
     const g = this.add.graphics().setDepth(1)
-    g.fillStyle(0x0c0a08, 0.42)
     for (const z of this.hideZones) {
+      g.fillStyle(0x0a080c, 0.5)
       g.fillRoundedRect(z.x + 2, z.y + 2, z.w - 4, z.h - 4, 6)
+    }
+  }
+
+  private paintDecor() {
+    const g = this.add.graphics().setDepth(2)
+    const lamps: [number, number][] = [
+      [430, 500],
+      [1090, 500],
+      [430, 820],
+      [1090, 820],
+      [860, 300],
+      [148, 1040],
+    ]
+    for (const [lx, ly] of lamps) {
+      g.fillStyle(0xc9a227, 0.06)
+      g.fillCircle(lx, ly, 36)
+      g.fillStyle(0x1a181e)
+      g.fillCircle(lx, ly, 5)
+      g.fillStyle(0xe8d7a0, 0.55)
+      g.fillCircle(lx, ly, 2.4)
     }
   }
 
@@ -362,32 +442,49 @@ export class HeistScene extends Phaser.Scene {
     const x = this.safePos.x
     const y = this.safePos.y
     const g = this.add.graphics().setDepth(5)
-    g.fillStyle(0x080604, 0.5)
+    g.fillStyle(0x050308, 0.55)
+    g.fillRoundedRect(x - 70, y - 52, 148, 122, 12)
+    g.fillStyle(0x141820)
     g.fillRoundedRect(x - 62, y - 48, 124, 108, 10)
-    g.fillStyle(0x2a3238)
-    g.fillRoundedRect(x - 56, y - 44, 112, 96, 8)
-    g.lineStyle(3, 0xc9a227, 0.95)
-    g.strokeRoundedRect(x - 56, y - 44, 112, 96, 8)
-    g.fillStyle(0x161c22)
-    g.fillCircle(x, y + 2, 34)
-    g.lineStyle(3, 0xe0c56a, 0.9)
-    g.strokeCircle(x, y + 2, 34)
-    g.lineStyle(2, 0x8a9aa8, 0.55)
-    g.strokeCircle(x, y + 2, 24)
+    g.fillStyle(0x2a323c)
+    g.fillRoundedRect(x - 54, y - 42, 108, 94, 8)
+    g.lineStyle(3, 0xc9a227, 1)
+    g.strokeRoundedRect(x - 54, y - 42, 108, 94, 8)
+    g.lineStyle(1.5, 0xe8d7a0, 0.35)
+    g.strokeRoundedRect(x - 48, y - 36, 96, 82, 6)
+    g.fillStyle(0x0e1218)
+    g.fillCircle(x, y + 4, 36)
+    g.lineStyle(4, 0xe0c56a, 0.95)
+    g.strokeCircle(x, y + 4, 36)
+    g.lineStyle(2, 0x8a9aa8, 0.65)
+    g.strokeCircle(x, y + 4, 26)
+    g.lineStyle(3, 0xc9a227, 0.85)
+    g.beginPath()
+    g.moveTo(x, y + 4)
+    g.lineTo(x + 22, y - 8)
+    g.strokePath()
     g.fillStyle(0xc9a227)
-    g.fillCircle(x + 16, y + 2, 7)
+    g.fillCircle(x + 18, y + 4, 8)
     g.fillStyle(0x1a1410)
-    g.fillCircle(x + 16, y + 2, 3)
+    g.fillCircle(x + 18, y + 4, 3.5)
+    g.fillStyle(0x9aa8b4)
+    g.fillCircle(x, y + 4, 6)
+    g.fillStyle(0x1a2228)
+    g.fillRoundedRect(x - 62, y - 28, 10, 18, 2)
+    g.fillRoundedRect(x - 62, y + 16, 10, 18, 2)
+    g.fillStyle(0xc9a227, 0.7)
+    g.fillCircle(x - 57, y - 19, 2)
+    g.fillCircle(x - 57, y + 25, 2)
     for (const [dx, dy] of [
-      [-40, -28],
-      [40, -28],
-      [-40, 32],
-      [40, 32],
+      [-40, -26],
+      [40, -26],
+      [-40, 36],
+      [40, 36],
     ] as const) {
       g.fillStyle(0x1a2228)
-      g.fillCircle(x + dx, y + dy, 4)
-      g.fillStyle(0xc9a227, 0.7)
-      g.fillCircle(x + dx, y + dy, 2)
+      g.fillCircle(x + dx, y + dy, 5)
+      g.fillStyle(0xc9a227, 0.8)
+      g.fillCircle(x + dx, y + dy, 2.2)
     }
     this.safeTitle = this.add
       .text(x, y - 58, heistT('heistSafeName'), {
@@ -409,7 +506,7 @@ export class HeistScene extends Phaser.Scene {
   }
 
   private buildWorld() {
-    this.cameras.main.setBackgroundColor(0x121014)
+    this.cameras.main.setBackgroundColor(0x0c0a10)
     this.physics.world.setBounds(0, 0, W, H)
     this.drawFloor()
 
@@ -467,16 +564,28 @@ export class HeistScene extends Phaser.Scene {
     this.addHide(154, 1020, 44, 70)
 
     this.paintHideMats()
+    this.paintDecor()
     this.nav = buildNavGrid(W, H, 24, this.wallRects, 22)
 
     this.buildSafe()
 
     // EXIT door (overlap only)
-    this.add.rectangle(148, 1188, 168, 90, 0x0c1610).setDepth(3)
-    this.exitZone = this.add.rectangle(148, 1188, 150, 72, 0x163826, 0.88)
-    this.exitZone.setStrokeStyle(3, 0xc9a227, 0.55)
+    const exitFx = this.add.graphics().setDepth(3)
+    exitFx.fillStyle(0x050806, 0.9)
+    exitFx.fillRoundedRect(148 - 86, 1188 - 46, 172, 92, 10)
+    exitFx.fillStyle(0x14241a)
+    exitFx.fillRoundedRect(148 - 76, 1188 - 38, 152, 76, 8)
+    this.exitZone = this.add.rectangle(148, 1188, 150, 72, 0x1c3c2a, 0.55)
+    this.exitZone.setStrokeStyle(2, 0xc9a227, 0.7)
     this.exitZone.setDepth(3)
     this.physics.add.existing(this.exitZone, true)
+    exitFx.lineStyle(2, 0xc9a227, 0.55)
+    exitFx.strokeRoundedRect(148 - 76, 1188 - 38, 152, 76, 8)
+    exitFx.lineStyle(1, 0xe8d7a0, 0.35)
+    exitFx.lineBetween(148, 1188 - 34, 148, 1188 + 34)
+    exitFx.fillStyle(0xc9a227, 0.8)
+    exitFx.fillCircle(148 - 18, 1188, 3)
+    exitFx.fillCircle(148 + 18, 1188, 3)
     this.exitLabel = this.add.text(148, 1188, heistT('heistExit'), {
       fontFamily: 'Unbounded, sans-serif',
       fontSize: '16px',
@@ -715,28 +824,26 @@ export class HeistScene extends Phaser.Scene {
   }
 
   private drawFloor() {
-    const g = this.add.graphics().setDepth(0)
-    g.fillStyle(0x14110f)
-    g.fillRect(0, 0, W, H)
-    const tile = 96
-    for (let y = 0; y < H; y += tile) {
-      for (let x = 0; x < W; x += tile) {
-        const odd = ((x / tile) + (y / tile)) % 2 === 0
-        g.fillStyle(odd ? 0x1a1613 : 0x161310, 1)
-        g.fillRect(x, y, tile, tile)
-      }
-    }
-    g.lineStyle(1, 0xc9a227, 0.05)
-    for (let x = 0; x < W; x += tile * 2) g.lineBetween(x, 0, x, H)
-    for (let y = 0; y < H; y += tile * 2) g.lineBetween(0, y, W, y)
-    g.fillStyle(0x1c1812, 0.55)
-    g.fillRect(40, 920, 520, 300)
-    g.fillStyle(0x121418, 0.5)
+    this.add.tileSprite(W / 2, H / 2, W, H, 'floor_tile').setDepth(0)
+    const g = this.add.graphics().setDepth(1)
+    g.fillStyle(0x10141c, 0.32)
     g.fillRect(40, 40, 1680, 340)
-    g.lineStyle(2, 0xc9a227, 0.18)
-    g.strokeRect(48, 48, 1664, 324)
-    g.lineStyle(2, 0xc9a227, 0.22)
-    g.strokeRect(648, 372, 344, 20)
+    g.fillStyle(0x1a1612, 0.26)
+    g.fillRect(40, 920, 520, 300)
+    g.fillStyle(0x1a1218, 0.22)
+    g.fillRoundedRect(280, 430, 1190, 450, 18)
+    g.fillStyle(0xc9a227, 0.07)
+    g.fillRoundedRect(648, 368, 344, 28, 4)
+    g.fillStyle(0xc9a227, 0.05)
+    g.fillCircle(860, 200, 210)
+    g.fillCircle(700, 650, 190)
+    g.fillCircle(148, 1108, 170)
+    g.fillCircle(1188, 148, 120)
+    g.fillStyle(0x000000, 0.18)
+    g.fillRect(0, 0, W, 28)
+    g.fillRect(0, H - 28, W, 28)
+    g.fillRect(0, 0, 28, H)
+    g.fillRect(W - 28, 0, 28, H)
   }
 
   private makeCam(x: number, y: number, base: number, sweep: number, speed: number): SecCam {
@@ -745,12 +852,13 @@ export class HeistScene extends Phaser.Scene {
     beam.setOrigin(0, 0.5)
     beam.setDisplaySize(CAM_VISION, beamH)
     beam.setRotation(base)
-    beam.setAlpha(0.9)
+    beam.setAlpha(0.95)
+    this.add.image(x, y, 'cam_mount').setDepth(8).setDisplaySize(18, 18)
     const sprite = this.add.image(x, y, 'cam').setDepth(9)
     sprite.setOrigin(0.22, 0.5)
-    sprite.setDisplaySize(32, 16)
+    sprite.setDisplaySize(38, 20)
     sprite.setRotation(base)
-    const led = this.add.circle(x, y, 2.4, 0xc9a227).setDepth(10)
+    const led = this.add.circle(x, y, 2.6, 0xc9a227).setDepth(10)
     return { x, y, facing: base, base, sweep, speed, sprite, beam, led, hot: false }
   }
 
@@ -1574,8 +1682,8 @@ export class HeistScene extends Phaser.Scene {
       hot ? 0xff8a6a : 0xe8c36a,
     )
     this.worldGfx.clear()
-    this.worldGfx.fillStyle(0x000000, 0.28)
-    this.worldGfx.fillEllipse(this.player.x, this.player.y + 14, 22, 10)
+    this.worldGfx.fillStyle(0x000000, 0.32)
+    this.worldGfx.fillEllipse(this.player.x, this.player.y + 16, 30, 12)
     this.worldGfx.fillEllipse(this.guard.x, this.guard.y + 12, 20, 10)
   }
 
