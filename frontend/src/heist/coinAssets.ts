@@ -12,7 +12,7 @@ export type DuckCoinDef = {
 }
 
 export const DUCK_COIN_DEFS: DuckCoinDef[] = [
-  { kind: 'C5', value: 5, key: 'dc_5', size: 36 },
+  { kind: 'C5', value: 5, key: 'dc_5', size: 34, file: '/heist/coin_5.png' },
   { kind: 'C10', value: 10, key: 'dc_10', size: 44, file: '/heist/coin_10.png' },
   { kind: 'C50', value: 50, key: 'dc_50', size: 56, file: '/heist/coin_50.png' },
   { kind: 'C100', value: 100, key: 'dc_100', size: 68, file: '/heist/coin_100.png' },
@@ -91,10 +91,7 @@ export function playCoinIdle(scene: Phaser.Scene, sprite: Phaser.GameObjects.Spr
   sprite.setData('coinIdleTweens', [motion, shine])
 }
 
-/**
- * Only used for denominations without a painted PNG (today: C5). Copper rim and
- * a printed face value keep it readable next to the golden coin art.
- */
+/** Fallback if a PNG fails to load. Keeps the same family of gold/copper rims. */
 function paintCoinPlaceholder(ctx: CanvasRenderingContext2D, size: number, value: number) {
   const c = size / 2
   const r = size / 2 - 1.5

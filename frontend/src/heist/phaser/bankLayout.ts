@@ -99,12 +99,10 @@ export const BANK_LOOT: { x: number; y: number; kind: DuckCoinKind }[] = [
   { x: 700, y: 560, kind: 'C5' },
   { x: 860, y: 700, kind: 'C10' },
   { x: 1200, y: 660, kind: 'C5' },
-  { x: 1250, y: 760, kind: 'C10' },
   { x: 520, y: 840, kind: 'C5' },
   { x: 1000, y: 470, kind: 'C10' },
-  { x: 1350, y: 470, kind: 'C10' },
   { x: 760, y: 840, kind: 'C5' },
-  { x: 300, y: 480, kind: 'C50' },
+  { x: 380, y: 500, kind: 'C50' },
   // vault
   { x: 300, y: 140, kind: 'C50' },
   { x: 620, y: 300, kind: 'C10' },

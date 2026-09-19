@@ -1,5 +1,5 @@
 import Phaser from 'phaser'
-import { punchBackdrop } from '../sprite'
+import { cropOpaque, punchBackdrop } from '../sprite'
 import type { HeistEnd } from '../types'
 import { RAID_OBJ_LOOT, RAID_OBJ_TIME_S, raidObjectiveBonus, type HeistRunMods } from '../progress'
 import { heistLevelObjectives, type HeistLevelId } from '../heistLevel'
@@ -145,10 +145,10 @@ type SecCam = {
 const GUARD_PNG = '/heist/guard.png'
 const GUARD_SHEET = '/heist/guard_sheet.png'
 const GUARD_FRAME = 256
-const GUARD_DISPLAY = 36
+const GUARD_DISPLAY = 44
 const DUCK_SHEET = '/heist/duck_sheet.png'
 const DUCK_FRAME = 256
-const DUCK_DISPLAY = 64
+const DUCK_DISPLAY = 72
 const DUCK_BODY_W = 20
 const DUCK_BODY_H = 22
 /** Previous visual size; keep world hitbox identical when display scale changes. */
@@ -571,9 +571,10 @@ export class HeistScene extends Phaser.Scene {
     const src = this.textures.get('duck').getSourceImage()
     if (src instanceof HTMLImageElement) {
       const punched = punchBackdrop(src)
-      if (punched instanceof HTMLCanvasElement) {
+      const cropped = cropOpaque(punched instanceof HTMLCanvasElement ? punched : src)
+      if (cropped instanceof HTMLCanvasElement) {
         if (this.textures.exists('duck_play')) this.textures.remove('duck_play')
-        this.textures.addCanvas('duck_play', punched)
+        this.textures.addCanvas('duck_play', cropped)
         return 'duck_play'
       }
     }
@@ -1278,6 +1279,7 @@ export class HeistScene extends Phaser.Scene {
     heistSfx.safeClick()
     this.fx?.explode(6, spot.x, spot.y)
     this.lureGuards(spot.x, spot.y)
+    this.floatGain(-item.value)
   }
 
   /** Dropped loot is a noise source: nearby guards go and look at it. */
@@ -1334,13 +1336,15 @@ export class HeistScene extends Phaser.Scene {
   private floatGain(gained: number, kind?: LootKind) {
     const x = this.player.x
     const y = this.player.y - 18
-    const big = kind === 'C100' || gained >= 100
-    const mid = kind === 'C50' || gained >= 50
+    const dropped = gained < 0
+    const amount = Math.abs(gained)
+    const big = kind === 'C100' || amount >= 100
+    const mid = kind === 'C50' || amount >= 50
     const label = this.add
-      .text(x, y, heistT('heistSafeReward', { n: gained }), {
+      .text(x, y, heistT(dropped ? 'heistDropped' : 'heistSafeReward', { n: amount }), {
         fontFamily: 'Unbounded, sans-serif',
         fontSize: big ? '22px' : mid ? '19px' : '16px',
-        color: big ? '#fff3c4' : '#ffe08a',
+        color: dropped ? '#ffb070' : big ? '#fff3c4' : '#ffe08a',
       })
       .setOrigin(0.5)
       .setDepth(16)
@@ -1990,12 +1994,15 @@ export class HeistScene extends Phaser.Scene {
   }
 
   private pinDuckVisual() {
-    this.player.setDisplaySize(DUCK_DISPLAY, DUCK_DISPLAY)
+    const fw = this.player.frame.width || DUCK_DISPLAY
+    const fh = this.player.frame.height || DUCK_DISPLAY
+    const k = DUCK_DISPLAY / Math.max(fw, fh)
+    this.player.setDisplaySize(Math.round(fw * k), Math.round(fh * k))
     const pb = this.player.body as Phaser.Physics.Arcade.Body | undefined
     if (!pb) return
-    const k = DUCK_HITBOX_FROM / DUCK_DISPLAY
-    pb.setSize(DUCK_BODY_W * k, DUCK_BODY_H * k, false)
-    pb.setOffset((this.player.width / 2 - DUCK_BODY_W / 2) * k, (this.player.height / 2 - 8) * k)
+    const hit = DUCK_HITBOX_FROM / DUCK_DISPLAY
+    pb.setSize(DUCK_BODY_W * hit, DUCK_BODY_H * hit, false)
+    pb.setOffset((this.player.width / 2 - DUCK_BODY_W / 2) * hit, (this.player.height / 2 - 8) * hit)
   }
 
   private inRect(z: HideZone, x: number, y: number) {
@@ -2719,12 +2726,16 @@ export class HeistScene extends Phaser.Scene {
     const showDrop = this.canDrop()
     if (showDrop) {
       const drop = this.btnDrop()
-      this.uiGfx.fillStyle(now < this.dropReadyAt ? 0x2a2018 : 0x1a1410, 0.82)
+      const heavy = this.weightOver() > 0
+      const pulse = heavy ? 0.55 + Math.sin(now / 140) * 0.35 : 0.82
+      this.uiGfx.fillStyle(now < this.dropReadyAt ? 0x2a2018 : heavy ? 0x5a2a14 : 0x1a1410, pulse)
       this.uiGfx.fillCircle(drop.x, drop.y, 34)
-      this.uiGfx.lineStyle(2, 0xffb070, 0.7)
+      this.uiGfx.lineStyle(2, heavy ? 0xff8a4a : 0xffb070, heavy ? 0.95 : 0.7)
       this.uiGfx.strokeCircle(drop.x, drop.y, 34)
       this.uiGfx.lineStyle(2, 0xc9a227, 0.7)
       this.dropLabel?.setPosition(drop.x, drop.y)
+      this.dropLabel?.setColor(heavy ? '#ff8a4a' : '#ffb070')
+      this.dropLabel?.setText(heavy ? heistT('heistHeavy') : heistT('heistDrop'))
     }
     this.dropLabel?.setVisible(showDrop)
     if (cooling) {
@@ -2765,16 +2776,17 @@ export class HeistScene extends Phaser.Scene {
     this.hud.setText(
       `${heistT('heistDuckCoin')} ${this.currentLoot}   ${formatClock(now - this.startedAt)}   ${band}${escape}`,
     )
-    this.bagHud.setColor(this.weightOver() > 0 ? '#ff8a4a' : color)
+    const heavy = this.weightOver() > 0
+    this.bagHud.setColor(heavy ? '#ff8a4a' : color)
     const police =
       this.escapeUntil > 0
         ? `   ${heistT('heistPolice')} ${formatClock(Math.max(0, this.escapeUntil - now))}`
         : ''
-    const weight = this.weightOn()
-      ? `   ${heistT('heistWeight')} ${Math.round(this.carriedWeight())}/${this.weightCap()}`
+    const load = this.weightOn()
+      ? `${heistT('heistLoad')} ${Math.round(this.carriedWeight())}/${this.weightCap()}${heavy ? ` ${heistT('heistHeavy')}` : ''}   `
       : ''
     this.bagHud.setText(
-      `${heistT('heistBag')} ${this.currentLoot}/${this.mods.bagCap}${full ? ` ${heistT('heistBagFull')}` : ''}${weight}${police}`,
+      `${load}${heistT('heistBag')} ${this.currentLoot}/${this.mods.bagCap}${full ? ` ${heistT('heistBagFull')}` : ''}${police}`,
     )
     this.drawHudBars()
     this.drawObjectives(now - this.startedAt)
@@ -2783,7 +2795,7 @@ export class HeistScene extends Phaser.Scene {
     this.safeTitle?.setText(heistT('heistSafeName'))
     this.sneakLabel?.setText(heistT('heistSneak'))
     this.dashLabel?.setText(heistT('heistDash'))
-    this.dropLabel?.setText(heistT('heistDrop'))
+    if (!this.canDrop()) this.dropLabel?.setText(heistT('heistDrop'))
     if (this.safeCrack) {
       this.crackHud.setVisible(true)
       const hits = this.crackKind === 'door' ? DOOR_HITS : SAFE_HITS

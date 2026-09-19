@@ -76,6 +76,10 @@ body {
   will-change: transform;
 }
 
+.hero-glow {
+  background: radial-gradient(circle, rgba(255, 176, 40, 0.28) 0%, rgba(255, 107, 0, 0.08) 46%, transparent 72%);
+}
+
 .hero-shadow {
   background: radial-gradient(50% 50% at 50% 50%, rgba(0, 0, 0, 0.55), transparent 70%);
   animation: duck-shadow 4.6s ease-in-out infinite;

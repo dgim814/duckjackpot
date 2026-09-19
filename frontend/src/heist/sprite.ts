@@ -1,3 +1,43 @@
+/** Tight crop around opaque pixels so padding never flattens the duck. */
+export function cropOpaque(src: HTMLCanvasElement | HTMLImageElement, pad = 8) {
+  const w = 'naturalWidth' in src ? src.naturalWidth : src.width
+  const h = 'naturalHeight' in src ? src.naturalHeight : src.height
+  const probe = document.createElement('canvas')
+  probe.width = w
+  probe.height = h
+  const px = probe.getContext('2d')
+  if (!px) return src instanceof HTMLCanvasElement ? src : probe
+  px.drawImage(src, 0, 0)
+  const data = px.getImageData(0, 0, w, h).data
+  let minX = w
+  let minY = h
+  let maxX = 0
+  let maxY = 0
+  for (let y = 0; y < h; y += 1) {
+    for (let x = 0; x < w; x += 1) {
+      if (data[(y * w + x) * 4 + 3] < 12) continue
+      if (x < minX) minX = x
+      if (y < minY) minY = y
+      if (x > maxX) maxX = x
+      if (y > maxY) maxY = y
+    }
+  }
+  if (maxX <= minX || maxY <= minY) return src instanceof HTMLCanvasElement ? src : probe
+  minX = Math.max(0, minX - pad)
+  minY = Math.max(0, minY - pad)
+  maxX = Math.min(w - 1, maxX + pad)
+  maxY = Math.min(h - 1, maxY + pad)
+  const cw = maxX - minX + 1
+  const ch = maxY - minY + 1
+  const out = document.createElement('canvas')
+  out.width = cw
+  out.height = ch
+  const ox = out.getContext('2d')
+  if (!ox) return src instanceof HTMLCanvasElement ? src : probe
+  ox.drawImage(probe, minX, minY, cw, ch, 0, 0, cw, ch)
+  return out
+}
+
 export function punchBackdrop(img: HTMLImageElement) {
   const c = document.createElement('canvas')
   c.width = img.naturalWidth
