@@ -749,7 +749,7 @@ export class HeistScene extends Phaser.Scene {
     this.worldGfx = this.add.graphics().setDepth(10)
     this.visionGfx = this.add.graphics().setDepth(2)
     this.uiGfx = this.add.graphics().setScrollFactor(0).setDepth(20)
-    this.pauseGfx = this.add.graphics().setScrollFactor(0).setDepth(50)
+    this.pauseGfx = this.add.graphics().setScrollFactor(0).setDepth(80)
     this.pauseHudLbl = this.add
       .text(0, 0, heistT('heistPause'), {
         fontFamily: 'Unbounded, sans-serif',
@@ -762,32 +762,32 @@ export class HeistScene extends Phaser.Scene {
     this.pauseTitle = this.add
       .text(0, 0, heistT('heistPaused'), {
         fontFamily: 'Unbounded, sans-serif',
-        fontSize: '22px',
+        fontSize: '24px',
         color: '#ffe08a',
       })
       .setOrigin(0.5)
       .setScrollFactor(0)
-      .setDepth(51)
+      .setDepth(81)
       .setVisible(false)
     this.pauseResumeLbl = this.add
       .text(0, 0, heistT('heistResume'), {
         fontFamily: 'Unbounded, sans-serif',
-        fontSize: '14px',
+        fontSize: '16px',
         color: '#120c10',
       })
       .setOrigin(0.5)
       .setScrollFactor(0)
-      .setDepth(51)
+      .setDepth(81)
       .setVisible(false)
     this.pauseAbortLbl = this.add
       .text(0, 0, heistT('heistAbortRaid'), {
         fontFamily: 'Unbounded, sans-serif',
-        fontSize: '13px',
+        fontSize: '15px',
         color: '#ffe08a',
       })
       .setOrigin(0.5)
       .setScrollFactor(0)
-      .setDepth(51)
+      .setDepth(81)
       .setVisible(false)
     this.hud = this.add
       .text(12, 9, '', { fontFamily: 'Unbounded, sans-serif', fontSize: '11px', color: '#f3e6c4' })
@@ -1528,11 +1528,20 @@ export class HeistScene extends Phaser.Scene {
     const gap = 10
     return Math.min(340, Math.max(148, pause.x - pause.r - gap - 6))
   }
-  private btnResume() {
-    return { x: this.camW() / 2, y: this.camH() / 2 + 10, w: 220, h: 44 }
+
+  private pausePanel() {
+    const w = Math.min(320, Math.max(268, this.camW() - 28))
+    return { x: this.camW() / 2, y: this.camH() / 2 - 8, w, h: 276 }
   }
+
+  private btnResume() {
+    const panel = this.pausePanel()
+    return { x: panel.x, y: panel.y - 6, w: panel.w - 36, h: 58 }
+  }
+
   private btnAbort() {
-    return { x: this.camW() / 2, y: this.camH() / 2 + 64, w: 220, h: 40 }
+    const panel = this.pausePanel()
+    return { x: panel.x, y: panel.y + 68, w: panel.w - 36, h: 58 }
   }
 
   private gameNow() {
@@ -1576,12 +1585,7 @@ export class HeistScene extends Phaser.Scene {
 
   private abortHeist() {
     if (this.ended) return
-    if (this.paused) {
-      this.pauseShift += this.time.now - this.pauseAt
-      this.paused = false
-      this.physics.resume()
-    }
-    this.finish('caught')
+    this.finish('aborted')
   }
 
   private btnSneak() {
@@ -2647,7 +2651,7 @@ export class HeistScene extends Phaser.Scene {
     this.ended = true
     if (verdict === 'caught') this.spillCarried()
     if (verdict === 'escaped') heistSfx.exit()
-    else heistSfx.caught()
+    else if (verdict === 'caught') heistSfx.caught()
     this.syncHeistSfx(true)
     this.releaseTouches()
     this.input.enabled = false
@@ -2660,7 +2664,7 @@ export class HeistScene extends Phaser.Scene {
       gb.setAcceleration(0, 0)
     }
     this.physics.pause()
-    const coins = this.currentLoot
+    const coins = verdict === 'aborted' ? 0 : this.currentLoot
     const timeMs = this.gameNow() - this.startedAt
     const bonus =
       verdict === 'escaped' && this.alert < this.cfg.alert.bandSuspicious && coins > 0
@@ -2893,22 +2897,23 @@ export class HeistScene extends Phaser.Scene {
     }
     const w = this.camW()
     const h = this.camH()
-    this.pauseGfx.fillStyle(0x050308, 0.72)
+    const panel = this.pausePanel()
+    this.pauseGfx.fillStyle(0x050308, 0.78)
     this.pauseGfx.fillRect(0, 0, w, h)
-    this.pauseGfx.fillStyle(0x120c10, 0.96)
-    this.pauseGfx.fillRoundedRect(w / 2 - 130, h / 2 - 92, 260, 196, 16)
-    this.pauseGfx.lineStyle(2, 0xc9a227, 0.85)
-    this.pauseGfx.strokeRoundedRect(w / 2 - 130, h / 2 - 92, 260, 196, 16)
+    this.pauseGfx.fillStyle(0x120c10, 0.98)
+    this.pauseGfx.fillRoundedRect(panel.x - panel.w / 2, panel.y - panel.h / 2, panel.w, panel.h, 18)
+    this.pauseGfx.lineStyle(2, 0xc9a227, 0.9)
+    this.pauseGfx.strokeRoundedRect(panel.x - panel.w / 2, panel.y - panel.h / 2, panel.w, panel.h, 18)
     const resume = this.btnResume()
     const abort = this.btnAbort()
     this.pauseGfx.fillStyle(0xc9a227, 1)
-    this.pauseGfx.fillRoundedRect(resume.x - resume.w / 2, resume.y - resume.h / 2, resume.w, resume.h, 10)
+    this.pauseGfx.fillRoundedRect(resume.x - resume.w / 2, resume.y - resume.h / 2, resume.w, resume.h, 14)
     this.pauseGfx.fillStyle(0x1a1410, 1)
-    this.pauseGfx.fillRoundedRect(abort.x - abort.w / 2, abort.y - abort.h / 2, abort.w, abort.h, 10)
-    this.pauseGfx.lineStyle(2, 0xc9a227, 0.7)
-    this.pauseGfx.strokeRoundedRect(abort.x - abort.w / 2, abort.y - abort.h / 2, abort.w, abort.h, 10)
+    this.pauseGfx.fillRoundedRect(abort.x - abort.w / 2, abort.y - abort.h / 2, abort.w, abort.h, 14)
+    this.pauseGfx.lineStyle(2, 0xc9a227, 0.85)
+    this.pauseGfx.strokeRoundedRect(abort.x - abort.w / 2, abort.y - abort.h / 2, abort.w, abort.h, 14)
     this.pauseTitle.setText(heistT('heistPaused'))
-    this.pauseTitle.setPosition(w / 2, h / 2 - 52)
+    this.pauseTitle.setPosition(panel.x, panel.y - 92)
     this.pauseTitle.setVisible(true)
     this.pauseResumeLbl.setText(heistT('heistResume'))
     this.pauseResumeLbl.setPosition(resume.x, resume.y)

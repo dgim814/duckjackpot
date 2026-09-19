@@ -5,7 +5,7 @@ export type HeistObjectives = {
 }
 
 export type HeistEnd = {
-  verdict: 'escaped' | 'caught'
+  verdict: 'escaped' | 'caught' | 'aborted'
   coins: number
   bonus: number
   objBonus: number

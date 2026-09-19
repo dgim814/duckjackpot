@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { HeistDuck } from '../heist/HeistDuck'
 import { HeistGame, type HeistEnd } from '../heist/HeistGame'
 import { bindHeistI18n } from '../heist/heistI18n'
@@ -52,6 +53,7 @@ type Screen = 'lobby' | 'play' | 'result' | 'shop'
 
 export function HeistPage() {
   const { t } = useI18n()
+  const navigate = useNavigate()
   bindHeistI18n(t)
   const [screen, setScreen] = useState<Screen>('lobby')
   const [end, setEnd] = useState<HeistEnd | null>(null)
@@ -62,6 +64,12 @@ export function HeistPage() {
   const mods = useMemo(() => runMods(progress), [progress])
 
   const onDone = (next: HeistEnd) => {
+    if (next.verdict === 'aborted') {
+      setEnd(null)
+      setScreen('lobby')
+      navigate('/')
+      return
+    }
     if (next.verdict === 'escaped') {
       const gained = next.coins + next.bonus + next.objBonus
       const updated = bankCoins(progress, gained, next.objectives)
