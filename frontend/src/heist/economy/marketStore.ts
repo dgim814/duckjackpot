@@ -61,6 +61,19 @@ export function loadListings() {
   return readList()
 }
 
+/** Local mock is one device / one player. Rebind ACTIVE lots if playerId rotated. */
+export function adoptOrphanListings(playerId = localPlayerId()) {
+  const rows = readList()
+  let changed = false
+  const next = rows.map((row) => {
+    if (row.status !== 'ACTIVE' || row.sellerId === playerId) return row
+    changed = true
+    return { ...row, sellerId: playerId, ownerId: playerId }
+  })
+  if (changed) writeList(next)
+  return changed
+}
+
 export function activeListings() {
   return readList().filter((row) => row.status === 'ACTIVE')
 }

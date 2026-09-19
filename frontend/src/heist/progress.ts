@@ -1,7 +1,7 @@
 import type { OwnedCollection } from './economy/catalog'
 import { catalogItem } from './economy/catalog'
 import { addToCollection } from './economy/collection'
-import { cancelListing, listItem, loadListings, localPlayerId } from './economy/marketStore'
+import { adoptOrphanListings, cancelListing, listItem, loadListings, localPlayerId } from './economy/marketStore'
 
 export type OwnedMeta = Record<string, { acquiredAt: number }>
 
@@ -113,18 +113,22 @@ function clampLevel(n: unknown, max = LAB_MAX) {
 
 /** ACTIVE lots used to leave the vault. Restore those copies so listings match ownedArt. */
 function restoreListedCopies(owned: OwnedCollection): OwnedCollection {
-  const me = localPlayerId()
-  const listed: OwnedCollection = {}
-  for (const row of loadListings()) {
-    if (row.sellerId !== me || row.status !== 'ACTIVE') continue
-    if (!catalogItem(row.itemId)) continue
-    listed[row.itemId] = (listed[row.itemId] ?? 0) + 1
+  try {
+    adoptOrphanListings()
+    const listed: OwnedCollection = {}
+    for (const row of loadListings()) {
+      if (row.status !== 'ACTIVE') continue
+      if (!catalogItem(row.itemId)) continue
+      listed[row.itemId] = (listed[row.itemId] ?? 0) + 1
+    }
+    const next = { ...owned }
+    for (const [id, n] of Object.entries(listed)) {
+      if ((next[id] ?? 0) < n) next[id] = n
+    }
+    return next
+  } catch {
+    return owned
   }
-  const next = { ...owned }
-  for (const [id, n] of Object.entries(listed)) {
-    if ((next[id] ?? 0) < n) next[id] = n
-  }
-  return next
 }
 
 export function loadProgress(): PlayerProgress {
