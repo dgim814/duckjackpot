@@ -7,6 +7,23 @@ import { applyCoinSpriteSize, coinDef, ensureCoinPlaceholders, loadDuckCoinImage
 import { heistT } from '../heistI18n'
 import { heistSfx, unlockHeistSfx } from '../heistSfx'
 import { buildNavGrid, cellCenter, findPath, findPathAroundStuck, nearestWalkable, type NavGrid } from '../guardPath'
+import {
+  MANSION_CAMS,
+  MANSION_DOORS,
+  MANSION_EXIT,
+  MANSION_FLOORS,
+  MANSION_FURNITURE,
+  MANSION_GUARD_ROUTES,
+  MANSION_H,
+  MANSION_HIDES,
+  MANSION_LABELS,
+  MANSION_LAMPS,
+  MANSION_LOOT,
+  MANSION_SAFES,
+  MANSION_SPAWN,
+  MANSION_W,
+  MANSION_WALLS,
+} from './mansionLayout'
 
 const W = 1760
 const H = 1280
@@ -47,6 +64,8 @@ type LootKind = DuckCoinKind
 const SAFE_RANGE = 86
 const SAFE_MISS_ALERT = 0.2
 const SAFE_HITS = 5
+const DOOR_RANGE = 78
+const DOOR_HITS = 2
 
 type Wall = { x: number; y: number; w: number; h: number }
 type HideZone = Wall
@@ -57,7 +76,17 @@ type SafeSpot = {
   opened: boolean
   extraX: number
   extraY: number
-  extraKind: LootKind
+  extraKind?: LootKind
+  reward?: number
+}
+type LockedDoor = {
+  id: string
+  x: number
+  y: number
+  w: number
+  h: number
+  opened: boolean
+  body: Phaser.GameObjects.Rectangle
 }
 type SecCam = {
   x: number
@@ -107,6 +136,9 @@ export class HeistScene extends Phaser.Scene {
   private walls!: Phaser.Physics.Arcade.StaticGroup
   private wallRects: Wall[] = []
   private hideZones: HideZone[] = []
+  private doors: LockedDoor[] = []
+  private mapW = W
+  private mapH = H
   private lootGroup!: Phaser.Physics.Arcade.Group
   private lootSpawn = 0
   private exitZone!: Phaser.GameObjects.Rectangle
@@ -213,6 +245,9 @@ export class HeistScene extends Phaser.Scene {
   private safePos = new Phaser.Math.Vector2(1188, 148)
   private safeOpened = false
   private safeCrack = false
+  private crackKind: 'safe' | 'door' = 'safe'
+  private crackDoor: LockedDoor | null = null
+  private doorOpenedAt = 0
   private safeHits = 0
   private safeMarker = 0
   private safeDir = 1
@@ -565,7 +600,9 @@ export class HeistScene extends Phaser.Scene {
 
   private buildWorld() {
     this.cameras.main.setBackgroundColor(this.levelId === 'mansion' ? 0x140e0c : 0x0c0a10)
-    this.physics.world.setBounds(0, 0, W, H)
+    this.mapW = this.levelId === 'mansion' ? MANSION_W : W
+    this.mapH = this.levelId === 'mansion' ? MANSION_H : H
+    this.physics.world.setBounds(0, 0, this.mapW, this.mapH)
     if (this.levelId === 'mansion') {
       this.buildMansionWorld()
       return
@@ -828,7 +865,7 @@ export class HeistScene extends Phaser.Scene {
     }
 
     this.cameras.main.startFollow(this.player, true, 0.14, 0.14)
-    this.cameras.main.setBounds(0, 0, W, H)
+    this.cameras.main.setBounds(0, 0, this.mapW, this.mapH)
     this.cameras.main.setDeadzone(28, 28)
 
     this.input.addPointer(3)
@@ -964,84 +1001,61 @@ export class HeistScene extends Phaser.Scene {
       .setDepth(4)
   }
 
+  private addLockedDoor(spec: (typeof MANSION_DOORS)[number]): LockedDoor {
+    const body = this.addSolid(spec.x, spec.y, spec.w, spec.h, 'wall')
+    body.setFillStyle(0x3a2414)
+    const cx = spec.x + spec.w / 2
+    const cy = spec.y + spec.h / 2
+    const lock = this.add.graphics().setDepth(6)
+    lock.fillStyle(0xc9a227, 0.85)
+    lock.fillCircle(cx, cy, 6)
+    lock.fillStyle(0x1a1410, 1)
+    lock.fillCircle(cx, cy, 2.4)
+    this.add
+      .text(cx, cy - (spec.h > spec.w ? 0 : 18), heistT('heistLockpick'), {
+        fontFamily: 'Unbounded, sans-serif',
+        fontSize: '9px',
+        color: '#ffe08a',
+      })
+      .setOrigin(0.5)
+      .setDepth(7)
+    return { id: spec.id, x: spec.x, y: spec.y, w: spec.w, h: spec.h, opened: false, body }
+  }
+
+  private rebuildNav() {
+    this.nav = buildNavGrid(this.mapW, this.mapH, 24, this.wallRects, 22)
+  }
+
   private buildMansionWorld() {
-    this.add.tileSprite(W / 2, H / 2, W, H, 'floor_tile').setDepth(0)
+    this.add.tileSprite(this.mapW / 2, this.mapH / 2, this.mapW, this.mapH, 'floor_tile').setDepth(0)
     const floor = this.add.graphics().setDepth(1)
-    floor.fillStyle(0x24160e, 0.34)
-    floor.fillRect(40, 40, 1680, 320)
-    floor.fillStyle(0x1a120c, 0.28)
-    floor.fillRect(40, 920, 420, 300)
-    floor.fillStyle(0x20140c, 0.24)
-    floor.fillRoundedRect(300, 400, 1160, 480, 18)
-    floor.fillStyle(0xc9a227, 0.06)
-    floor.fillCircle(860, 640, 220)
-    floor.fillCircle(240, 220, 140)
-    floor.fillCircle(1580, 200, 150)
+    for (const f of MANSION_FLOORS) {
+      floor.fillStyle(f.color, f.alpha)
+      floor.fillRect(f.x, f.y, f.w, f.h)
+    }
     floor.fillStyle(0x000000, 0.18)
-    floor.fillRect(0, 0, W, 28)
-    floor.fillRect(0, H - 28, W, 28)
-    floor.fillRect(0, 0, 28, H)
-    floor.fillRect(W - 28, 0, 28, H)
+    floor.fillRect(0, 0, this.mapW, 28)
+    floor.fillRect(0, this.mapH - 28, this.mapW, 28)
+    floor.fillRect(0, 0, 28, this.mapH)
+    floor.fillRect(this.mapW - 28, 0, 28, this.mapH)
 
     this.walls = this.physics.add.staticGroup()
     this.wallRects = []
     this.hideZones = []
+    this.doors = []
     const T = 40
-    this.addSolid(0, 0, W, T, 'wall')
-    this.addSolid(0, H - T, W, T, 'wall')
-    this.addSolid(0, 0, T, H, 'wall')
-    this.addSolid(W - T, 0, T, H, 'wall')
-
-    this.addSolid(T, 900, 160, 28, 'wall')
-    this.addSolid(360, 900, 900, 28, 'wall')
-    this.addSolid(1440, 900, W - T - 1440, 28, 'wall')
-
-    this.addSolid(268, 388, 28, 112, 'wall')
-    this.addSolid(268, 640, 28, 260, 'wall')
-
-    this.addSolid(1468, 388, 28, 112, 'wall')
-    this.addSolid(1468, 640, 28, 260, 'wall')
-
-    this.addSolid(T, 360, 140, 28, 'wall')
-    this.addSolid(340, 360, 460, 28, 'wall')
-    this.addSolid(960, 360, 460, 28, 'wall')
-    this.addSolid(1560, 360, W - T - 1560, 28, 'wall')
-
-    this.addSolid(70, 70, 90, 160, 'cabinet')
-    this.addHide(162, 80, 52, 140)
-    this.addSolid(1520, 90, 160, 46, 'desk')
-    this.addHide(1520, 136, 160, 48)
-    this.addSolid(1648, 220, 64, 88, 'cabinet')
-    this.addHide(1594, 220, 52, 88)
-
-    this.addSolid(420, 580, 170, 46, 'desk')
-    this.addHide(420, 626, 170, 48)
-    this.addSolid(980, 580, 170, 46, 'desk')
-    this.addHide(980, 626, 170, 48)
-    this.addSolid(700, 760, 170, 46, 'desk')
-    this.addHide(700, 806, 170, 48)
-    this.addSolid(640, 500, 46, 46, 'column')
-    this.addHide(628, 546, 70, 40)
-    this.addSolid(1120, 680, 46, 46, 'column')
-    this.addHide(1108, 726, 70, 40)
-
-    this.addSolid(64, 1020, 90, 70, 'cabinet')
-    this.addHide(154, 1020, 44, 70)
-    this.addSolid(1580, 1020, 90, 80, 'cabinet')
-    this.addHide(1528, 1020, 50, 80)
-
+    this.addSolid(0, 0, this.mapW, T, 'wall')
+    this.addSolid(0, this.mapH - T, this.mapW, T, 'wall')
+    this.addSolid(0, 0, T, this.mapH, 'wall')
+    this.addSolid(this.mapW - T, 0, T, this.mapH, 'wall')
+    for (const w of MANSION_WALLS) this.addSolid(w.x, w.y, w.w, w.h, 'wall')
+    this.doors = MANSION_DOORS.map((d) => this.addLockedDoor(d))
+    for (const f of MANSION_FURNITURE) this.addSolid(f.x, f.y, f.w, f.h, f.kind)
+    for (const h of MANSION_HIDES) this.addHide(h.x, h.y, h.w, h.h)
     this.paintHideMats()
-    const lamps: [number, number][] = [
-      [220, 220],
-      [860, 220],
-      [1580, 220],
-      [500, 640],
-      [1220, 640],
-      [240, 1080],
-      [1600, 1080],
-    ]
+
     const g = this.add.graphics().setDepth(2)
-    for (const [lx, ly] of lamps) {
+    for (const [lx, ly] of MANSION_LAMPS) {
       g.fillStyle(0xc9a227, 0.07)
       g.fillCircle(lx, ly, 36)
       g.fillStyle(0x1a181e)
@@ -1049,90 +1063,47 @@ export class HeistScene extends Phaser.Scene {
       g.fillStyle(0xe8d7a0, 0.55)
       g.fillCircle(lx, ly, 2.4)
     }
-    this.nav = buildNavGrid(W, H, 24, this.wallRects, 22)
+    this.rebuildNav()
 
-    this.safes = [
-      { x: 1548, y: 168, opened: false, extraX: 1460, extraY: 250, extraKind: 'C100' },
-      { x: 1664, y: 268, opened: false, extraX: 1680, extraY: 340, extraKind: 'C50' },
-    ]
+    this.safes = MANSION_SAFES.map((s) => ({
+      x: s.x,
+      y: s.y,
+      opened: false,
+      extraX: s.extraX,
+      extraY: s.extraY,
+      extraKind: s.extraKind,
+      reward: s.reward,
+    }))
     this.safePos.set(this.safes[0].x, this.safes[0].y)
     for (const s of this.safes) this.buildSafe(s.x, s.y)
 
-    this.placeExit(1600, 430)
-    this.lobbyLabel = this.add
-      .text(120, 1210, heistT('heistRoomGarden'), {
-        fontFamily: 'Unbounded, sans-serif',
-        fontSize: '10px',
-        color: '#b49a62',
-      })
-      .setOrigin(0.5)
-      .setDepth(4)
-    this.vaultLabel = this.add
-      .text(1580, 70, heistT('heistRoomMaster'), {
-        fontFamily: 'Unbounded, sans-serif',
-        fontSize: '12px',
-        color: '#b49a62',
-      })
-      .setOrigin(0.5)
-      .setDepth(4)
-    this.add
-      .text(860, 640, heistT('heistRoomHall'), {
-        fontFamily: 'Unbounded, sans-serif',
-        fontSize: '11px',
-        color: '#b49a62',
-      })
-      .setOrigin(0.5)
-      .setDepth(4)
+    this.placeExit(MANSION_EXIT.x, MANSION_EXIT.y)
+    for (const lab of MANSION_LABELS) {
+      this.add
+        .text(lab.x, lab.y, heistT(lab.key), {
+          fontFamily: 'Unbounded, sans-serif',
+          fontSize: '10px',
+          color: '#b49a62',
+        })
+        .setOrigin(0.5)
+        .setDepth(4)
+    }
 
-    this.spawnDuckAt(120, 1165)
+    this.spawnDuckAt(MANSION_SPAWN.x, MANSION_SPAWN.y)
 
     const guardKey = this.tryCreateGuardAnims() ? 'guard_sheet' : 'guard'
-    const routeA = [
-      new Phaser.Math.Vector2(480, 700),
-      new Phaser.Math.Vector2(860, 560),
-      new Phaser.Math.Vector2(1220, 700),
-      new Phaser.Math.Vector2(860, 820),
-    ]
-    const routeB = [
-      new Phaser.Math.Vector2(180, 220),
-      new Phaser.Math.Vector2(700, 200),
-      new Phaser.Math.Vector2(1540, 220),
-      new Phaser.Math.Vector2(900, 300),
-    ]
-    const routeC = [
-      new Phaser.Math.Vector2(1520, 680),
-      new Phaser.Math.Vector2(1100, 680),
-      new Phaser.Math.Vector2(1520, 1060),
-      new Phaser.Math.Vector2(700, 1020),
-    ]
-    this.units = [
-      this.spawnGuard(routeA, 0, guardKey),
-      this.spawnGuard(routeB, 0, guardKey),
-      this.spawnGuard(routeC, 0, guardKey),
-    ]
+    this.units = MANSION_GUARD_ROUTES.map((route) =>
+      this.spawnGuard(
+        route.map((p) => new Phaser.Math.Vector2(p.x, p.y)),
+        0,
+        guardKey,
+      ),
+    )
 
-    this.cams = [
-      this.makeCam(860, 372, Math.PI / 2, 0.7, 0.5),
-      this.makeCam(1468, 500, Math.PI, 0.75, 0.42),
-      this.makeCam(1500, 80, Math.PI / 2, 0.65, 0.55),
-    ]
+    this.cams = MANSION_CAMS.map((c) => this.makeCam(c.x, c.y, c.base, c.sweep, c.speed))
 
     this.lootGroup = this.physics.add.group()
-    const slots: [number, number, LootKind][] = [
-      [280, 1140, 'C10'],
-      [400, 1100, 'C10'],
-      [560, 1160, 'C10'],
-      [320, 1020, 'C50'],
-      [500, 680, 'C50'],
-      [1000, 640, 'C50'],
-      [880, 800, 'C100'],
-      [200, 200, 'C100'],
-      [900, 160, 'C100'],
-      [1600, 120, 'C100'],
-    ]
-    slots.forEach(([sx, sy, kind], i) => {
-      this.spawnLoot(Phaser.Math.Clamp(jitter(sx, 12), 70, W - 70), Phaser.Math.Clamp(jitter(sy, 10), 70, H - 70), kind, i)
-    })
+    MANSION_LOOT.forEach((slot, i) => this.spawnLoot(slot.x, slot.y, slot.kind, i))
 
     this.physics.add.collider(this.player, this.walls)
     for (const u of this.units) this.physics.add.collider(u.sprite, this.walls)
@@ -1375,7 +1346,23 @@ export class HeistScene extends Phaser.Scene {
   }
 
   private nearSafe() {
-    return this.nearestUnopenedSafe() != null
+    return this.nearestUnopenedSafe() != null || this.nearestLockedDoor() != null
+  }
+
+  private nearestLockedDoor() {
+    let best: LockedDoor | null = null
+    let bestD = DOOR_RANGE
+    for (const d of this.doors) {
+      if (d.opened) continue
+      const qx = Phaser.Math.Clamp(this.player.x, d.x, d.x + d.w)
+      const qy = Phaser.Math.Clamp(this.player.y, d.y, d.y + d.h)
+      const dist = Phaser.Math.Distance.Between(this.player.x, this.player.y, qx, qy)
+      if (dist <= bestD) {
+        bestD = dist
+        best = d
+      }
+    }
+    return best
   }
 
   private nearestUnopenedSafe() {
@@ -1409,20 +1396,30 @@ export class HeistScene extends Phaser.Scene {
     if (!this.safePrompt || !this.openLabel) return
     const btn = this.btnOpen()
     this.openLabel.setPosition(btn.x, btn.y)
+    const door = this.nearestLockedDoor()
     const near = this.nearestSafe()
     if (near) this.safePrompt.setPosition(near.x, near.y + 62)
+    if (this.safeCrack) {
+      this.safePrompt.setText('')
+      this.openLabel.setText(heistT('heistHit'))
+      this.openLabel.setVisible(true)
+      return
+    }
+    if (door) {
+      this.safePrompt.setPosition(door.x + door.w / 2, door.y + door.h / 2 + 36)
+      this.safePrompt.setText(heistT('heistDoorCrackTitle'))
+      this.safePrompt.setColor('#ffe08a')
+      this.openLabel.setText(heistT('heistLockpick'))
+      this.openLabel.setVisible(true)
+      if (this.openHeld || this.winKeys.e || this.keys.e.isDown) this.tryOpenSafe()
+      return
+    }
     const unopened = this.nearestUnopenedSafe()
     if (unopened == null && near && near.opened) {
       this.safePrompt.setText(heistT('heistSafeOpenedTitle'))
       this.safePrompt.setColor('#b6e3b0')
       this.openLabel.setVisible(false)
       this.hitHeld = false
-      return
-    }
-    if (this.safeCrack) {
-      this.safePrompt.setText('')
-      this.openLabel.setText(heistT('heistHit'))
-      this.openLabel.setVisible(true)
       return
     }
     const show = unopened != null
@@ -1435,8 +1432,24 @@ export class HeistScene extends Phaser.Scene {
 
   private tryOpenSafe() {
     if (this.ended || this.paused || this.safeCrack) return
+    const door = this.nearestLockedDoor()
+    if (door) {
+      this.crackKind = 'door'
+      this.crackDoor = door
+      this.safeCrack = true
+      heistSfx.safeStart()
+      this.safeHits = 0
+      this.safeMarker = 0.08
+      this.safeDir = 1
+      this.safeHitLock = 0
+      this.openHeld = false
+      this.releaseTouches()
+      return
+    }
     const target = this.nearestUnopenedSafe()
     if (!target) return
+    this.crackKind = 'safe'
+    this.crackDoor = null
     this.crackI = this.safes.indexOf(target)
     this.safePos.set(target.x, target.y)
     this.safeCrack = true
@@ -1474,11 +1487,32 @@ export class HeistScene extends Phaser.Scene {
     if (Math.abs(this.safeMarker - zone.center) <= zone.width / 2) {
       this.safeHits += 1
       heistSfx.safeClick()
-      if (this.safeHits >= SAFE_HITS) this.openSafeReward()
+      if (this.safeHits >= (this.crackKind === 'door' ? DOOR_HITS : SAFE_HITS)) {
+        if (this.crackKind === 'door') this.openDoorReward()
+        else this.openSafeReward()
+      }
     } else {
       this.alert = Math.min(1, this.alert + SAFE_MISS_ALERT)
       heistSfx.safeFail()
     }
+  }
+
+  private openDoorReward() {
+    this.safeCrack = false
+    heistSfx.safeUnlock()
+    const door = this.crackDoor
+    this.crackDoor = null
+    this.hitHeld = false
+    this.doorOpenedAt = this.gameNow()
+    if (!door || door.opened) return
+    door.opened = true
+    door.body.setAlpha(0.12)
+    const body = door.body.body as Phaser.Physics.Arcade.StaticBody | null
+    if (body) body.enable = false
+    this.walls.remove(door.body)
+    this.wallRects = this.wallRects.filter((r) => !(r.x === door.x && r.y === door.y && r.w === door.w && r.h === door.h))
+    this.rebuildNav()
+    this.fx?.explode(12, door.x + door.w / 2, door.y + door.h / 2)
   }
 
   private openSafeReward() {
@@ -1489,7 +1523,7 @@ export class HeistScene extends Phaser.Scene {
     this.safeOpened = true
     this.safeOpenedAt = this.gameNow()
     const room = Math.max(0, this.mods.bagCap - this.currentLoot)
-    const gained = Math.min(SAFE_REWARD, room)
+    const gained = Math.min(spot?.reward ?? SAFE_REWARD, room)
     this.hitHeld = false
     this.currentLoot += gained
     if (gained > 0) this.floatGain(gained)
@@ -1497,7 +1531,7 @@ export class HeistScene extends Phaser.Scene {
     const sx = spot?.x ?? this.safePos.x
     const sy = spot?.y ?? this.safePos.y
     this.fx?.explode(18, sx, sy)
-    this.spawnLoot(spot?.extraX ?? 1280, spot?.extraY ?? 250, spot?.extraKind ?? 'C50', 20 + this.crackI)
+    if (spot?.extraKind) this.spawnLoot(spot.extraX, spot.extraY, spot.extraKind, 20 + this.crackI)
   }
 
   private spawnLoot(x: number, y: number, kind: LootKind, seed: number) {
@@ -2303,22 +2337,30 @@ export class HeistScene extends Phaser.Scene {
     )
     this.drawObjectives(now - this.startedAt)
     this.exitLabel?.setText(heistT('heistExit'))
-    this.lobbyLabel?.setText(heistT('heistRoomLobby'))
-    this.vaultLabel?.setText(heistT('heistRoomVault'))
+    if (this.levelId !== 'mansion') {
+      this.lobbyLabel?.setText(heistT('heistRoomLobby'))
+      this.vaultLabel?.setText(heistT('heistRoomVault'))
+    }
     this.safeTitle?.setText(heistT('heistSafeName'))
     this.sneakLabel?.setText(heistT('heistSneak'))
     this.dashLabel?.setText(heistT('heistDash'))
     if (this.safeCrack) {
       this.crackHud.setVisible(true)
-      this.crackHud.setText(
-        `${heistT('heistCrackTitle')}\n${heistT('heistRound', { n: Math.min(this.safeHits + 1, SAFE_HITS), total: SAFE_HITS })}`,
-      )
+      const hits = this.crackKind === 'door' ? DOOR_HITS : SAFE_HITS
+      const title = this.crackKind === 'door' ? heistT('heistDoorCrackTitle') : heistT('heistCrackTitle')
+      this.crackHud.setText(`${title}\n${heistT('heistRound', { n: Math.min(this.safeHits + 1, hits), total: hits })}`)
       this.crackHint.setVisible(true)
       this.crackHint.setText(heistT('heistHitHint'))
     } else if (this.safeOpened && now - this.safeOpenedAt < 1800) {
       this.crackHud.setVisible(true)
       this.crackHud.setPosition(this.camW() / 2, 46)
-      this.crackHud.setText(`${heistT('heistSafeOpenedTitle')}\n${heistT('heistSafeReward', { n: SAFE_REWARD })}`)
+      const reward = this.safes[this.crackI]?.reward ?? SAFE_REWARD
+      this.crackHud.setText(`${heistT('heistSafeOpenedTitle')}\n${heistT('heistSafeReward', { n: reward })}`)
+      this.crackHint.setVisible(false)
+    } else if (this.doorOpenedAt > 0 && now - this.doorOpenedAt < 1400) {
+      this.crackHud.setVisible(true)
+      this.crackHud.setPosition(this.camW() / 2, 46)
+      this.crackHud.setText(heistT('heistDoorOpened'))
       this.crackHint.setVisible(false)
     } else {
       this.crackHud.setVisible(false)

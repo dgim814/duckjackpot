@@ -1,17 +1,18 @@
 import type Phaser from 'phaser'
 
-export type DuckCoinKind = 'C10' | 'C50' | 'C100'
+export type DuckCoinKind = 'C5' | 'C10' | 'C50' | 'C100'
 
 export type DuckCoinDef = {
   kind: DuckCoinKind
-  value: 10 | 50 | 100
+  value: 5 | 10 | 50 | 100
   /** Phaser texture key. Load a real sprite with this same key to replace the placeholder. */
   key: string
   size: number
-  file: string
+  file?: string
 }
 
 export const DUCK_COIN_DEFS: DuckCoinDef[] = [
+  { kind: 'C5', value: 5, key: 'dc_5', size: 36 },
   { kind: 'C10', value: 10, key: 'dc_10', size: 44, file: '/heist/coin_10.png' },
   { kind: 'C50', value: 50, key: 'dc_50', size: 56, file: '/heist/coin_50.png' },
   { kind: 'C100', value: 100, key: 'dc_100', size: 68, file: '/heist/coin_100.png' },
@@ -25,7 +26,7 @@ export function coinDef(kind: DuckCoinKind) {
 
 export function loadDuckCoinImages(scene: Phaser.Scene) {
   for (const def of DUCK_COIN_DEFS) {
-    scene.load.image(def.key, def.file)
+    if (def.file) scene.load.image(def.key, def.file)
   }
 }
 
