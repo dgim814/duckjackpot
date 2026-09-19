@@ -2220,9 +2220,15 @@ export class HeistScene extends Phaser.Scene {
     u.path = []
     u.repathAt = 0
     u.stuckTries = 0
-    if (s === 'CHASE' && prev !== 'CHASE') heistSfx.chaseStart()
-    else if (prev === 'CHASE' && s !== 'CHASE' && !this.anyChase()) heistSfx.chaseStop()
-    else if (s === 'INVESTIGATE' && (prev === 'PATROL' || prev === 'RETURN')) heistSfx.investigateStart()
+    if (s === 'CHASE' && prev !== 'CHASE') {
+      heistSfx.chaseStart()
+      this.updateRaidPhase()
+    } else if (prev === 'CHASE' && s !== 'CHASE' && !this.anyChase()) {
+      heistSfx.chaseStop()
+      this.updateRaidPhase()
+    } else if (s === 'INVESTIGATE' && (prev === 'PATROL' || prev === 'RETURN')) {
+      heistSfx.investigateStart()
+    }
     if (s === 'SEARCH') {
       u.searchT = 5.2
       u.searchI = 0
@@ -2580,7 +2586,7 @@ export class HeistScene extends Phaser.Scene {
 
   private phaseOf(): RaidPhase {
     const a = Math.round(this.alert * 100)
-    if (this.anyChase() || a >= 100) return 'CHASE'
+    if (this.anyChase()) return 'CHASE'
     if (a >= this.cfg.alert.bandDanger * 100) return 'DANGER'
     if (a >= this.cfg.alert.bandSuspicious * 100) return 'SUSPICIOUS'
     return 'SAFE'
@@ -2631,8 +2637,10 @@ export class HeistScene extends Phaser.Scene {
       this.phaseHud.setVisible(false)
       return
     }
-    const tint = PHASE_TINT[this.raidPhase]
-    const pulse = this.raidPhase === 'CHASE' ? 1 + Math.sin(now / 140) * 0.25 : 1
+    const chasing = this.anyChase()
+    const visual: RaidPhase = chasing ? 'CHASE' : this.raidPhase === 'CHASE' ? 'DANGER' : this.raidPhase
+    const tint = PHASE_TINT[visual]
+    const pulse = chasing ? 1 + Math.sin(now / 140) * 0.25 : 1
     this.phaseTint.setVisible(tint.alpha > 0)
     this.phaseTint.setPosition(this.camW() / 2, this.camH() / 2)
     this.phaseTint.setDisplaySize(this.camW(), this.camH())
@@ -2807,8 +2815,9 @@ export class HeistScene extends Phaser.Scene {
     }
 
     this.drawPhaseFx(now)
-    const band = heistT(PHASE_LABEL[this.raidPhase])
-    const color = PHASE_COLOR[this.raidPhase]
+    const hudPhase: RaidPhase = this.anyChase() ? 'CHASE' : this.raidPhase === 'CHASE' ? 'DANGER' : this.raidPhase
+    const band = heistT(PHASE_LABEL[hudPhase])
+    const color = PHASE_COLOR[hudPhase]
     const full = this.currentLoot >= this.mods.bagCap || this.gameNow() < this.bagFullFlash
     this.hud.setColor(full ? '#ffb070' : '#ffe08a')
     const escape = this.escaping ? `   ${heistT('heistEscape')}` : ''

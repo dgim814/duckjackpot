@@ -8,7 +8,7 @@ export type HeistSfxMood = {
   ended: boolean
 }
 
-const CHASE_FADE = 1.0
+const CHASE_FADE = 0.08
 const CHASE_FADE_IN = 0.8
 const CHASE_VOL = 0.4
 const TENSION_CAM = 0.22
@@ -323,6 +323,32 @@ function stopTension(seconds: number) {
   }
 }
 
+function killChaseSource() {
+  const src = chaseSrc
+  chaseSrc = null
+  chaseOn = false
+  if (!src) return
+  src.onended = null
+  try {
+    src.stop()
+  } catch {
+    /* already stopped */
+  }
+  try {
+    src.disconnect()
+  } catch {
+    /* already disconnected */
+  }
+}
+
+function muteChaseGain() {
+  if (!chaseGain || !ctx) return
+  const t = ctx.currentTime
+  chaseGain.gain.cancelScheduledValues(t)
+  chaseGain.gain.setValueAtTime(0, t)
+}
+
+/** One looping chase clip at a time; a new CHASE always starts from the beginning. */
 function startChaseNow() {
   const ac = audio()
   if (!ac || !chaseGain) return
@@ -334,12 +360,11 @@ function startChaseNow() {
   }
   muteTension(0.08)
   stopTension(0.12)
-  if (chaseOn && chaseSrc) {
+  if (chaseOn && chaseSrc && !chaseDucked) {
     chaseWanted = true
-    chaseDucked = false
     return
   }
-  stopChaseSource(0.02)
+  killChaseSource()
   const src = ac.createBufferSource()
   src.buffer = buf
   src.loop = true
@@ -348,29 +373,25 @@ function startChaseNow() {
   chaseGain.gain.cancelScheduledValues(t)
   chaseGain.gain.setValueAtTime(0.0001, t)
   chaseGain.gain.linearRampToValueAtTime(CHASE_VOL, t + CHASE_FADE_IN)
-  src.start()
+  src.start(0)
   chaseSrc = src
   chaseOn = true
   chaseWanted = true
   chaseDucked = false
   src.onended = () => {
-    if (chaseSrc === src) chaseSrc = null
+    if (chaseSrc === src) {
+      chaseSrc = null
+      chaseOn = false
+    }
   }
 }
 
-function stopChaseSource(fade: number) {
-  const ac = ctx
-  const src = chaseSrc
-  chaseSrc = null
-  chaseOn = false
-  if (!ac || !chaseGain) return
-  ramp(chaseGain, 0, fade)
-  if (!src) return
-  try {
-    src.stop(ac.currentTime + fade + 0.06)
-  } catch {
-    /* already stopped */
-  }
+function stopChaseSource(_fade = CHASE_FADE) {
+  chaseWanted = false
+  chasePreview = false
+  chaseDucked = false
+  killChaseSource()
+  muteChaseGain()
 }
 
 export function haltHeistSfx() {
@@ -467,16 +488,15 @@ export const heistSfx = {
   },
 
   chaseStart() {
+    chaseWanted = true
+    chasePreview = false
     const ac = audio()
     if (!ac) return
-    chaseWanted = true
     startChaseNow()
   },
 
   chaseStop() {
-    chaseWanted = false
-    chasePreview = false
-    stopChaseSource(CHASE_FADE)
+    stopChaseSource()
   },
 
   toggleChasePreview() {
@@ -637,9 +657,8 @@ export const heistSfx = {
         chaseDucked = false
         ramp(chaseGain, CHASE_VOL, CHASE_FADE_IN)
       }
-    } else if (chaseOn || chaseWanted) {
-      chaseWanted = false
-      stopChaseSource(CHASE_FADE)
+    } else if (chaseOn || chaseWanted || chaseSrc) {
+      stopChaseSource()
     }
 
     if (!mood.chasing) {
