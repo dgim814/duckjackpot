@@ -4,6 +4,7 @@ import type { MessageKey } from '../../i18n/messages'
 export const RARITY_BANDS = {
   COMMON: { min: 10, max: 100 },
   UNCOMMON: { min: 100, max: 500 },
+  LUX: { min: 10, max: 500 },
   RARE: { min: 500, max: 2000 },
   EPIC: { min: 2000, max: 10000 },
   LEGENDARY: { min: 10000, max: 100000 },
@@ -22,7 +23,7 @@ export const COLLECTION_RANKS: { nameKey: MessageKey; from: number }[] = [
 ]
 
 export const STOCK_RULES = {
-  always: ['COMMON', 'UNCOMMON'] as const,
+  always: ['COMMON', 'UNCOMMON', 'LUX'] as const,
   dailyRare: 3,
   dailyEpic: 2,
   dailyLegendary: 1,

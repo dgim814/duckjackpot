@@ -41,20 +41,36 @@ export function marketStock(now = Date.now()): CatalogItem[] {
     seen.add(item.id)
     out.push(item)
   }
-  out.sort((a, b) => a.purchasePrice - b.purchasePrice)
+  const rarityRank: Record<ItemRarity, number> = {
+    LUX: 0,
+    COMMON: 1,
+    UNCOMMON: 2,
+    RARE: 3,
+    EPIC: 4,
+    LEGENDARY: 5,
+    ICONIC: 6,
+  }
+  out.sort((a, b) => rarityRank[a.rarity] - rarityRank[b.rarity] || a.purchasePrice - b.purchasePrice)
+  const pin = out.findIndex((item) => item.id === 'art_sketch')
+  if (pin > 0) {
+    const [hero] = out.splice(pin, 1)
+    out.unshift(hero)
+  }
   return out
 }
 
 export function featuredLot(now = Date.now()) {
-  const stock = marketStock(now).filter((item) => item.rarity !== 'COMMON')
-  if (stock.length === 0) return marketStock(now)[0] ?? null
-  const day = dayKey(now)
-  return stock[day % stock.length] ?? null
+  const stock = marketStock(now)
+  return stock.find((item) => item.id === 'art_sketch') ?? stock.find((item) => item.rarity !== 'COMMON') ?? stock[0] ?? null
 }
 
-export function stockByCategory(category: ItemCategory | 'ALL', now = Date.now()) {
+export type MarketFilter = ItemCategory | 'ALL' | 'RARE'
+
+export function stockByCategory(category: MarketFilter, now = Date.now()) {
   const stock = marketStock(now)
   if (category === 'ALL') return stock
+  if (category === 'RARE') return stock.filter((item) => item.rarity === 'RARE')
+  if (category === 'LUXURY') return stock.filter((item) => item.category === 'LUXURY' || item.rarity === 'LUX')
   return stock.filter((item) => item.category === category)
 }
 

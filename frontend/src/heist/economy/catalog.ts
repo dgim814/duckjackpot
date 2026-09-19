@@ -1,9 +1,9 @@
 /** Black Market catalog. DUCK COIN buys lots. Stars stay on character upgrades.
- *  Names are original luxury pieces — no licensed art or trademarks. */
+ *  Famous-painting lots are in-game collectibles, not real-world sales. */
 
 import { COLLECTION_MARKUP } from './config'
 
-export type ItemRarity = 'COMMON' | 'UNCOMMON' | 'RARE' | 'EPIC' | 'LEGENDARY' | 'ICONIC'
+export type ItemRarity = 'COMMON' | 'UNCOMMON' | 'LUX' | 'RARE' | 'EPIC' | 'LEGENDARY' | 'ICONIC'
 export type ItemCategory = 'ART' | 'LUXURY' | 'INTERIOR' | 'CARS' | 'SPECIAL'
 
 export const MARKET_CATEGORIES: ItemCategory[] = ['ART', 'LUXURY', 'INTERIOR', 'CARS', 'SPECIAL']
@@ -18,6 +18,9 @@ export type CatalogItem = {
   collectionValue: number
   tradable: boolean
   limited?: number
+  artist?: { ru: string; en: string }
+  /** Local public asset for lot preview. Optional — most lots still use LotArt marks. */
+  image?: string
   /** Same as purchasePrice. Kept so older call sites keep compiling. */
   duckCoinValue: number
 }
@@ -42,12 +45,41 @@ function lot(draft: LotDraft): CatalogItem {
 export const CATALOG: readonly CatalogItem[] = [
   lot({
     id: 'art_sketch',
-    name: { ru: 'Набросок янтаря', en: 'Amber sketch' },
-    blurb: { ru: 'Первый холст после BANK. Уже можно купить.', en: 'The first canvas after BANK. Buyable now.' },
-    rarity: 'COMMON',
+    name: { ru: 'Ренуар — Бал в Мулен де ла Галетт', en: 'Renoir — Bal du moulin de la Galette' },
+    artist: { ru: 'Пьер-Огюст Ренуар', en: 'Pierre-Auguste Renoir' },
+    blurb: { ru: 'Коллекционный арт-лот закрытого рынка. Не продажа настоящей картины.', en: 'An in-game art lot for the closed market. Not a real painting sale.' },
+    rarity: 'LUX',
     category: 'ART',
     purchasePrice: 40,
     collectionValue: 48,
+    image: '/heist/lots/renoir-galette.png',
+  }),
+  lot({
+    id: 'art_velvet',
+    name: { ru: 'Ночной бархат', en: 'Night velvet' },
+    blurb: { ru: 'Тёмный салонный холст для закрытой стены.', en: 'A dark salon canvas for a private wall.' },
+    rarity: 'LUX',
+    category: 'ART',
+    purchasePrice: 96,
+    collectionValue: 118,
+  }),
+  lot({
+    id: 'lux_lighter',
+    name: { ru: 'Зажигалка «Салон»', en: 'Salon lighter' },
+    blurb: { ru: 'Латунь и чёрный лак. Тихий luxury-лот.', en: 'Brass and black lacquer. A quiet luxury lot.' },
+    rarity: 'LUX',
+    category: 'LUXURY',
+    purchasePrice: 64,
+    collectionValue: 76,
+  }),
+  lot({
+    id: 'rare_cameo',
+    name: { ru: 'Камея «Полночь»', en: 'Midnight cameo' },
+    blurb: { ru: 'Редкий резной профиль. Не каждый день на столе.', en: 'A rare carved profile. Not on the table every day.' },
+    rarity: 'RARE',
+    category: 'LUXURY',
+    purchasePrice: 720,
+    collectionValue: 860,
   }),
   lot({
     id: 'interior_cup',
