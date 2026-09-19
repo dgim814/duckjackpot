@@ -7,6 +7,8 @@ import { applyCoinSpriteSize, coinDef, ensureCoinPlaceholders, loadDuckCoinImage
 import { heistT } from '../heistI18n'
 import { heistSfx, unlockHeistSfx } from '../heistSfx'
 import { buildNavGrid, cellCenter, findPath, findPathAroundStuck, nearestWalkable, type NavGrid } from '../guardPath'
+import { debugTuningVersion, exposeDebugTuning, resolveTuning } from '../debugConfig'
+import type { HeistTuning } from '../tuning'
 import {
   MANSION_CAMS,
   MANSION_DOORS,
@@ -20,6 +22,7 @@ import {
   MANSION_LAMPS,
   MANSION_LOOT,
   MANSION_SAFES,
+  MANSION_SIREN,
   MANSION_SPAWN,
   MANSION_W,
   MANSION_WALLS,
@@ -28,16 +31,9 @@ import {
 const W = 1760
 const H = 1280
 const NOISE = { sneak: 10, run: 35, dash: 80 } as const
-const SPEED = { sneak: 70, run: 140, dash: 320 } as const
-const DASH_MS = 200
-const DASH_CD = 1100
 const PICKUP_R = 42
 const EXIT_HOLD = 0.62
 const BTN_R = 52
-const GUARD_VISION = 255
-const GUARD_FOV = Phaser.Math.DegToRad(54)
-const CAM_VISION = 210
-const CAM_FOV = Phaser.Math.DegToRad(46)
 const DEBUG = import.meta.env.DEV
 
 type GuardState = 'PATROL' | 'INVESTIGATE' | 'CHASE' | 'SEARCH' | 'RETURN'
@@ -61,8 +57,34 @@ type GuardUnit = {
 }
 type MoveAnim = 'idle' | 'walk' | 'run' | 'sneak' | 'dash'
 type LootKind = DuckCoinKind
+type CarriedLoot = { kind: LootKind; value: number; weight: number }
+type RaidPhase = 'SAFE' | 'SUSPICIOUS' | 'DANGER' | 'CHASE'
+const PHASE_RANK: Record<RaidPhase, number> = { SAFE: 0, SUSPICIOUS: 1, DANGER: 2, CHASE: 3 }
+const PHASE_KEY: Record<RaidPhase, 'safe' | 'suspicious' | 'danger' | 'chase'> = {
+  SAFE: 'safe',
+  SUSPICIOUS: 'suspicious',
+  DANGER: 'danger',
+  CHASE: 'chase',
+}
+const PHASE_LABEL: Record<RaidPhase, 'heistHudSafe' | 'heistHudSuspicious' | 'heistHudDanger' | 'heistHudChase'> = {
+  SAFE: 'heistHudSafe',
+  SUSPICIOUS: 'heistHudSuspicious',
+  DANGER: 'heistHudDanger',
+  CHASE: 'heistHudChase',
+}
+const PHASE_COLOR: Record<RaidPhase, string> = {
+  SAFE: '#b6e3b0',
+  SUSPICIOUS: '#ffe08a',
+  DANGER: '#ff8a6a',
+  CHASE: '#ff8a6a',
+}
+const PHASE_TINT: Record<RaidPhase, { color: number; alpha: number }> = {
+  SAFE: { color: 0x000000, alpha: 0 },
+  SUSPICIOUS: { color: 0xc9a227, alpha: 0.05 },
+  DANGER: { color: 0xc4432a, alpha: 0.1 },
+  CHASE: { color: 0xc4432a, alpha: 0.16 },
+}
 const SAFE_RANGE = 86
-const SAFE_MISS_ALERT = 0.2
 const SAFE_HITS = 5
 const DOOR_RANGE = 78
 const DOOR_HITS = 2
@@ -172,6 +194,7 @@ export class HeistScene extends Phaser.Scene {
     shift: false,
     space: false,
     e: false,
+    q: false,
   }
   private onWinKey = (e: KeyboardEvent, down: boolean) => {
     if (e.code === 'KeyC') {
@@ -207,6 +230,7 @@ export class HeistScene extends Phaser.Scene {
       ShiftRight: 'shift',
       Space: 'space',
       KeyE: 'e',
+      KeyQ: 'q',
     }
     const slot = map[e.code]
     if (!slot) return
@@ -216,6 +240,7 @@ export class HeistScene extends Phaser.Scene {
       this.trySafeHit()
       return
     }
+    if (slot === 'q' && down) this.tryDropLoot()
     if (slot === 'e' && down) this.tryOpenSafe()
     if (slot === 'space' && down && !this.safeCrack) this.tryDash()
   }
@@ -265,6 +290,21 @@ export class HeistScene extends Phaser.Scene {
   private safeTitle!: Phaser.GameObjects.Text
   private safeOpenedAt = 0
   private hitHeld = false
+  private carried: CarriedLoot[] = []
+  private dropReadyAt = 0
+  private dropLabel!: Phaser.GameObjects.Text
+  private raidPhase: RaidPhase = 'SAFE'
+  private phaseChangedAt = -9999
+  private phaseRising = false
+  private quietT = 0
+  private camClock = 0
+  private phaseHud!: Phaser.GameObjects.Text
+  private phaseTint!: Phaser.GameObjects.Rectangle
+  private sirenOn = false
+  private escapeUntil = 0
+  private hitStopUntil = 0
+  private routeNoticeAt = -9999
+  private sirenPanels: { x: number; y: number; w: number; h: number; opened: boolean; body: Phaser.GameObjects.Rectangle }[] = []
 
   private keys!: {
     w: { isDown: boolean }
@@ -278,18 +318,40 @@ export class HeistScene extends Phaser.Scene {
     shift: { isDown: boolean }
     space: Phaser.Input.Keyboard.Key | { isDown: boolean }
     e: Phaser.Input.Keyboard.Key | { isDown: boolean }
+    q: Phaser.Input.Keyboard.Key | { isDown: boolean }
   }
 
   private nav!: NavGrid
+  private cfg: HeistTuning
+  private cfgV = -1
 
   constructor(onDone: (end: HeistEnd) => void, mods: HeistRunMods, levelId: HeistLevelId = 'bank') {
     super('HeistScene')
     this.onDone = onDone
     this.mods = mods
     this.levelId = levelId
+    this.cfg = resolveTuning(levelId)
+    this.cfgV = debugTuningVersion()
     const obj = heistLevelObjectives(levelId)
     this.objLoot = obj.loot
     this.objTimeS = obj.timeS
+  }
+
+  private refreshTuning() {
+    this.cfg = resolveTuning(this.levelId)
+    this.cfgV = debugTuningVersion()
+  }
+
+  private guardFov() {
+    return Phaser.Math.DegToRad(this.cfg.vision.guardFovDeg)
+  }
+
+  private camFov() {
+    return Phaser.Math.DegToRad(this.cfg.vision.camFovDeg)
+  }
+
+  private limitCount<T>(items: readonly T[], max: number | null) {
+    return max === null ? items : items.slice(0, Math.max(0, max))
   }
 
   preload() {
@@ -402,7 +464,7 @@ export class HeistScene extends Phaser.Scene {
 
   private makeCamBeamTexture() {
     const distPx = 256
-    const half = distPx * Math.tan(CAM_FOV / 2)
+    const half = distPx * Math.tan(this.camFov() / 2)
     const w = distPx
     const h = Math.ceil(half * 2)
     const c = document.createElement('canvas')
@@ -717,7 +779,7 @@ export class HeistScene extends Phaser.Scene {
     this.player.setDepth(12)
     this.player.setCollideWorldBounds(true)
     const pb = this.player.body as Phaser.Physics.Arcade.Body
-    pb.setMaxVelocity(SPEED.run, SPEED.run)
+    pb.setMaxVelocity(this.cfg.player.run, this.cfg.player.run)
     pb.setDamping(true)
     pb.setDrag(0.0008, 0.0008)
     this.setMoveAnim('idle')
@@ -827,6 +889,21 @@ export class HeistScene extends Phaser.Scene {
       .text(10, 52, '', { fontFamily: 'Unbounded, sans-serif', fontSize: '9px', color: '#d8c49a', lineSpacing: 2 })
       .setScrollFactor(0)
       .setDepth(21)
+    this.phaseTint = this.add
+      .rectangle(this.camW() / 2, this.camH() / 2, this.camW(), this.camH(), 0xc4432a, 0)
+      .setScrollFactor(0)
+      .setDepth(19)
+      .setVisible(false)
+    this.phaseHud = this.add
+      .text(this.camW() / 2, 78, '', {
+        fontFamily: 'Unbounded, sans-serif',
+        fontSize: '15px',
+        color: '#ffe08a',
+      })
+      .setOrigin(0.5)
+      .setScrollFactor(0)
+      .setDepth(23)
+      .setVisible(false)
     this.crackHud = this.add
       .text(0, 36, '', {
         fontFamily: 'Unbounded, sans-serif',
@@ -898,9 +975,10 @@ export class HeistScene extends Phaser.Scene {
         shift: kb.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT),
         space: kb.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE),
         e: kb.addKey(Phaser.Input.Keyboard.KeyCodes.E),
+        q: kb.addKey(Phaser.Input.Keyboard.KeyCodes.Q),
       }
     } else {
-      this.keys = { w: off, a: off, s: off, d: off, up: off, left: off, down: off, right: off, shift: off, space: off, e: off }
+      this.keys = { w: off, a: off, s: off, d: off, up: off, left: off, down: off, right: off, shift: off, space: off, e: off, q: off }
     }
 
     this.sneakLabel = this.add
@@ -931,6 +1009,16 @@ export class HeistScene extends Phaser.Scene {
       .setScrollFactor(0)
       .setDepth(22)
       .setVisible(false)
+    this.dropLabel = this.add
+      .text(this.camW() - 62, this.camH() - 318, heistT('heistDrop'), {
+        fontFamily: 'Unbounded, sans-serif',
+        fontSize: '9px',
+        color: '#ffb070',
+      })
+      .setOrigin(0.5)
+      .setScrollFactor(0)
+      .setDepth(22)
+      .setVisible(false)
 
     this.startedAt = this.time.now
     this.game.canvas.setAttribute('tabindex', '0')
@@ -950,6 +1038,7 @@ export class HeistScene extends Phaser.Scene {
     })
     if (DEBUG) {
       ;(window as Window & { __heist?: HeistScene }).__heist = this
+      exposeDebugTuning(this.levelId)
     }
   }
 
@@ -968,7 +1057,7 @@ export class HeistScene extends Phaser.Scene {
     this.player.setDepth(12)
     this.player.setCollideWorldBounds(true)
     const pb = this.player.body as Phaser.Physics.Arcade.Body
-    pb.setMaxVelocity(SPEED.run, SPEED.run)
+    pb.setMaxVelocity(this.cfg.player.run, this.cfg.player.run)
     pb.setDamping(true)
     pb.setDrag(0.0008, 0.0008)
     this.setMoveAnim('idle')
@@ -1049,6 +1138,12 @@ export class HeistScene extends Phaser.Scene {
     this.addSolid(0, 0, T, this.mapH, 'wall')
     this.addSolid(this.mapW - T, 0, T, this.mapH, 'wall')
     for (const w of MANSION_WALLS) this.addSolid(w.x, w.y, w.w, w.h, 'wall')
+    // Service panels: solid walls until the siren blows them open.
+    this.sirenPanels = MANSION_SIREN.openWalls.map((r) => {
+      const body = this.addSolid(r.x, r.y, r.w, r.h, 'wall')
+      body.setFillStyle(0x2a1c14)
+      return { ...r, opened: false, body }
+    })
     this.doors = MANSION_DOORS.map((d) => this.addLockedDoor(d))
     for (const f of MANSION_FURNITURE) this.addSolid(f.x, f.y, f.w, f.h, f.kind)
     for (const h of MANSION_HIDES) this.addHide(h.x, h.y, h.w, h.h)
@@ -1092,7 +1187,8 @@ export class HeistScene extends Phaser.Scene {
     this.spawnDuckAt(MANSION_SPAWN.x, MANSION_SPAWN.y)
 
     const guardKey = this.tryCreateGuardAnims() ? 'guard_sheet' : 'guard'
-    this.units = MANSION_GUARD_ROUTES.map((route) =>
+    const routes = this.limitCount(MANSION_GUARD_ROUTES, this.cfg.counts.guards)
+    this.units = routes.map((route) =>
       this.spawnGuard(
         route.map((p) => new Phaser.Math.Vector2(p.x, p.y)),
         0,
@@ -1100,7 +1196,9 @@ export class HeistScene extends Phaser.Scene {
       ),
     )
 
-    this.cams = MANSION_CAMS.map((c) => this.makeCam(c.x, c.y, c.base, c.sweep, c.speed))
+    this.cams = this.limitCount(MANSION_CAMS, this.cfg.counts.cams).map((c) =>
+      this.makeCam(c.x, c.y, c.base, c.sweep, c.speed),
+    )
 
     this.lootGroup = this.physics.add.group()
     MANSION_LOOT.forEach((slot, i) => this.spawnLoot(slot.x, slot.y, slot.kind, i))
@@ -1134,10 +1232,10 @@ export class HeistScene extends Phaser.Scene {
   }
 
   private makeCam(x: number, y: number, base: number, sweep: number, speed: number): SecCam {
-    const beamH = 2 * CAM_VISION * Math.tan(CAM_FOV / 2)
+    const beamH = 2 * this.cfg.vision.camDist * Math.tan(this.camFov() / 2)
     const beam = this.add.image(x, y, 'cam_beam').setDepth(2)
     beam.setOrigin(0, 0.5)
-    beam.setDisplaySize(CAM_VISION, beamH)
+    beam.setDisplaySize(this.cfg.vision.camDist, beamH)
     beam.setRotation(base)
     beam.setAlpha(0.95)
     this.add.image(x, y, 'cam_mount').setDepth(8).setDisplaySize(18, 18)
@@ -1149,6 +1247,91 @@ export class HeistScene extends Phaser.Scene {
     return { x, y, facing: base, base, sweep, speed, sprite, beam, led, hot: false }
   }
 
+  private weightOn() {
+    return this.cfg.weight.enabled
+  }
+
+  private weightCap() {
+    const caps = this.cfg.weight.caps
+    if (caps.length === 0) return 0
+    return caps[Phaser.Math.Clamp(this.mods.bagLevel, 0, caps.length - 1)]
+  }
+
+  private carriedWeight() {
+    let sum = 0
+    for (const item of this.carried) sum += item.weight
+    return sum
+  }
+
+  private lootWeight(kind: LootKind) {
+    return this.cfg.weight.item[kind] ?? 1
+  }
+
+  /** 0 below the penalty threshold, 1 at full load; never grows past the cap. */
+  private weightOver() {
+    if (!this.weightOn()) return 0
+    const cap = this.weightCap()
+    if (cap <= 0) return 0
+    const load = Phaser.Math.Clamp(this.carriedWeight() / cap, 0, 1)
+    const start = Phaser.Math.Clamp(this.cfg.weight.penaltyStart, 0, 0.99)
+    return Phaser.Math.Clamp((load - start) / (1 - start), 0, 1)
+  }
+
+  private weightSpeedMul() {
+    return 1 - this.cfg.weight.maxSpeedPenalty * this.weightOver()
+  }
+
+  private weightNoiseMul() {
+    return 1 + this.cfg.weight.maxNoiseBonus * this.weightOver()
+  }
+
+  private canDrop() {
+    const w = this.cfg.weight
+    return w.enabled && w.dropEnabled && this.carried.length > 0 && !this.safeCrack
+  }
+
+  private dropSpot() {
+    const x = Phaser.Math.Clamp(this.player.x - this.facing.x * 36, 24, this.mapW - 24)
+    const y = Phaser.Math.Clamp(this.player.y - this.facing.y * 36, 24, this.mapH - 24)
+    const blocked = this.wallRects.some((w) => x > w.x && x < w.x + w.w && y > w.y && y < w.y + w.h)
+    return blocked ? { x: this.player.x, y: this.player.y } : { x, y }
+  }
+
+  private tryDropLoot() {
+    if (this.ended || this.paused || !this.canDrop()) return
+    const w = this.cfg.weight
+    const now = this.gameNow()
+    if (now < this.dropReadyAt) return
+    let idx = 0
+    for (let i = 1; i < this.carried.length; i += 1) {
+      if (this.carried[i].weight > this.carried[idx].weight) idx = i
+    }
+    const item = this.carried.splice(idx, 1)[0]
+    this.dropReadyAt = now + w.dropCooldownMs
+    this.currentLoot = Math.max(0, this.currentLoot - item.value)
+    const spot = this.dropSpot()
+    this.spawnLoot(spot.x, spot.y, item.kind, 40 + this.lootSpawn, {
+      value: item.value,
+      weight: item.weight,
+      lockMs: w.dropRepickupMs,
+    })
+    heistSfx.safeClick()
+    this.fx?.explode(6, spot.x, spot.y)
+    this.lureGuards(spot.x, spot.y)
+  }
+
+  /** Dropped loot is a noise source: nearby guards go and look at it. */
+  private lureGuards(x: number, y: number) {
+    const w = this.cfg.weight
+    for (const u of this.units) {
+      if (Phaser.Math.Distance.Between(u.sprite.x, u.sprite.y, x, y) > w.dropLureRadius) continue
+      if (u.state === 'CHASE' && (!w.dropDistractsChase || this.seesPlayer(u))) continue
+      u.lastSeen.set(x, y)
+      u.path = []
+      this.setG(u, 'INVESTIGATE')
+    }
+  }
+
   private takeLoot(item: Phaser.Physics.Arcade.Sprite) {
     if (!item.active || item.getData('collected')) return
     const room = this.mods.bagCap - this.currentLoot
@@ -1158,6 +1341,9 @@ export class HeistScene extends Phaser.Scene {
     item.setData('collected', true)
     item.disableBody(true, false)
     this.currentLoot += gained
+    const kind = (item.getData('kind') as LootKind) ?? 'C5'
+    const weight = Number(item.getData('weight') ?? this.lootWeight(kind))
+    if (gained > 0) this.carried.push({ kind, value: gained, weight })
     heistSfx.pickup()
     const now = this.gameNow()
     this.combo = now - this.lastPickup < 3800 ? this.combo + 1 : 1
@@ -1207,8 +1393,10 @@ export class HeistScene extends Phaser.Scene {
 
   private collectNearbyLoot() {
     const items = this.lootGroup.getChildren() as Phaser.Physics.Arcade.Sprite[]
+    const now = this.gameNow()
     for (const item of items) {
       if (!item.active || item.getData('collected')) continue
+      if (now < Number(item.getData('pickupAt') || 0)) continue
       if (Phaser.Math.Distance.Between(this.player.x, this.player.y, item.x, item.y) <= PICKUP_R) {
         this.takeLoot(item)
       }
@@ -1238,6 +1426,16 @@ export class HeistScene extends Phaser.Scene {
       return
     }
     const dt = Math.min(0.033, dtMs / 1000)
+    if (DEBUG && debugTuningVersion() !== this.cfgV) this.refreshTuning()
+    if (this.gameNow() < this.hitStopUntil) {
+      const frozen = this.player.body as Phaser.Physics.Arcade.Body
+      frozen.setVelocity(0, 0)
+      for (const u of this.units) (u.sprite.body as Phaser.Physics.Arcade.Body).setVelocity(0, 0)
+      this.syncHeistSfx()
+      this.drawWorldFx()
+      this.drawUi()
+      return
+    }
     this.updateHidden()
     if (this.safeCrack) {
       const body = this.player.body as Phaser.Physics.Arcade.Body
@@ -1254,7 +1452,12 @@ export class HeistScene extends Phaser.Scene {
     this.updateCams(dt)
     for (const unit of this.units) this.updateGuard(unit, dt)
     this.updateAlert(dt)
-    if (this.alert >= 0.7 || this.anyChase()) this.stealthBroken = true
+    this.updateRaidPhase()
+    if (this.escapeUntil > 0 && this.gameNow() >= this.escapeUntil) {
+      this.finish('caught')
+      return
+    }
+    if (this.alert >= this.cfg.alert.bandDanger || this.anyChase()) this.stealthBroken = true
     this.syncHeistSfx()
     this.drawWorldFx()
     this.drawUi()
@@ -1343,6 +1546,9 @@ export class HeistScene extends Phaser.Scene {
   }
   private btnOpen() {
     return { x: this.camW() - 62, y: this.camH() - 238, r: BTN_R }
+  }
+  private btnDrop() {
+    return { x: this.camW() - 62, y: this.camH() - 318, r: BTN_R }
   }
 
   private nearSafe() {
@@ -1492,7 +1698,7 @@ export class HeistScene extends Phaser.Scene {
         else this.openSafeReward()
       }
     } else {
-      this.alert = Math.min(1, this.alert + SAFE_MISS_ALERT)
+      this.addAlert(this.cfg.alert.safeMiss)
       heistSfx.safeFail()
     }
   }
@@ -1506,13 +1712,18 @@ export class HeistScene extends Phaser.Scene {
     this.doorOpenedAt = this.gameNow()
     if (!door || door.opened) return
     door.opened = true
-    door.body.setAlpha(0.12)
-    const body = door.body.body as Phaser.Physics.Arcade.StaticBody | null
-    if (body) body.enable = false
-    this.walls.remove(door.body)
-    this.wallRects = this.wallRects.filter((r) => !(r.x === door.x && r.y === door.y && r.w === door.w && r.h === door.h))
+    this.openSolid(door.body, door)
     this.rebuildNav()
-    this.fx?.explode(12, door.x + door.w / 2, door.y + door.h / 2)
+  }
+
+  /** Turns a solid rectangle into a passage: body off, nav rebuilt by the caller. */
+  private openSolid(body: Phaser.GameObjects.Rectangle, rect: { x: number; y: number; w: number; h: number }) {
+    body.setAlpha(0.12)
+    const phys = body.body as Phaser.Physics.Arcade.StaticBody | null
+    if (phys) phys.enable = false
+    this.walls.remove(body)
+    this.wallRects = this.wallRects.filter((r) => !(r.x === rect.x && r.y === rect.y && r.w === rect.w && r.h === rect.h))
+    this.fx?.explode(12, rect.x + rect.w / 2, rect.y + rect.h / 2)
   }
 
   private openSafeReward() {
@@ -1526,22 +1737,99 @@ export class HeistScene extends Phaser.Scene {
     const gained = Math.min(spot?.reward ?? SAFE_REWARD, room)
     this.hitHeld = false
     this.currentLoot += gained
+    if (gained > 0) this.carried.push({ kind: 'C100', value: gained, weight: this.cfg.weight.prize })
     if (gained > 0) this.floatGain(gained)
     else this.bagFullFlash = this.gameNow() + 900
     const sx = spot?.x ?? this.safePos.x
     const sy = spot?.y ?? this.safePos.y
     this.fx?.explode(18, sx, sy)
     if (spot?.extraKind) this.spawnLoot(spot.extraX, spot.extraY, spot.extraKind, 20 + this.crackI)
+    this.triggerSiren()
   }
 
-  private spawnLoot(x: number, y: number, kind: LootKind, seed: number) {
+  /** Getting caught drops everything that was not banked. */
+  private spillCarried() {
+    if (!this.weightOn() || this.carried.length === 0) return
+    const items = this.carried.slice(-6)
+    this.carried = []
+    items.forEach((item, i) => {
+      const a = (Math.PI * 2 * i) / items.length
+      this.spawnLoot(this.player.x + Math.cos(a) * 46, this.player.y + Math.sin(a) * 46, item.kind, 60 + i, {
+        value: item.value,
+        weight: item.weight,
+        lockMs: 999999,
+      })
+    })
+    this.fx?.explode(16, this.player.x, this.player.y)
+  }
+
+  /** The safe is the turning point of the raid: siren, alarm level, countdown, new route. */
+  private triggerSiren() {
+    const ec = this.cfg.escape
+    if (!ec.enabled || this.sirenOn) return
+    const now = this.gameNow()
+    this.sirenOn = true
+    this.hitStopUntil = now + ec.hitStopMs
+    this.escapeUntil = now + ec.timerS * 1000
+    this.raiseAlertTo(Math.max(this.cfg.alert.bandDanger, ec.sirenAlert))
+    this.updateRaidPhase()
+    heistSfx.siren()
+    this.cameras.main.shake(260, 0.006)
+    this.cameras.main.flash(180, 196, 64, 40)
+    this.phaseChangedAt = now
+    this.phaseRising = true
+    this.phaseHud?.setText(heistT('heistSiren'))
+    this.phaseHud?.setColor('#ff8a6a')
+    if (ec.routeChange && this.levelId === 'mansion') this.applySirenPlan()
+  }
+
+  /** Mansion siren plan: seal the usual way out, open the service passage, move two guards. */
+  private applySirenPlan() {
+    for (const r of MANSION_SIREN.close) {
+      const shutter = this.addSolid(r.x, r.y, r.w, r.h, 'wall')
+      shutter.setFillStyle(0x3a1a14)
+      this.fx?.explode(10, r.x + r.w / 2, r.y + r.h / 2)
+    }
+    for (const panel of this.sirenPanels) {
+      if (panel.opened) continue
+      panel.opened = true
+      this.openSolid(panel.body, panel)
+    }
+    for (const id of MANSION_SIREN.unlockDoors) {
+      const door = this.doors.find((d) => d.id === id)
+      if (!door || door.opened) continue
+      door.opened = true
+      this.openSolid(door.body, door)
+    }
+    for (const plan of MANSION_SIREN.redeploy) {
+      const u = this.units[plan.guard]
+      if (!u) continue
+      u.waypoints = plan.route.map((p) => new Phaser.Math.Vector2(p.x, p.y))
+      u.wi = 0
+      u.path = []
+      if (u.state === 'PATROL') this.setG(u, 'RETURN')
+    }
+    this.rebuildNav()
+    this.routeNoticeAt = this.gameNow()
+  }
+
+  private spawnLoot(
+    x: number,
+    y: number,
+    kind: LootKind,
+    seed: number,
+    opts?: { value?: number; weight?: number; lockMs?: number },
+  ) {
     const def = coinDef(kind)
     const s = this.physics.add.sprite(x, y, def.key)
     applyCoinSpriteSize(s, def)
     s.setDepth(6)
     this.lootSpawn += 1
     s.setData('lootId', `loot-${this.lootSpawn}`)
-    s.setData('value', def.value)
+    s.setData('value', opts?.value ?? def.value)
+    s.setData('kind', kind)
+    s.setData('weight', opts?.weight ?? this.lootWeight(kind))
+    s.setData('pickupAt', opts?.lockMs ? this.gameNow() + opts.lockMs : 0)
     s.setData('collected', false)
     const b = s.body as Phaser.Physics.Arcade.Body
     b.setAllowGravity(false)
@@ -1555,8 +1843,8 @@ export class HeistScene extends Phaser.Scene {
     if (this.ended || this.paused) return
     const now = this.gameNow()
     if (now < this.dashReady) return
-    this.dashUntil = now + DASH_MS
-    this.dashReady = now + DASH_CD
+    this.dashUntil = now + this.cfg.player.dashMs
+    this.dashReady = now + this.cfg.player.dashCd
   }
 
   private releaseTouches() {
@@ -1603,6 +1891,11 @@ export class HeistScene extends Phaser.Scene {
       this.openHeld = true
       this.openId = p.id
       this.tryOpenSafe()
+      return
+    }
+    const drop = this.btnDrop()
+    if (this.canDrop() && Phaser.Math.Distance.Between(x, y, drop.x, drop.y) < drop.r) {
+      this.tryDropLoot()
       return
     }
     if (Phaser.Math.Distance.Between(x, y, dash.x, dash.y) < dash.r) {
@@ -1720,14 +2013,17 @@ export class HeistScene extends Phaser.Scene {
     const space = this.keys.space
     const spaceTap = 'justDown' in space ? Phaser.Input.Keyboard.JustDown(space as Phaser.Input.Keyboard.Key) : false
     if (spaceTap) this.tryDash()
+    const qKey = this.keys.q
+    if ('justDown' in qKey && Phaser.Input.Keyboard.JustDown(qKey as Phaser.Input.Keyboard.Key)) this.tryDropLoot()
     const sneaking = this.sneakHeld || this.keys.shift.isDown || this.winKeys.shift || this.hidden
     const dashing = now < this.dashUntil
     let spd = 0
     let vx = jx
     let vy = jy
+    const pc = this.cfg.player
     if (dashing) {
       this.setMoveAnim('dash')
-      spd = SPEED.dash
+      spd = pc.dash
       this.noise = this.noiseOf('dash')
       if (!moving) {
         vx = this.facing.x
@@ -1735,20 +2031,21 @@ export class HeistScene extends Phaser.Scene {
       }
     } else if ((moving || sneaking) && sneaking && moving) {
       this.setMoveAnim('sneak')
-      spd = this.hidden ? SPEED.sneak * 0.82 : SPEED.sneak
+      spd = this.hidden ? pc.sneak * pc.hiddenSneakMul : pc.sneak
       this.noise = this.noiseOf('sneak')
     } else if (moving && mag < 0.55) {
       this.setMoveAnim('walk')
-      spd = SPEED.run * 0.72 * this.mods.speedMul
+      spd = pc.run * pc.walkMul * this.mods.speedMul
       this.noise = this.noiseOf('walk')
     } else if (moving) {
       this.setMoveAnim('run')
-      spd = SPEED.run * this.mods.speedMul
+      spd = pc.run * this.mods.speedMul
       this.noise = this.noiseOf('run')
     } else {
       this.setMoveAnim('idle')
       this.noise = 0
     }
+    spd *= this.weightSpeedMul()
     this.noiseR = this.noise * 2.15
     const body = this.player.body as Phaser.Physics.Arcade.Body
     if (dashing || moving) {
@@ -1764,7 +2061,8 @@ export class HeistScene extends Phaser.Scene {
 
   private noiseOf(mode: 'sneak' | 'run' | 'dash' | 'walk') {
     const base = mode === 'walk' ? 22 : NOISE[mode]
-    return this.mods.silentShoes ? base * 0.65 : base
+    const shoes = this.mods.silentShoes ? base * 0.65 : base
+    return shoes * this.weightNoiseMul()
   }
 
   private los(ax: number, ay: number, bx: number, by: number) {
@@ -1848,7 +2146,7 @@ export class HeistScene extends Phaser.Scene {
   }
 
   private seesPlayer(u: GuardUnit) {
-    return this.coneSees(u.sprite.x, u.sprite.y, u.facing, GUARD_VISION * this.mods.disguiseMul, GUARD_FOV)
+    return this.coneSees(u.sprite.x, u.sprite.y, u.facing, this.cfg.vision.guardDist * this.mods.disguiseMul, this.guardFov())
   }
 
   private hearsPlayer(u: GuardUnit) {
@@ -1969,14 +2267,17 @@ export class HeistScene extends Phaser.Scene {
 
   private updateCams(dt: number) {
     this.camSees = false
+    // Phase-driven sweeps run on their own clock so a speed change does not snap the beam.
+    this.camClock += dt * this.phaseCamMul()
+    const t = this.cfg.alert.phasesEnabled ? this.camClock : this.gameNow() / 1000
     for (const cam of this.cams) {
-      cam.facing = cam.base + Math.sin(this.gameNow() / 1000 * cam.speed) * cam.sweep
+      cam.facing = cam.base + Math.sin(t * cam.speed) * cam.sweep
       cam.sprite.setRotation(cam.facing)
       cam.beam.setRotation(cam.facing)
       cam.beam.setPosition(cam.x, cam.y)
       cam.beam.setTint(cam.hot ? 0xffd2a8 : 0xffffff)
       cam.beam.setAlpha(cam.hot ? 1 : 0.82)
-      const seen = this.coneSees(cam.x, cam.y, cam.facing, CAM_VISION * this.mods.disguiseMul, CAM_FOV)
+      const seen = this.coneSees(cam.x, cam.y, cam.facing, this.cfg.vision.camDist * this.mods.disguiseMul, this.camFov())
       const hot = seen && !this.hidden
       if (hot && !cam.hot) heistSfx.cameraAlert()
       cam.hot = hot
@@ -1984,7 +2285,7 @@ export class HeistScene extends Phaser.Scene {
       cam.led.setFillStyle(cam.hot ? 0xffe08a : 0xc9a227, cam.hot ? 1 : 0.85)
       if (hot) {
         this.camSees = true
-        this.alert = Math.min(1, this.alert + dt * 0.42 * this.mods.disguiseMul)
+        this.addAlert(dt * this.cfg.alert.cam * this.mods.disguiseMul)
         for (const u of this.units) {
           u.lastSeen.set(this.player.x, this.player.y)
           if (u.state === 'PATROL' || u.state === 'RETURN') this.setG(u, 'INVESTIGATE')
@@ -2013,20 +2314,22 @@ export class HeistScene extends Phaser.Scene {
       this.setG(u, 'CHASE')
     }
 
+    const gc = this.cfg.guard
+    const pm = this.phaseGuardMul()
     if (u.state === 'PATROL') {
       const wp = u.waypoints[u.wi]
-      const d = this.followTo(u, wp.x, wp.y, 86, dt)
+      const d = this.followTo(u, wp.x, wp.y, gc.patrol * pm, dt)
       if (d < 18) {
         u.wi = (u.wi + 1) % u.waypoints.length
         u.path = []
       }
     } else if (u.state === 'INVESTIGATE') {
-      if (this.followTo(u, u.lastSeen.x, u.lastSeen.y, 118, dt) < 18) this.setG(u, 'SEARCH')
+      if (this.followTo(u, u.lastSeen.x, u.lastSeen.y, gc.investigate * pm, dt) < 18) this.setG(u, 'SEARCH')
     } else if (u.state === 'CHASE') {
       const targetX = seen ? this.player.x : u.lastSeen.x
       const targetY = seen ? this.player.y : u.lastSeen.y
-      this.followTo(u, targetX, targetY, 168, dt)
-      if (Phaser.Math.Distance.Between(u.sprite.x, u.sprite.y, this.player.x, this.player.y) < 28) {
+      this.followTo(u, targetX, targetY, gc.chase, dt)
+      if (Phaser.Math.Distance.Between(u.sprite.x, u.sprite.y, this.player.x, this.player.y) < gc.catchDist) {
         this.finish('caught')
       } else if (!seen && Phaser.Math.Distance.Between(u.sprite.x, u.sprite.y, u.lastSeen.x, u.lastSeen.y) < 22) {
         this.setG(u, 'SEARCH')
@@ -2034,14 +2337,14 @@ export class HeistScene extends Phaser.Scene {
     } else if (u.state === 'SEARCH') {
       u.searchT -= dt
       const pt = u.searchPts[u.searchI] ?? u.lastSeen
-      if (this.followTo(u, pt.x, pt.y, 86, dt) < 18) {
+      if (this.followTo(u, pt.x, pt.y, gc.search * pm, dt) < 18) {
         u.searchI = (u.searchI + 1) % Math.max(1, u.searchPts.length)
         u.path = []
       }
       if (u.searchT <= 0) this.resumePatrol(u)
     } else if (u.state === 'RETURN') {
       const wp = u.waypoints[u.wi]
-      if (this.followTo(u, wp.x, wp.y, 96, dt) < 18) {
+      if (this.followTo(u, wp.x, wp.y, gc.returning * pm, dt) < 18) {
         u.wi = (u.wi + 1) % u.waypoints.length
         this.setG(u, 'PATROL')
       }
@@ -2157,26 +2460,137 @@ export class HeistScene extends Phaser.Scene {
     else if (Math.abs(Math.cos(u.facing)) > 0.2) u.sprite.setFlipX(Math.cos(u.facing) < 0)
   }
 
+  /** Single entry point for alert gains; scripted spikes (safe siren) will reuse it. */
+  private raiseAlertTo(min: number) {
+    this.quietT = 0
+    this.alert = Phaser.Math.Clamp(Math.max(this.alert, min), 0, 1)
+  }
+
+  private addAlert(delta: number) {
+    this.quietT = 0
+    this.alert = Phaser.Math.Clamp(this.alert + delta, 0, 1)
+  }
+
+  /** Ladder ALERT falls down: 1.00 → 0.95 → 0.70 → 0.30 → 0, with a quiet hold at every step. */
+  private alertStep() {
+    const ac = this.cfg.alert
+    const steps = [
+      { floor: ac.chaseFloor, hold: ac.stepHoldS.chase },
+      { floor: ac.bandDanger, hold: ac.stepHoldS.danger },
+      { floor: ac.bandSuspicious, hold: ac.stepHoldS.suspicious },
+    ]
+    for (const step of steps) {
+      if (this.alert > step.floor) return step
+    }
+    return { floor: 0, hold: 0 }
+  }
+
   private updateAlert(dt: number) {
+    const ac = this.cfg.alert
     if (this.anyChase()) {
-      this.alert = Math.min(1, Math.max(this.alert, 0.95))
+      this.raiseAlertTo(ac.chaseFloor)
       return
     }
     if (this.units.some((u) => this.seesPlayer(u))) {
-      this.alert = Math.min(1, this.alert + dt * (0.32 + this.maxDetect() * 0.4) * this.mods.disguiseMul)
+      this.addAlert(dt * (ac.sightBase + this.maxDetect() * ac.sightDetect) * this.mods.disguiseMul)
       return
     }
-    if (this.camSees) return
+    if (this.camSees) {
+      this.quietT = 0
+      return
+    }
     if (this.units.some((u) => this.hearsPlayer(u))) {
-      this.alert = Math.min(1, Math.max(this.alert, 0.22))
+      this.raiseAlertTo(ac.hearFloor)
       return
     }
-    this.alert = Math.max(0, this.alert - dt * (this.hidden ? 0.14 : 0.055))
+    const rate = this.hidden ? ac.decayHidden : ac.decay
+    if (!ac.phasesEnabled) {
+      this.alert = Math.max(0, this.alert - dt * rate)
+      return
+    }
+    this.quietT += dt
+    const step = this.alertStep()
+    this.alert = Math.max(step.floor, this.alert - dt * rate)
+    if (step.floor <= 0) return
+    const hold = step.hold * (this.hidden ? ac.hiddenHoldMul : 1)
+    if (this.alert <= step.floor + 1e-4 && this.quietT >= hold) {
+      this.alert = Math.max(0, step.floor - 0.005)
+      this.quietT = 0
+    }
+  }
+
+  private phaseOf(): RaidPhase {
+    const a = Math.round(this.alert * 100)
+    if (this.anyChase() || a >= 100) return 'CHASE'
+    if (a >= this.cfg.alert.bandDanger * 100) return 'DANGER'
+    if (a >= this.cfg.alert.bandSuspicious * 100) return 'SUSPICIOUS'
+    return 'SAFE'
+  }
+
+  private updateRaidPhase() {
+    const next = this.phaseOf()
+    if (next === this.raidPhase) return
+    const prev = this.raidPhase
+    this.raidPhase = next
+    this.phaseRising = PHASE_RANK[next] > PHASE_RANK[prev]
+    this.phaseChangedAt = this.gameNow()
+    if (!this.cfg.alert.phasesEnabled) return
+    this.phaseHud?.setText(heistT(PHASE_LABEL[next]))
+    this.phaseHud?.setColor(PHASE_COLOR[next])
+    if (this.phaseRising && next === 'DANGER') {
+      heistSfx.investigateStart()
+      this.sweepGuards()
+    }
+  }
+
+  /** DANGER makes the house look for the player instead of waiting for him. */
+  private sweepGuards() {
+    const r = this.cfg.alert.sweepRadius
+    for (const u of this.units) {
+      if (u.state !== 'PATROL' && u.state !== 'RETURN') continue
+      if (Phaser.Math.Distance.Between(u.sprite.x, u.sprite.y, this.player.x, this.player.y) > r) continue
+      u.lastSeen.set(this.player.x, this.player.y)
+      u.path = []
+      this.setG(u, 'INVESTIGATE')
+    }
+  }
+
+  private phaseGuardMul() {
+    const ac = this.cfg.alert
+    return ac.phasesEnabled ? (ac.guardSpeedMul[PHASE_KEY[this.raidPhase]] ?? 1) : 1
+  }
+
+  private phaseCamMul() {
+    const ac = this.cfg.alert
+    return ac.phasesEnabled ? (ac.camSpeedMul[PHASE_KEY[this.raidPhase]] ?? 1) : 1
+  }
+
+  private drawPhaseFx(now: number) {
+    if (!this.phaseTint || !this.phaseHud) return
+    if (!this.cfg.alert.phasesEnabled) {
+      this.phaseTint.setVisible(false)
+      this.phaseHud.setVisible(false)
+      return
+    }
+    const tint = PHASE_TINT[this.raidPhase]
+    const pulse = this.raidPhase === 'CHASE' ? 1 + Math.sin(now / 140) * 0.25 : 1
+    this.phaseTint.setVisible(tint.alpha > 0)
+    this.phaseTint.setPosition(this.camW() / 2, this.camH() / 2)
+    this.phaseTint.setDisplaySize(this.camW(), this.camH())
+    this.phaseTint.setFillStyle(tint.color, tint.alpha * pulse)
+
+    const age = now - this.phaseChangedAt
+    const show = age < 1600 && (this.phaseRising || this.raidPhase === 'SAFE')
+    this.phaseHud.setVisible(show)
+    if (!show) return
+    this.phaseHud.setPosition(this.camW() / 2, 78)
+    this.phaseHud.setAlpha(age < 1100 ? 1 : 1 - (age - 1100) / 500)
   }
 
   private finish(verdict: HeistEnd['verdict']) {
     if (this.ended) return
     this.ended = true
+    if (verdict === 'caught') this.spillCarried()
     if (verdict === 'escaped') heistSfx.exit()
     else heistSfx.caught()
     this.syncHeistSfx(true)
@@ -2193,7 +2607,10 @@ export class HeistScene extends Phaser.Scene {
     this.physics.pause()
     const coins = this.currentLoot
     const timeMs = this.gameNow() - this.startedAt
-    const bonus = verdict === 'escaped' && this.alert < 0.3 && coins > 0 ? Math.max(5, Math.floor(coins * 0.1)) : 0
+    const bonus =
+      verdict === 'escaped' && this.alert < this.cfg.alert.bandSuspicious && coins > 0
+        ? Math.max(5, Math.floor(coins * 0.1))
+        : 0
     const objectives = {
       loot: coins >= this.objLoot,
       stealth: !this.stealthBroken,
@@ -2237,8 +2654,8 @@ export class HeistScene extends Phaser.Scene {
         u.sprite.x,
         u.sprite.y,
         u.facing,
-        GUARD_VISION * this.mods.disguiseMul,
-        GUARD_FOV,
+        this.cfg.vision.guardDist * this.mods.disguiseMul,
+        this.guardFov(),
         hot ? 0xc45a3a : 0xc9a227,
         hot ? 0.12 : 0.07,
         hot ? 0xff8a6a : 0xe8c36a,
@@ -2286,8 +2703,19 @@ export class HeistScene extends Phaser.Scene {
       this.uiGfx.fillCircle(open.x, open.y, 38)
       this.uiGfx.strokeCircle(open.x, open.y, 38)
     }
+    const showDrop = this.canDrop()
+    if (showDrop) {
+      const drop = this.btnDrop()
+      this.uiGfx.fillStyle(now < this.dropReadyAt ? 0x2a2018 : 0x1a1410, 0.82)
+      this.uiGfx.fillCircle(drop.x, drop.y, 34)
+      this.uiGfx.lineStyle(2, 0xffb070, 0.7)
+      this.uiGfx.strokeCircle(drop.x, drop.y, 34)
+      this.uiGfx.lineStyle(2, 0xc9a227, 0.7)
+      this.dropLabel?.setPosition(drop.x, drop.y)
+    }
+    this.dropLabel?.setVisible(showDrop)
     if (cooling) {
-      const t = 1 - (this.dashReady - now) / (DASH_CD - DASH_MS)
+      const t = 1 - (this.dashReady - now) / (this.cfg.player.dashCd - this.cfg.player.dashMs)
       this.uiGfx.lineStyle(4, 0xc9a227, 0.9)
       this.uiGfx.beginPath()
       this.uiGfx.arc(dash.x, dash.y, 38, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Phaser.Math.Clamp(t, 0, 1), false)
@@ -2316,15 +2744,9 @@ export class HeistScene extends Phaser.Scene {
     }
 
     const a = Math.round(this.alert * 100)
-    const band =
-      a < 30
-        ? heistT('heistHudSafe')
-        : a < 70
-          ? heistT('heistHudSuspicious')
-          : a < 100 && !this.anyChase()
-            ? heistT('heistHudDanger')
-            : heistT('heistHudChase')
-    const color = a < 30 ? '#b6e3b0' : a < 70 ? '#ffe08a' : '#ff8a6a'
+    this.drawPhaseFx(now)
+    const band = heistT(PHASE_LABEL[this.raidPhase])
+    const color = PHASE_COLOR[this.raidPhase]
     const full = this.currentLoot >= this.mods.bagCap || this.gameNow() < this.bagFullFlash
     this.hud.setColor(full ? '#ffb070' : '#ffe08a')
     this.hud.setText(
@@ -2332,8 +2754,16 @@ export class HeistScene extends Phaser.Scene {
     )
     this.bagHud.setColor(color)
     const escape = this.escaping ? `    ${heistT('heistEscape')}` : ''
+    const police =
+      this.escapeUntil > 0
+        ? `    ${heistT('heistPolice')} ${formatClock(Math.max(0, this.escapeUntil - now))}`
+        : ''
+    const heavy = this.weightOver() > 0 ? ` ${heistT('heistHeavy')}` : ''
+    const weight = this.weightOn()
+      ? `    ${heistT('heistWeight')} ${Math.round(this.carriedWeight())}/${this.weightCap()}${heavy}`
+      : ''
     this.bagHud.setText(
-      `${heistT('heistBag')} ${this.currentLoot}/${this.mods.bagCap}    ${heistT('heistAlert')} ${a}% ${band}    ${heistT('heistTime')} ${formatClock(now - this.startedAt)}${escape}`,
+      `${heistT('heistBag')} ${this.currentLoot}/${this.mods.bagCap}${weight}    ${heistT('heistAlert')} ${a}% ${band}    ${heistT('heistTime')} ${formatClock(now - this.startedAt)}${police}${escape}`,
     )
     this.drawObjectives(now - this.startedAt)
     this.exitLabel?.setText(heistT('heistExit'))
@@ -2344,6 +2774,7 @@ export class HeistScene extends Phaser.Scene {
     this.safeTitle?.setText(heistT('heistSafeName'))
     this.sneakLabel?.setText(heistT('heistSneak'))
     this.dashLabel?.setText(heistT('heistDash'))
+    this.dropLabel?.setText(heistT('heistDrop'))
     if (this.safeCrack) {
       this.crackHud.setVisible(true)
       const hits = this.crackKind === 'door' ? DOOR_HITS : SAFE_HITS
@@ -2356,6 +2787,11 @@ export class HeistScene extends Phaser.Scene {
       this.crackHud.setPosition(this.camW() / 2, 46)
       const reward = this.safes[this.crackI]?.reward ?? SAFE_REWARD
       this.crackHud.setText(`${heistT('heistSafeOpenedTitle')}\n${heistT('heistSafeReward', { n: reward })}`)
+      this.crackHint.setVisible(false)
+    } else if (this.routeNoticeAt > 0 && now - this.routeNoticeAt < 4200) {
+      this.crackHud.setVisible(true)
+      this.crackHud.setPosition(this.camW() / 2, 46)
+      this.crackHud.setText(`${heistT('heistRouteBlocked')}\n${heistT('heistRouteOpen')}`)
       this.crackHint.setVisible(false)
     } else if (this.doorOpenedAt > 0 && now - this.doorOpenedAt < 1400) {
       this.crackHud.setVisible(true)

@@ -14,6 +14,7 @@ export type PlayerProgress = {
 
 export type HeistRunMods = {
   bagCap: number
+  bagLevel: number
   disguiseMul: number
   silentShoes: boolean
   speedMul: number
@@ -132,6 +133,7 @@ export function runMods(progress: PlayerProgress): HeistRunMods {
   const shoes = clampLevel(progress.shoesLevel)
   return {
     bagCap: BAG_CAPS[bag] ?? BAG_BASIC,
+    bagLevel: bag,
     disguiseMul: DISGUISE_MUL[disguise] ?? 1,
     silentShoes: shoes === 1,
     speedMul: SPEED_MUL[shoes] ?? 1,
