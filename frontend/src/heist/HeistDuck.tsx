@@ -3,7 +3,11 @@ import { punchBackdrop } from './sprite'
 
 const SPRITE = '/heist/duck.png'
 
-export function HeistDuck({ className }: { className?: string }) {
+/**
+ * Draws the duck at its natural aspect ratio. The canvas box is sized from the
+ * source image, so CSS never squashes the character.
+ */
+export function HeistDuck({ className, size = 220 }: { className?: string; size?: number }) {
   const ref = useRef<HTMLCanvasElement>(null)
   const [ok, setOk] = useState(false)
 
@@ -12,26 +16,30 @@ export function HeistDuck({ className }: { className?: string }) {
     if (!canvas) return
     const img = new Image()
     const paint = () => {
-      if (img.naturalWidth <= 0) return
+      const iw = img.naturalWidth
+      const ih = img.naturalHeight
+      if (iw <= 0 || ih <= 0) return
       const punched = punchBackdrop(img)
-      const w = 220
-      const h = 220
+      const k = size / Math.max(iw, ih)
+      const w = Math.round(iw * k)
+      const h = Math.round(ih * k)
       const dpr = Math.min(2, window.devicePixelRatio || 1)
-      canvas.width = w * dpr
-      canvas.height = h * dpr
+      canvas.width = Math.round(w * dpr)
+      canvas.height = Math.round(h * dpr)
       canvas.style.width = `${w}px`
       canvas.style.height = `${h}px`
       const ctx = canvas.getContext('2d')
       if (!ctx) return
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
       ctx.clearRect(0, 0, w, h)
-      ctx.drawImage(punched, 10, 10, 200, 200)
+      ctx.imageSmoothingQuality = 'high'
+      ctx.drawImage(punched, 0, 0, w, h)
       setOk(true)
     }
     img.onload = paint
     img.src = SPRITE
     if (img.complete) paint()
-  }, [])
+  }, [size])
 
   return <canvas ref={ref} className={className} style={{ visibility: ok ? 'visible' : 'hidden' }} />
 }

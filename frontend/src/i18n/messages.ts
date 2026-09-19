@@ -536,7 +536,7 @@ const ru = {
   heistRouteBlocked: 'ГЛАВНЫЙ КОРИДОР ПЕРЕКРЫТ',
   heistRouteOpen: 'АВАРИЙНЫЙ ПРОХОД ОТКРЫТ',
   heistHudSafe: 'СПОКОЙНО',
-  heistHudSuspicious: 'ПОДОЗРИТЕЛЬНО',
+  heistHudSuspicious: 'ПОДОЗРЕНИЕ',
   heistHudDanger: 'ОПАСНО',
   heistHudChase: 'ПОГОНЯ',
   heistSneak: 'КРАСТЬСЯ',
@@ -550,6 +550,9 @@ const ru = {
   heistObjStealth: 'STEALTH',
   heistObjSpeed: 'UNDER {n}s',
   heistObjAll: 'ВСЕ ЦЕЛИ +{n} DUCK COIN',
+  heistBriefGuards: 'ОХРАНА {n}',
+  heistBriefCams: 'КАМЕРЫ {n}',
+  heistBriefSafes: 'СЕЙФЫ {n}',
 } as const
 
 const en: Record<keyof typeof ru, string> = {
@@ -1105,6 +1108,9 @@ const en: Record<keyof typeof ru, string> = {
   heistObjStealth: 'STEALTH',
   heistObjSpeed: 'UNDER {n}s',
   heistObjAll: 'ALL OBJECTIVES +{n} DUCK COIN',
+  heistBriefGuards: 'GUARDS {n}',
+  heistBriefCams: 'CAMERAS {n}',
+  heistBriefSafes: 'SAFES {n}',
 }
 
 export const messages = { ru, en } as const

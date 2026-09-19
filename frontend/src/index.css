@@ -63,6 +63,53 @@ body {
   transform: scale(0.98);
 }
 
+.hero-stage {
+  background:
+    radial-gradient(70% 60% at 72% 42%, rgba(255, 176, 40, 0.22), transparent 62%),
+    radial-gradient(90% 70% at 10% 0%, rgba(255, 107, 0, 0.16), transparent 60%),
+    linear-gradient(180deg, #221810 0%, #140f0d 100%);
+}
+
+.hero-duck {
+  filter: drop-shadow(0 14px 22px rgba(0, 0, 0, 0.55)) drop-shadow(0 0 26px rgba(255, 176, 40, 0.22));
+  animation: duck-float 4.6s ease-in-out infinite;
+  will-change: transform;
+}
+
+.hero-shadow {
+  background: radial-gradient(50% 50% at 50% 50%, rgba(0, 0, 0, 0.55), transparent 70%);
+  animation: duck-shadow 4.6s ease-in-out infinite;
+}
+
+@keyframes duck-float {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-0.6deg);
+  }
+  50% {
+    transform: translateY(-9px) rotate(0.6deg);
+  }
+}
+
+@keyframes duck-shadow {
+  0%,
+  100% {
+    transform: scaleX(1);
+    opacity: 0.55;
+  }
+  50% {
+    transform: scaleX(0.86);
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-duck,
+  .hero-shadow {
+    animation: none;
+  }
+}
+
 .card-foil {
   background:
     radial-gradient(80% 60% at 50% 0%, rgba(255, 193, 7, 0.18), transparent 55%),

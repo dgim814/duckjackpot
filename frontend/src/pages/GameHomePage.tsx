@@ -21,25 +21,28 @@ export function GameHomePage() {
     <div className="px-4 pb-4">
       <ScreenHeader kicker={t('hubKicker')} title={t('hubTitle')} subtitle={t('hubSubtitle')} />
 
-      <section className="mt-3 overflow-hidden rounded-2xl border border-amber-400/40 bg-[#1a1410] px-3 py-3">
-        <div className="flex items-center justify-between gap-3">
-          <div className="min-w-0">
+      <section className="hero-stage relative mt-3 overflow-hidden rounded-3xl border border-amber-400/40 px-4 pb-4 pt-4">
+        <div className="relative flex items-end justify-between gap-3">
+          <div className="min-w-0 pb-1">
             <p className="text-[11px] font-extrabold uppercase tracking-[0.18em] text-amber-200">{t('heistDuckCoin')}</p>
-            <p className="font-display text-4xl font-black leading-tight text-amber-300">{progress.bankedDuckCoin}</p>
-            <p className="mt-1 text-[11px] text-zinc-400">
+            <p className="gold-text font-display text-[2.75rem] font-black leading-none">{progress.bankedDuckCoin}</p>
+            <p className="mt-2 text-[11px] text-zinc-400">
               {t('heistBag')} {bagCap(progress)}
             </p>
           </div>
-          <HeistDuck className="-my-4 max-h-28 w-auto shrink-0" />
+          <div className="relative shrink-0">
+            <HeistDuck className="hero-duck block" size={146} />
+            <div className="hero-shadow pointer-events-none absolute inset-x-3 -bottom-1 h-3 rounded-full" />
+          </div>
         </div>
 
         <button
           type="button"
           onClick={openHeist}
-          className="buy-btn mt-3 min-h-14 w-full rounded-2xl px-4 py-3 text-zinc-950"
+          className="buy-btn relative mt-4 min-h-16 w-full rounded-2xl px-4 py-3 text-zinc-950"
         >
-          <span className="block font-display text-lg font-extrabold leading-tight tracking-[0.12em]">{t('heistPlay')}</span>
-          <span className="mt-0.5 block text-xs font-bold opacity-80">{t('hubPlayHint')}</span>
+          <span className="block font-display text-2xl font-black leading-none tracking-[0.14em]">{t('heistPlay')}</span>
+          <span className="mt-1.5 block text-[11px] font-bold uppercase tracking-[0.1em] opacity-80">{t('hubPlayHint')}</span>
         </button>
       </section>
 

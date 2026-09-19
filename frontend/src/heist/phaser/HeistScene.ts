@@ -9,6 +9,24 @@ import { heistSfx, unlockHeistSfx } from '../heistSfx'
 import { buildNavGrid, cellCenter, findPath, findPathAroundStuck, nearestWalkable, type NavGrid } from '../guardPath'
 import { debugTuningVersion, exposeDebugTuning, resolveTuning } from '../debugConfig'
 import type { HeistTuning } from '../tuning'
+import type { MessageKey } from '../../i18n/messages'
+import {
+  BANK_CAMS,
+  BANK_DOORS,
+  BANK_EXIT,
+  BANK_FLOORS,
+  BANK_FURNITURE,
+  BANK_GUARD_ROUTES,
+  BANK_H,
+  BANK_HIDES,
+  BANK_LABELS,
+  BANK_LAMPS,
+  BANK_LOOT,
+  BANK_SAFES,
+  BANK_SPAWN,
+  BANK_W,
+  BANK_WALLS,
+} from './bankLayout'
 import {
   MANSION_CAMS,
   MANSION_DOORS,
@@ -135,10 +153,6 @@ const DUCK_BODY_W = 20
 const DUCK_BODY_H = 22
 /** Previous visual size; keep world hitbox identical when display scale changes. */
 const DUCK_HITBOX_FROM = 44
-
-function jitter(n: number, amt: number) {
-  return n + (Math.random() * 2 - 1) * amt
-}
 
 function formatClock(ms: number) {
   const s = Math.max(0, Math.floor(ms / 1000))
@@ -283,8 +297,7 @@ export class HeistScene extends Phaser.Scene {
   private bagFullFlash = 0
   private openLabel!: Phaser.GameObjects.Text
   private exitLabel!: Phaser.GameObjects.Text
-  private lobbyLabel!: Phaser.GameObjects.Text
-  private vaultLabel!: Phaser.GameObjects.Text
+  private roomLabels: { obj: Phaser.GameObjects.Text; key: MessageKey }[] = []
   private sneakLabel!: Phaser.GameObjects.Text
   private dashLabel!: Phaser.GameObjects.Text
   private safeTitle!: Phaser.GameObjects.Text
@@ -324,6 +337,7 @@ export class HeistScene extends Phaser.Scene {
   private nav!: NavGrid
   private cfg: HeistTuning
   private cfgV = -1
+  private uiCam?: Phaser.Cameras.Scene2D.Camera
 
   constructor(onDone: (end: HeistEnd) => void, mods: HeistRunMods, levelId: HeistLevelId = 'bank') {
     super('HeistScene')
@@ -333,7 +347,8 @@ export class HeistScene extends Phaser.Scene {
     this.cfg = resolveTuning(levelId)
     this.cfgV = debugTuningVersion()
     const obj = heistLevelObjectives(levelId)
-    this.objLoot = obj.loot
+    // A goal above the bag capacity can never be met, so a small bag lowers it.
+    this.objLoot = Math.min(obj.loot, mods.bagCap)
     this.objTimeS = obj.timeS
   }
 
@@ -352,6 +367,58 @@ export class HeistScene extends Phaser.Scene {
 
   private limitCount<T>(items: readonly T[], max: number | null) {
     return max === null ? items : items.slice(0, Math.max(0, max))
+  }
+
+  /**
+   * The world camera is zoomed out so the player can read the room ahead, while
+   * a second unzoomed camera keeps the HUD and touch controls at full size.
+   */
+  private setupCameras() {
+    const ui: (Phaser.GameObjects.GameObject | undefined)[] = [
+      this.phaseTint,
+      this.uiGfx,
+      this.hud,
+      this.bagHud,
+      this.objHud,
+      this.crackHud,
+      this.crackHint,
+      this.phaseHud,
+      this.sneakLabel,
+      this.dashLabel,
+      this.openLabel,
+      this.dropLabel,
+      this.pauseGfx,
+      this.pauseHudLbl,
+      this.pauseTitle,
+      this.pauseResumeLbl,
+      this.pauseAbortLbl,
+    ]
+    const uiList = ui.filter((o): o is Phaser.GameObjects.GameObject => Boolean(o))
+    const uiSet = new Set(uiList)
+
+    this.cameras.main.setZoom(this.cfg.camera.zoom)
+    this.cameras.main.ignore(uiList)
+
+    this.uiCam = this.cameras.add(0, 0, this.scale.width, this.scale.height)
+    this.uiCam.setName('hud')
+    this.uiCam.setScroll(0, 0)
+    this.uiCam.ignore(this.children.list.filter((o) => !uiSet.has(o)))
+
+    this.events.on(Phaser.Scenes.Events.ADDED_TO_SCENE, this.onWorldObjectAdded)
+    this.scale.on(Phaser.Scale.Events.RESIZE, this.onScaleResize)
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.events.off(Phaser.Scenes.Events.ADDED_TO_SCENE, this.onWorldObjectAdded)
+      this.scale.off(Phaser.Scale.Events.RESIZE, this.onScaleResize)
+    })
+  }
+
+  /** Everything spawned after setup (loot, effects, shutters) belongs to the world. */
+  private onWorldObjectAdded = (obj: Phaser.GameObjects.GameObject) => {
+    this.uiCam?.ignore(obj)
+  }
+
+  private onScaleResize = (size: Phaser.Structs.Size) => {
+    this.uiCam?.setSize(size.width, size.height)
   }
 
   preload() {
@@ -575,16 +642,8 @@ export class HeistScene extends Phaser.Scene {
     }
   }
 
-  private paintDecor() {
+  private paintLamps(lamps: readonly [number, number][]) {
     const g = this.add.graphics().setDepth(2)
-    const lamps: [number, number][] = [
-      [430, 500],
-      [1090, 500],
-      [430, 820],
-      [1090, 820],
-      [860, 300],
-      [148, 1040],
-    ]
     for (const [lx, ly] of lamps) {
       g.fillStyle(0xc9a227, 0.06)
       g.fillCircle(lx, ly, 36)
@@ -644,7 +703,7 @@ export class HeistScene extends Phaser.Scene {
     this.safeTitle = this.add
       .text(x, y - 58, heistT('heistSafeName'), {
         fontFamily: 'Unbounded, sans-serif',
-        fontSize: '12px',
+        fontSize: '15px',
         color: '#ffe08a',
       })
       .setOrigin(0.5)
@@ -652,7 +711,7 @@ export class HeistScene extends Phaser.Scene {
     this.safePrompt = this.add
       .text(x, y + 62, '', {
         fontFamily: 'Unbounded, sans-serif',
-        fontSize: '11px',
+        fontSize: '14px',
         color: '#ffe08a',
         align: 'center',
       })
@@ -669,168 +728,7 @@ export class HeistScene extends Phaser.Scene {
       this.buildMansionWorld()
       return
     }
-    this.drawFloor()
-
-    this.walls = this.physics.add.staticGroup()
-    this.wallRects = []
-    this.hideZones = []
-
-    const T = 40
-
-    this.addSolid(0, 0, W, T, 'wall')
-    this.addSolid(0, H - T, W, T, 'wall')
-    this.addSolid(0, 0, T, H, 'wall')
-    this.addSolid(W - T, 0, T, H, 'wall')
-
-    // Lobby divider with 3 routes: west / center / east
-    this.addSolid(T, 900, 48, 28, 'wall')
-    this.addSolid(196, 900, 228, 28, 'wall')
-    this.addSolid(560, 900, 620, 28, 'wall')
-    this.addSolid(1328, 900, W - T - 1328, 28, 'wall')
-
-    // West corridor inner wall (gap 500–640)
-    this.addSolid(236, T, 28, 460, 'wall')
-    this.addSolid(236, 640, 28, 260, 'wall')
-
-    // East corridor inner wall (gap 500–640)
-    this.addSolid(1488, T, 28, 460, 'wall')
-    this.addSolid(1488, 640, 28, 260, 'wall')
-
-    // Vault wall with center door
-    this.addSolid(T, 380, 620, 28, 'wall')
-    this.addSolid(980, 380, W - T - 980, 28, 'wall')
-
-    // Hall desks / counters
-    this.addSolid(320, 540, 170, 46, 'desk')
-    this.addHide(320, 586, 170, 48)
-    this.addSolid(320, 730, 170, 46, 'desk')
-    this.addHide(320, 776, 170, 48)
-    this.addSolid(980, 540, 170, 46, 'desk')
-    this.addHide(980, 586, 170, 48)
-    this.addSolid(980, 730, 170, 46, 'desk')
-    this.addHide(980, 776, 170, 48)
-
-    // Columns
-    this.addSolid(620, 620, 46, 46, 'column')
-    this.addHide(608, 666, 70, 40)
-    this.addSolid(1088, 620, 46, 46, 'column')
-    this.addHide(1076, 666, 70, 40)
-
-    // Cabinets
-    this.addSolid(64, 180, 72, 150, 'cabinet')
-    this.addHide(136, 190, 50, 130)
-    this.addSolid(1610, 180, 86, 160, 'cabinet')
-    this.addHide(1560, 190, 50, 140)
-    this.addSolid(64, 1020, 90, 70, 'cabinet')
-    this.addHide(154, 1020, 44, 70)
-
-    this.paintHideMats()
-    this.paintDecor()
-    this.nav = buildNavGrid(W, H, 24, this.wallRects, 22)
-
-    this.buildSafe()
-    this.safes = [{ x: 1188, y: 148, opened: false, extraX: 1280, extraY: 250, extraKind: 'C50' }]
-
-    // EXIT door (overlap only)
-    const exitFx = this.add.graphics().setDepth(3)
-    exitFx.fillStyle(0x050806, 0.9)
-    exitFx.fillRoundedRect(148 - 86, 1188 - 46, 172, 92, 10)
-    exitFx.fillStyle(0x14241a)
-    exitFx.fillRoundedRect(148 - 76, 1188 - 38, 152, 76, 8)
-    this.exitZone = this.add.rectangle(148, 1188, 150, 72, 0x1c3c2a, 0.55)
-    this.exitZone.setStrokeStyle(2, 0xc9a227, 0.7)
-    this.exitZone.setDepth(3)
-    this.physics.add.existing(this.exitZone, true)
-    exitFx.lineStyle(2, 0xc9a227, 0.55)
-    exitFx.strokeRoundedRect(148 - 76, 1188 - 38, 152, 76, 8)
-    exitFx.lineStyle(1, 0xe8d7a0, 0.35)
-    exitFx.lineBetween(148, 1188 - 34, 148, 1188 + 34)
-    exitFx.fillStyle(0xc9a227, 0.8)
-    exitFx.fillCircle(148 - 18, 1188, 3)
-    exitFx.fillCircle(148 + 18, 1188, 3)
-    this.exitLabel = this.add.text(148, 1188, heistT('heistExit'), {
-      fontFamily: 'Unbounded, sans-serif',
-      fontSize: '16px',
-      color: '#e8d7a0',
-    }).setOrigin(0.5).setDepth(4)
-
-    this.lobbyLabel = this.add.text(148, 1108, heistT('heistRoomLobby'), {
-      fontFamily: 'Unbounded, sans-serif',
-      fontSize: '10px',
-      color: '#b49a62',
-    }).setOrigin(0.5).setDepth(4)
-    this.vaultLabel = this.add.text(860, 200, heistT('heistRoomVault'), {
-      fontFamily: 'Unbounded, sans-serif',
-      fontSize: '12px',
-      color: '#b49a62',
-    }).setOrigin(0.5).setDepth(4)
-
-    this.makeDuckTexture()
-    const duckKey = this.tryCreateDuckAnims() ? 'duck_sheet' : this.makeDuckTexture()
-    try {
-      this.player = this.physics.add.sprite(420, 1070, duckKey, duckKey === 'duck_sheet' ? 0 : undefined)
-    } catch (err) {
-      console.error(err)
-      this.duckAnimsReady = false
-      this.player = this.physics.add.sprite(420, 1070, this.makeDuckTexture())
-    }
-    this.player.setOrigin(0.5, 0.5)
-    this.pinDuckVisual()
-    this.player.setDepth(12)
-    this.player.setCollideWorldBounds(true)
-    const pb = this.player.body as Phaser.Physics.Arcade.Body
-    pb.setMaxVelocity(this.cfg.player.run, this.cfg.player.run)
-    pb.setDamping(true)
-    pb.setDrag(0.0008, 0.0008)
-    this.setMoveAnim('idle')
-
-    const guardKey = this.tryCreateGuardAnims() ? 'guard_sheet' : 'guard'
-    const routeA = [
-      new Phaser.Math.Vector2(300, 490),
-      new Phaser.Math.Vector2(800, 240),
-      new Phaser.Math.Vector2(1580, 490),
-      new Phaser.Math.Vector2(1580, 780),
-      new Phaser.Math.Vector2(800, 820),
-      new Phaser.Math.Vector2(500, 1080),
-      new Phaser.Math.Vector2(150, 760),
-    ]
-    const routeB = [
-      new Phaser.Math.Vector2(1280, 520),
-      new Phaser.Math.Vector2(1100, 220),
-      new Phaser.Math.Vector2(780, 200),
-      new Phaser.Math.Vector2(1280, 780),
-      new Phaser.Math.Vector2(1250, 1100),
-      new Phaser.Math.Vector2(1100, 860),
-    ]
-    this.units = [this.spawnGuard(routeA, 1, guardKey), this.spawnGuard(routeB, 1, guardKey)]
-
-    this.cams = [
-      this.makeCam(700, 430, Math.PI / 2, 0.85, 0.55),
-      this.makeCam(1320, 70, Math.PI / 2, 0.7, 0.62),
-      this.makeCam(1588, 560, Math.PI, 0.9, 0.48),
-    ]
-
-    this.lootGroup = this.physics.add.group()
-    const slots: [number, number, LootKind][] = [
-      [560, 1110, 'C10'],
-      [760, 1080, 'C10'],
-      [300, 1140, 'C10'],
-      [700, 850, 'C10'],
-      [410, 500, 'C50'],
-      [1120, 780, 'C50'],
-      [1610, 620, 'C50'],
-      [340, 780, 'C50'],
-      [1080, 520, 'C100'],
-      [1610, 200, 'C100'],
-    ]
-    slots.forEach(([sx, sy, kind], i) => {
-      this.spawnLoot(Phaser.Math.Clamp(jitter(sx, 12), 70, W - 70), Phaser.Math.Clamp(jitter(sy, 10), 70, H - 70), kind, i)
-    })
-
-    this.physics.add.collider(this.player, this.walls)
-    for (const u of this.units) this.physics.add.collider(u.sprite, this.walls)
-
-    this.setupPlaySession()
+    this.buildBankWorld()
   }
 
   private setupPlaySession() {
@@ -878,11 +776,11 @@ export class HeistScene extends Phaser.Scene {
       .setDepth(51)
       .setVisible(false)
     this.hud = this.add
-      .text(12, 8, '', { fontFamily: 'Unbounded, sans-serif', fontSize: '12px', color: '#f3e6c4' })
+      .text(12, 9, '', { fontFamily: 'Unbounded, sans-serif', fontSize: '11px', color: '#f3e6c4' })
       .setScrollFactor(0)
       .setDepth(21)
     this.bagHud = this.add
-      .text(12, 26, '', { fontFamily: 'Unbounded, sans-serif', fontSize: '12px', color: '#f3e6c4' })
+      .text(12, 26, '', { fontFamily: 'Unbounded, sans-serif', fontSize: '11px', color: '#f3e6c4' })
       .setScrollFactor(0)
       .setDepth(21)
     this.objHud = this.add
@@ -1020,6 +918,8 @@ export class HeistScene extends Phaser.Scene {
       .setDepth(22)
       .setVisible(false)
 
+    this.setupCameras()
+
     this.startedAt = this.time.now
     this.game.canvas.setAttribute('tabindex', '0')
     this.game.canvas.style.outline = 'none'
@@ -1083,14 +983,14 @@ export class HeistScene extends Phaser.Scene {
     this.exitLabel = this.add
       .text(x, y, heistT('heistExit'), {
         fontFamily: 'Unbounded, sans-serif',
-        fontSize: '16px',
+        fontSize: '20px',
         color: '#e8d7a0',
       })
       .setOrigin(0.5)
       .setDepth(4)
   }
 
-  private addLockedDoor(spec: (typeof MANSION_DOORS)[number]): LockedDoor {
+  private addLockedDoor(spec: { id: string; x: number; y: number; w: number; h: number }): LockedDoor {
     const body = this.addSolid(spec.x, spec.y, spec.w, spec.h, 'wall')
     body.setFillStyle(0x3a2414)
     const cx = spec.x + spec.w / 2
@@ -1103,7 +1003,7 @@ export class HeistScene extends Phaser.Scene {
     this.add
       .text(cx, cy - (spec.h > spec.w ? 0 : 18), heistT('heistLockpick'), {
         fontFamily: 'Unbounded, sans-serif',
-        fontSize: '9px',
+        fontSize: '12px',
         color: '#ffe08a',
       })
       .setOrigin(0.5)
@@ -1113,6 +1013,82 @@ export class HeistScene extends Phaser.Scene {
 
   private rebuildNav() {
     this.nav = buildNavGrid(this.mapW, this.mapH, 24, this.wallRects, 22)
+  }
+
+  private addRoomLabel(x: number, y: number, key: MessageKey) {
+    const obj = this.add
+      .text(x, y, heistT(key), {
+        fontFamily: 'Unbounded, sans-serif',
+        fontSize: '13px',
+        color: '#b49a62',
+      })
+      .setOrigin(0.5)
+      .setDepth(4)
+    this.roomLabels.push({ obj, key })
+  }
+
+  /**
+   * LEVEL 1 BANK: lobby (safe start) -> hall (guards and cameras) -> vault
+   * (locked door, C100, safe). EXIT sits on the far side of the lobby, so a
+   * deep run always pays for itself with a long way back.
+   */
+  private buildBankWorld() {
+    this.drawFloor()
+
+    this.walls = this.physics.add.staticGroup()
+    this.wallRects = []
+    this.hideZones = []
+    this.doors = []
+    this.roomLabels = []
+    const T = 40
+    this.addSolid(0, 0, BANK_W, T, 'wall')
+    this.addSolid(0, BANK_H - T, BANK_W, T, 'wall')
+    this.addSolid(0, 0, T, BANK_H, 'wall')
+    this.addSolid(BANK_W - T, 0, T, BANK_H, 'wall')
+    for (const w of BANK_WALLS) this.addSolid(w.x, w.y, w.w, w.h, 'wall')
+    this.doors = BANK_DOORS.map((d) => this.addLockedDoor(d))
+    for (const f of BANK_FURNITURE) this.addSolid(f.x, f.y, f.w, f.h, f.kind)
+    for (const h of BANK_HIDES) this.addHide(h.x, h.y, h.w, h.h)
+    this.paintHideMats()
+    this.paintLamps(BANK_LAMPS)
+    this.rebuildNav()
+
+    this.safes = BANK_SAFES.map((s) => ({
+      x: s.x,
+      y: s.y,
+      opened: false,
+      extraX: s.extraX,
+      extraY: s.extraY,
+      extraKind: s.extraKind,
+      reward: s.reward,
+    }))
+    this.safePos.set(this.safes[0].x, this.safes[0].y)
+    for (const s of this.safes) this.buildSafe(s.x, s.y)
+
+    this.placeExit(BANK_EXIT.x, BANK_EXIT.y)
+    for (const lab of BANK_LABELS) this.addRoomLabel(lab.x, lab.y, lab.key)
+
+    this.spawnDuckAt(BANK_SPAWN.x, BANK_SPAWN.y)
+
+    const guardKey = this.tryCreateGuardAnims() ? 'guard_sheet' : 'guard'
+    this.units = this.limitCount(BANK_GUARD_ROUTES, this.cfg.counts.guards).map((route) =>
+      this.spawnGuard(
+        route.map((p) => new Phaser.Math.Vector2(p.x, p.y)),
+        0,
+        guardKey,
+      ),
+    )
+
+    this.cams = this.limitCount(BANK_CAMS, this.cfg.counts.cams).map((c) =>
+      this.makeCam(c.x, c.y, c.base, c.sweep, c.speed),
+    )
+
+    this.lootGroup = this.physics.add.group()
+    BANK_LOOT.forEach((slot, i) => this.spawnLoot(slot.x, slot.y, slot.kind, i))
+
+    this.physics.add.collider(this.player, this.walls)
+    for (const u of this.units) this.physics.add.collider(u.sprite, this.walls)
+    this.setupPlaySession()
   }
 
   private buildMansionWorld() {
@@ -1149,15 +1125,7 @@ export class HeistScene extends Phaser.Scene {
     for (const h of MANSION_HIDES) this.addHide(h.x, h.y, h.w, h.h)
     this.paintHideMats()
 
-    const g = this.add.graphics().setDepth(2)
-    for (const [lx, ly] of MANSION_LAMPS) {
-      g.fillStyle(0xc9a227, 0.07)
-      g.fillCircle(lx, ly, 36)
-      g.fillStyle(0x1a181e)
-      g.fillCircle(lx, ly, 5)
-      g.fillStyle(0xe8d7a0, 0.55)
-      g.fillCircle(lx, ly, 2.4)
-    }
+    this.paintLamps(MANSION_LAMPS)
     this.rebuildNav()
 
     this.safes = MANSION_SAFES.map((s) => ({
@@ -1173,16 +1141,8 @@ export class HeistScene extends Phaser.Scene {
     for (const s of this.safes) this.buildSafe(s.x, s.y)
 
     this.placeExit(MANSION_EXIT.x, MANSION_EXIT.y)
-    for (const lab of MANSION_LABELS) {
-      this.add
-        .text(lab.x, lab.y, heistT(lab.key), {
-          fontFamily: 'Unbounded, sans-serif',
-          fontSize: '10px',
-          color: '#b49a62',
-        })
-        .setOrigin(0.5)
-        .setDepth(4)
-    }
+    this.roomLabels = []
+    for (const lab of MANSION_LABELS) this.addRoomLabel(lab.x, lab.y, lab.key)
 
     this.spawnDuckAt(MANSION_SPAWN.x, MANSION_SPAWN.y)
 
@@ -1211,19 +1171,19 @@ export class HeistScene extends Phaser.Scene {
   private drawFloor() {
     this.add.tileSprite(W / 2, H / 2, W, H, 'floor_tile').setDepth(0)
     const g = this.add.graphics().setDepth(1)
-    g.fillStyle(0x10141c, 0.32)
-    g.fillRect(40, 40, 1680, 340)
-    g.fillStyle(0x1a1612, 0.26)
-    g.fillRect(40, 920, 520, 300)
-    g.fillStyle(0x1a1218, 0.22)
-    g.fillRoundedRect(280, 430, 1190, 450, 18)
+    for (const f of BANK_FLOORS) {
+      g.fillStyle(f.color, f.alpha)
+      g.fillRect(f.x, f.y, f.w, f.h)
+    }
+    // golden thresholds mark the two ways into the vault
     g.fillStyle(0xc9a227, 0.07)
-    g.fillRoundedRect(648, 368, 344, 28, 4)
+    g.fillRoundedRect(800, 368, 140, 28, 4)
+    g.fillRoundedRect(1400, 368, 60, 28, 4)
     g.fillStyle(0xc9a227, 0.05)
-    g.fillCircle(860, 200, 210)
-    g.fillCircle(700, 650, 190)
-    g.fillCircle(148, 1108, 170)
-    g.fillCircle(1188, 148, 120)
+    g.fillCircle(1520, 150, 150)
+    g.fillCircle(860, 620, 200)
+    g.fillCircle(148, 1188, 170)
+    g.fillCircle(BANK_SPAWN.x, BANK_SPAWN.y, 150)
     g.fillStyle(0x000000, 0.18)
     g.fillRect(0, 0, W, 28)
     g.fillRect(0, H - 28, W, 28)
@@ -1350,7 +1310,7 @@ export class HeistScene extends Phaser.Scene {
     this.maxCombo = Math.max(this.maxCombo, this.combo)
     this.lastPickup = now
     this.fx?.explode(8, item.x, item.y)
-    this.floatGain(gained)
+    this.floatGain(gained, kind)
     stopCoinIdle(this, item)
     const sc = item.scale
     this.tweens.add({
@@ -1370,14 +1330,17 @@ export class HeistScene extends Phaser.Scene {
     })
   }
 
-  private floatGain(gained: number) {
+  /** Bigger and brighter for the rare coins so a C100 pickup reads as a win. */
+  private floatGain(gained: number, kind?: LootKind) {
     const x = this.player.x
     const y = this.player.y - 18
+    const big = kind === 'C100' || gained >= 100
+    const mid = kind === 'C50' || gained >= 50
     const label = this.add
       .text(x, y, heistT('heistSafeReward', { n: gained }), {
         fontFamily: 'Unbounded, sans-serif',
-        fontSize: '14px',
-        color: '#ffe08a',
+        fontSize: big ? '22px' : mid ? '19px' : '16px',
+        color: big ? '#fff3c4' : '#ffe08a',
       })
       .setOrigin(0.5)
       .setDepth(16)
@@ -1475,6 +1438,56 @@ export class HeistScene extends Phaser.Scene {
     const r = 20
     const inset = w < 440 ? Math.max(r + 8, 22) : 34
     return { x: w - inset, y: w < 440 ? 24 : 28, r }
+  }
+
+  private hudPanelH() {
+    return this.weightOn() ? 62 : 52
+  }
+
+  /** Short raid message on its own plate, so it stays readable over the level art. */
+  private showBanner(text: string) {
+    const x = this.bannerX()
+    const y = this.bannerY()
+    this.crackHud.setVisible(true)
+    this.crackHud.setPosition(x, y)
+    this.crackHud.setText(text)
+    this.crackHint.setVisible(false)
+    const w = this.crackHud.width + 24
+    const h = this.crackHud.height + 14
+    this.uiGfx.fillStyle(0x080604, 0.78)
+    this.uiGfx.fillRoundedRect(x - w / 2, y - 7, w, h, 9)
+    this.uiGfx.lineStyle(1.5, 0xc9a227, 0.45)
+    this.uiGfx.strokeRoundedRect(x - w / 2, y - 7, w, h, 9)
+  }
+
+  /** Banners live under the HUD and right of the objectives panel. */
+  private bannerX() {
+    return Math.min(this.camW() - 90, (164 + this.camW()) / 2)
+  }
+
+  private bannerY() {
+    return this.hudPanelH() + 44
+  }
+
+  /** Alarm and carried weight as bars: mid raid nobody parses two more numbers. */
+  private drawHudBars() {
+    const x = 12
+    const w = this.hudBarWidth() - 12
+    const y = 44
+    this.uiGfx.fillStyle(0x000000, 0.45)
+    this.uiGfx.fillRoundedRect(x, y, w, 5, 2.5)
+    this.uiGfx.fillStyle(this.raidPhase === 'SAFE' ? 0x6fbf73 : PHASE_TINT[this.raidPhase].color || 0xc9a227, 0.95)
+    this.uiGfx.fillRoundedRect(x, y, Math.max(4, w * Phaser.Math.Clamp(this.alert, 0, 1)), 5, 2.5)
+    if (!this.weightOn()) return
+    const wy = y + 10
+    const load = Phaser.Math.Clamp(this.carriedWeight() / this.weightCap(), 0, 1)
+    this.uiGfx.fillStyle(0x000000, 0.45)
+    this.uiGfx.fillRoundedRect(x, wy, w, 5, 2.5)
+    this.uiGfx.fillStyle(this.weightOver() > 0 ? 0xff8a4a : 0xc9a227, 0.95)
+    this.uiGfx.fillRoundedRect(x, wy, Math.max(4, w * load), 5, 2.5)
+    // where the speed and noise penalty starts
+    this.uiGfx.fillStyle(0xf3e6c4, 0.75)
+    this.uiGfx.fillRect(x + w * this.cfg.weight.penaltyStart, wy - 2, 1.5, 9)
   }
 
   private hudBarWidth() {
@@ -2583,7 +2596,7 @@ export class HeistScene extends Phaser.Scene {
     const show = age < 1600 && (this.phaseRising || this.raidPhase === 'SAFE')
     this.phaseHud.setVisible(show)
     if (!show) return
-    this.phaseHud.setPosition(this.camW() / 2, 78)
+    this.phaseHud.setPosition(this.bannerX(), this.hudPanelH() + 12)
     this.phaseHud.setAlpha(age < 1100 ? 1 : 1 - (age - 1100) / 500)
   }
 
@@ -2672,7 +2685,7 @@ export class HeistScene extends Phaser.Scene {
     this.uiGfx.clear()
     this.uiGfx.fillStyle(0x080604, 0.55)
     const barW = this.hudBarWidth()
-    this.uiGfx.fillRoundedRect(6, 4, barW, 44, 8)
+    this.uiGfx.fillRoundedRect(6, 4, barW, this.hudPanelH(), 8)
     this.hud.setWordWrapWidth(barW - 14, true)
     this.bagHud.setWordWrapWidth(barW - 14, true)
     const sx = this.stick.active ? this.stick.ox : 72
@@ -2743,34 +2756,30 @@ export class HeistScene extends Phaser.Scene {
       this.crackHint.setPosition(ox, oy + 36)
     }
 
-    const a = Math.round(this.alert * 100)
     this.drawPhaseFx(now)
     const band = heistT(PHASE_LABEL[this.raidPhase])
     const color = PHASE_COLOR[this.raidPhase]
     const full = this.currentLoot >= this.mods.bagCap || this.gameNow() < this.bagFullFlash
     this.hud.setColor(full ? '#ffb070' : '#ffe08a')
+    const escape = this.escaping ? `   ${heistT('heistEscape')}` : ''
     this.hud.setText(
-      `${heistT('heistDuckCoin')} ${this.currentLoot}${full ? `   ${heistT('heistBagFull')}` : ''}`,
+      `${heistT('heistDuckCoin')} ${this.currentLoot}   ${formatClock(now - this.startedAt)}   ${band}${escape}`,
     )
-    this.bagHud.setColor(color)
-    const escape = this.escaping ? `    ${heistT('heistEscape')}` : ''
+    this.bagHud.setColor(this.weightOver() > 0 ? '#ff8a4a' : color)
     const police =
       this.escapeUntil > 0
-        ? `    ${heistT('heistPolice')} ${formatClock(Math.max(0, this.escapeUntil - now))}`
+        ? `   ${heistT('heistPolice')} ${formatClock(Math.max(0, this.escapeUntil - now))}`
         : ''
-    const heavy = this.weightOver() > 0 ? ` ${heistT('heistHeavy')}` : ''
     const weight = this.weightOn()
-      ? `    ${heistT('heistWeight')} ${Math.round(this.carriedWeight())}/${this.weightCap()}${heavy}`
+      ? `   ${heistT('heistWeight')} ${Math.round(this.carriedWeight())}/${this.weightCap()}`
       : ''
     this.bagHud.setText(
-      `${heistT('heistBag')} ${this.currentLoot}/${this.mods.bagCap}${weight}    ${heistT('heistAlert')} ${a}% ${band}    ${heistT('heistTime')} ${formatClock(now - this.startedAt)}${police}${escape}`,
+      `${heistT('heistBag')} ${this.currentLoot}/${this.mods.bagCap}${full ? ` ${heistT('heistBagFull')}` : ''}${weight}${police}`,
     )
+    this.drawHudBars()
     this.drawObjectives(now - this.startedAt)
     this.exitLabel?.setText(heistT('heistExit'))
-    if (this.levelId !== 'mansion') {
-      this.lobbyLabel?.setText(heistT('heistRoomLobby'))
-      this.vaultLabel?.setText(heistT('heistRoomVault'))
-    }
+    for (const lab of this.roomLabels) lab.obj.setText(heistT(lab.key))
     this.safeTitle?.setText(heistT('heistSafeName'))
     this.sneakLabel?.setText(heistT('heistSneak'))
     this.dashLabel?.setText(heistT('heistDash'))
@@ -2783,21 +2792,12 @@ export class HeistScene extends Phaser.Scene {
       this.crackHint.setVisible(true)
       this.crackHint.setText(heistT('heistHitHint'))
     } else if (this.safeOpened && now - this.safeOpenedAt < 1800) {
-      this.crackHud.setVisible(true)
-      this.crackHud.setPosition(this.camW() / 2, 46)
       const reward = this.safes[this.crackI]?.reward ?? SAFE_REWARD
-      this.crackHud.setText(`${heistT('heistSafeOpenedTitle')}\n${heistT('heistSafeReward', { n: reward })}`)
-      this.crackHint.setVisible(false)
+      this.showBanner(`${heistT('heistSafeOpenedTitle')}\n${heistT('heistSafeReward', { n: reward })}`)
     } else if (this.routeNoticeAt > 0 && now - this.routeNoticeAt < 4200) {
-      this.crackHud.setVisible(true)
-      this.crackHud.setPosition(this.camW() / 2, 46)
-      this.crackHud.setText(`${heistT('heistRouteBlocked')}\n${heistT('heistRouteOpen')}`)
-      this.crackHint.setVisible(false)
+      this.showBanner(`${heistT('heistRouteBlocked')}\n${heistT('heistRouteOpen')}`)
     } else if (this.doorOpenedAt > 0 && now - this.doorOpenedAt < 1400) {
-      this.crackHud.setVisible(true)
-      this.crackHud.setPosition(this.camW() / 2, 46)
-      this.crackHud.setText(heistT('heistDoorOpened'))
-      this.crackHint.setVisible(false)
+      this.showBanner(heistT('heistDoorOpened'))
     } else {
       this.crackHud.setVisible(false)
       this.crackHint.setVisible(false)
@@ -2816,9 +2816,10 @@ export class HeistScene extends Phaser.Scene {
     const speed = elapsedMs < this.objTimeS * 1000
     const mark = (ok: boolean) => (ok ? '✓' : '□')
     const w = Math.min(148, Math.max(120, this.camW() - 88))
+    const top = this.hudPanelH() + 8
     this.uiGfx.fillStyle(0x080604, 0.5)
-    this.uiGfx.fillRoundedRect(6, 50, w, 58, 8)
-    this.objHud.setPosition(12, 53)
+    this.uiGfx.fillRoundedRect(6, top, w, 58, 8)
+    this.objHud.setPosition(12, top + 3)
     this.objHud.setWordWrapWidth(w - 12, true)
     this.objHud.setText(
       `${heistT('heistObjectives')}\n${mark(loot)} ${heistT('heistObjLoot', { n: this.objLoot })}\n${mark(stealth)} ${heistT('heistObjStealth')}\n${mark(speed)} ${heistT('heistObjSpeed', { n: this.objTimeS })}`,

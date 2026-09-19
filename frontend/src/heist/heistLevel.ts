@@ -1,4 +1,4 @@
-import { RAID_OBJ_LOOT, RAID_OBJ_TIME_S } from './progress'
+import { RAID_OBJ_TIME_S } from './progress'
 import type { MessageKey } from '../i18n/messages'
 
 export type HeistLevelId = 'bank' | 'mansion'
@@ -20,5 +20,13 @@ export const HEIST_LEVEL_CARDS: readonly HeistLevelCard[] = [
 
 export function heistLevelObjectives(id: HeistLevelId) {
   if (id === 'mansion') return { loot: 250, timeS: 150 }
-  return { loot: RAID_OBJ_LOOT, timeS: RAID_OBJ_TIME_S }
+  // Bank: the lobby alone is not enough, the hall has to be worked.
+  return { loot: 150, timeS: RAID_OBJ_TIME_S }
+}
+
+/** Shown on the level card so the risk is known before the raid starts. */
+export function heistLevelBrief(id: HeistLevelId) {
+  const obj = heistLevelObjectives(id)
+  if (id === 'mansion') return { ...obj, guards: 5, cams: 6, safes: 2 }
+  return { ...obj, guards: 3, cams: 5, safes: 1 }
 }

@@ -80,6 +80,10 @@ export type HeistTuning = {
     guards: number | null
     cams: number | null
   }
+  camera: {
+    /** Below 1 shows more of the map; the HUD keeps its own unzoomed camera. */
+    zoom: number
+  }
 }
 
 export type TuningPatch = {
@@ -153,10 +157,20 @@ export const DEFAULT_TUNING: HeistTuning = {
     guards: null,
     cams: null,
   },
+  camera: {
+    zoom: 0.8,
+  },
 }
 
+/**
+ * Bank teaches the full loop with softer numbers, mansion is the real thing.
+ */
 const LEVEL_TUNING: Record<HeistLevelId, TuningPatch> = {
-  bank: {},
+  bank: {
+    weight: { enabled: true, penaltyStart: 0.6, maxSpeedPenalty: 0.18, maxNoiseBonus: 0.25 },
+    alert: { phasesEnabled: true, stepHoldS: { chase: 3.5, danger: 2.8, suspicious: 1.8 } },
+    escape: { enabled: true, timerS: 50, sirenAlert: 0.72, routeChange: false },
+  },
   mansion: { weight: { enabled: true }, alert: { phasesEnabled: true }, escape: { enabled: true } },
 }
 

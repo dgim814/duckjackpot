@@ -15,8 +15,32 @@ import {
   type LabStat,
 } from '../heist/progress'
 import { heistSfx, unlockHeistSfx } from '../heist/heistSfx'
-import { HEIST_LEVEL_CARDS, type HeistLevelId } from '../heist/heistLevel'
+import { HEIST_LEVEL_CARDS, heistLevelBrief, type HeistLevelId } from '../heist/heistLevel'
 import { useI18n } from '../i18n/LanguageProvider'
+
+/** Goal, guards and cameras of a level, so the player picks the risk knowingly. */
+function LevelBrief({ id, cap }: { id: HeistLevelId; cap: number }) {
+  const { t } = useI18n()
+  const brief = heistLevelBrief(id)
+  const items = [
+    `${t('heistObjLoot', { n: Math.min(brief.loot, cap) })}`,
+    t('heistBriefGuards', { n: brief.guards }),
+    t('heistBriefCams', { n: brief.cams }),
+    t('heistBriefSafes', { n: brief.safes }),
+  ]
+  return (
+    <div className="mt-2 flex flex-wrap gap-1.5">
+      {items.map((item) => (
+        <span
+          key={item}
+          className="rounded-full border border-white/10 bg-black/30 px-2 py-0.5 text-[10px] font-bold tracking-[0.06em] text-zinc-300"
+        >
+          {item}
+        </span>
+      ))}
+    </div>
+  )
+}
 
 function formatTime(ms: number) {
   const s = Math.max(0, Math.floor(ms / 1000))
@@ -273,7 +297,7 @@ export function HeistPage() {
     <section className="relative h-[calc(100dvh-4.75rem-env(safe-area-inset-bottom))] overflow-y-auto bg-[#120c10]">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(255,107,0,0.18),transparent_50%)]" />
       <div className="relative mx-auto flex min-h-full w-full max-w-sm flex-col items-center px-5 pb-6 pt-4">
-        <HeistDuck className="mb-1 max-h-28 w-auto" />
+        <HeistDuck className="hero-duck mb-1 block" size={112} />
         <div className="w-full rounded-3xl border border-amber-400/35 bg-[#120c10]/88 p-4 backdrop-blur-md">
           <div className="mb-3 flex justify-center">
             <LangSwitch gold />
@@ -312,6 +336,7 @@ export function HeistPage() {
                       {open ? t('heistLevelOpen') : t('heistLevelLocked')}
                     </span>
                   </div>
+                  {card.id ? <LevelBrief id={card.id} cap={bagCap(progress)} /> : null}
                   {open ? (
                     <button
                       type="button"

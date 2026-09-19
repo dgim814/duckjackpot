@@ -91,33 +91,54 @@ export function playCoinIdle(scene: Phaser.Scene, sprite: Phaser.GameObjects.Spr
   sprite.setData('coinIdleTweens', [motion, shine])
 }
 
+/**
+ * Only used for denominations without a painted PNG (today: C5). Copper rim and
+ * a printed face value keep it readable next to the golden coin art.
+ */
 function paintCoinPlaceholder(ctx: CanvasRenderingContext2D, size: number, value: number) {
   const c = size / 2
   const r = size / 2 - 1.5
-  const gold = value >= 100 ? '#f5c400' : value >= 50 ? '#d4a017' : '#b8860b'
-  const inner = value >= 100 ? '#fff4c4' : value >= 50 ? '#ffe08a' : '#efd27a'
+  const big = value >= 50
+  const rim = big ? '#e0a92a' : '#c98a3c'
+  const rimDark = big ? '#8a5f10' : '#6f4416'
+  const face = big ? '#ffe08a' : '#f0c98d'
+  const faceLow = big ? '#d4a017' : '#c08a4a'
   ctx.clearRect(0, 0, size, size)
+
+  ctx.beginPath()
+  ctx.arc(c, c + size * 0.05, r, 0, Math.PI * 2)
+  ctx.fillStyle = 'rgba(0,0,0,0.35)'
+  ctx.fill()
+
   ctx.beginPath()
   ctx.arc(c, c, r, 0, Math.PI * 2)
-  ctx.fillStyle = gold
+  ctx.fillStyle = rim
   ctx.fill()
-  ctx.lineWidth = Math.max(2, size * 0.08)
-  ctx.strokeStyle = '#5a3d0c'
+  ctx.lineWidth = Math.max(2, size * 0.07)
+  ctx.strokeStyle = rimDark
   ctx.stroke()
+
+  const grad = ctx.createLinearGradient(0, c - r, 0, c + r)
+  grad.addColorStop(0, face)
+  grad.addColorStop(1, faceLow)
   ctx.beginPath()
-  ctx.arc(c, c, r * 0.74, 0, Math.PI * 2)
-  ctx.fillStyle = inner
+  ctx.arc(c, c, r * 0.76, 0, Math.PI * 2)
+  ctx.fillStyle = grad
   ctx.fill()
-  ctx.beginPath()
-  ctx.arc(c, c, r * 0.74, 0, Math.PI * 2)
   ctx.lineWidth = 1
-  ctx.strokeStyle = '#c9a227'
+  ctx.strokeStyle = rimDark
   ctx.stroke()
-  ctx.fillStyle = '#4a2e08'
-  ctx.font = `700 ${Math.floor(size * 0.5)}px Unbounded, system-ui, sans-serif`
+
+  ctx.beginPath()
+  ctx.ellipse(c - r * 0.25, c - r * 0.35, r * 0.3, r * 0.16, -0.5, 0, Math.PI * 2)
+  ctx.fillStyle = 'rgba(255,255,255,0.45)'
+  ctx.fill()
+
+  ctx.fillStyle = rimDark
+  ctx.font = `800 ${Math.floor(size * 0.46)}px Unbounded, system-ui, sans-serif`
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
-  ctx.fillText('$', c, c + size * 0.03)
+  ctx.fillText(String(value), c, c + size * 0.04)
 }
 
 export function ensureCoinPlaceholders(scene: Phaser.Scene) {
