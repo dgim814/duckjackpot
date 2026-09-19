@@ -19,6 +19,7 @@ import { AgreementProvider, RequireAgreement } from './i18n/AgreementProvider'
 import { LanguageProvider } from './i18n/LanguageProvider'
 import { AppLayout } from './layout/AppLayout'
 import { AgreementPage } from './pages/AgreementPage'
+import { GameHomePage } from './pages/GameHomePage'
 import { HistoryPage } from './pages/HistoryPage'
 import { HomePage } from './pages/HomePage'
 import { HeistPage } from './pages/HeistPage'
@@ -83,7 +84,9 @@ export default function App() {
                   </RequireAgreement>
                 }
               >
-                <Route path="/" element={<HomePage />} />
+                <Route path="/" element={<GameHomePage />} />
+                <Route path="/drop" element={<HomePage />} />
+                <Route path="/nft" element={<Navigate to="/drop" replace />} />
                 <Route path="/heist" element={<HeistPage />} />
                 <Route path="/hunt" element={<HuntPage />} />
                 <Route path="/cards" element={<MyCardsPage />} />

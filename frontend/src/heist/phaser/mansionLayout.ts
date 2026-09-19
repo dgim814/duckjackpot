@@ -41,7 +41,8 @@ export const MANSION_WALLS: MansionRect[] = [
   { x: 1000, y: 620, w: 28, h: 260 },
   { x: 1760, y: 40, w: 28, h: 200 },
   { x: 1760, y: 400, w: 28, h: 480 },
-  { x: 2480, y: 40, w: 28, h: 840 },
+  { x: 2480, y: 40, w: 28, h: 260 },
+  { x: 2480, y: 460, w: 28, h: 420 },
   { x: 2480, y: 880, w: 28, h: 220 },
   { x: 2480, y: 1260, w: 28, h: 220 },
   { x: 2480, y: 640, w: 600, h: 28 },
@@ -59,8 +60,46 @@ export const MANSION_WALLS: MansionRect[] = [
   { x: 1000, y: 1480, w: 28, h: 100 },
   { x: 1000, y: 1700, w: 28, h: 140 },
   { x: 1000, y: 1840, w: 960, h: 28 },
-  { x: 2920, y: 40, w: 28, h: 600 },
+  { x: 2920, y: 40, w: 28, h: 260 },
+  { x: 2920, y: 460, w: 28, h: 180 },
 ]
+
+/**
+ * Siren plan: the safe alarm seals the usual way to EXIT and opens the service
+ * passage that runs from the treasure room straight into the exit hall.
+ */
+export const MANSION_SIREN: {
+  close: MansionRect[]
+  openWalls: MansionRect[]
+  unlockDoors: MansionDoor['id'][]
+  redeploy: { guard: number; route: { x: number; y: number }[] }[]
+} = {
+  close: [{ x: 3080, y: 640, w: 160, h: 28 }],
+  openWalls: [
+    { x: 2480, y: 300, w: 28, h: 160 },
+    { x: 2920, y: 300, w: 28, h: 160 },
+  ],
+  unlockDoors: ['treasure'],
+  redeploy: [
+    {
+      guard: 0,
+      route: [
+        { x: 1260, y: 1020 },
+        { x: 1260, y: 700 },
+        { x: 1560, y: 540 },
+        { x: 1260, y: 960 },
+      ],
+    },
+    {
+      guard: 3,
+      route: [
+        { x: 2040, y: 620 },
+        { x: 2300, y: 360 },
+        { x: 2040, y: 200 },
+      ],
+    },
+  ],
+}
 
 export const MANSION_DOORS: MansionDoor[] = [
   { id: 'storageA', x: 140, y: 400, w: 140, h: 28 },

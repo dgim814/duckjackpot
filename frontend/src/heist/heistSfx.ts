@@ -419,6 +419,21 @@ export const heistSfx = {
     osc(ac, g3, 930, 'sine', t + 0.28, t + 0.5)
   },
 
+  siren() {
+    const ac = audio()
+    if (!ac) return
+    const dest = shotGain ?? ac.destination
+    const t = ac.currentTime
+    noiseBurst(ac, dest, 0.05, 0.1, 1400, 0, 1.2)
+    for (let i = 0; i < 3; i += 1) {
+      const at = t + i * 0.4
+      const g = env(ac, dest, at, 0.07, 0.03, 0.34)
+      const o = osc(ac, g, 520, 'sawtooth', at, at + 0.38)
+      o.frequency.exponentialRampToValueAtTime(920, at + 0.2)
+      o.frequency.exponentialRampToValueAtTime(520, at + 0.36)
+    }
+  },
+
   exit() {
     const ac = audio()
     if (!ac) return
