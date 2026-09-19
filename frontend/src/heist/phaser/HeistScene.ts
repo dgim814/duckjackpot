@@ -1381,11 +1381,11 @@ export class HeistScene extends Phaser.Scene {
       this.noise = this.noiseOf('sneak')
     } else if (moving && mag < 0.55) {
       this.setMoveAnim('walk')
-      spd = SPEED.run * 0.72
+      spd = SPEED.run * 0.72 * this.mods.speedMul
       this.noise = this.noiseOf('walk')
     } else if (moving) {
       this.setMoveAnim('run')
-      spd = SPEED.run
+      spd = SPEED.run * this.mods.speedMul
       this.noise = this.noiseOf('run')
     } else {
       this.setMoveAnim('idle')
@@ -1405,14 +1405,8 @@ export class HeistScene extends Phaser.Scene {
   }
 
   private noiseOf(mode: 'sneak' | 'run' | 'dash' | 'walk') {
-    if (!this.mods.silentShoes) {
-      if (mode === 'walk') return 22
-      return NOISE[mode]
-    }
-    if (mode === 'sneak') return 5
-    if (mode === 'run') return 20
-    if (mode === 'dash') return 60
-    return 12
+    const base = mode === 'walk' ? 22 : NOISE[mode]
+    return this.mods.silentShoes ? base * 0.65 : base
   }
 
   private los(ax: number, ay: number, bx: number, by: number) {
@@ -1442,7 +1436,7 @@ export class HeistScene extends Phaser.Scene {
   }
 
   private seesPlayer() {
-    return this.coneSees(this.guard.x, this.guard.y, this.gFacing, GUARD_VISION, GUARD_FOV)
+    return this.coneSees(this.guard.x, this.guard.y, this.gFacing, GUARD_VISION * this.mods.disguiseMul, GUARD_FOV)
   }
 
   private hearsPlayer() {
@@ -1570,7 +1564,7 @@ export class HeistScene extends Phaser.Scene {
       cam.beam.setPosition(cam.x, cam.y)
       cam.beam.setTint(cam.hot ? 0xffd2a8 : 0xffffff)
       cam.beam.setAlpha(cam.hot ? 1 : 0.82)
-      const seen = this.coneSees(cam.x, cam.y, cam.facing, CAM_VISION, CAM_FOV)
+      const seen = this.coneSees(cam.x, cam.y, cam.facing, CAM_VISION * this.mods.disguiseMul, CAM_FOV)
       cam.hot = seen && !this.hidden
       cam.led.setPosition(cam.x + Math.cos(cam.facing) * 11, cam.y + Math.sin(cam.facing) * 11)
       cam.led.setFillStyle(cam.hot ? 0xffe08a : 0xc9a227, cam.hot ? 1 : 0.85)
@@ -1814,7 +1808,7 @@ export class HeistScene extends Phaser.Scene {
       this.guard.x,
       this.guard.y,
       this.gFacing,
-      GUARD_VISION,
+      GUARD_VISION * this.mods.disguiseMul,
       GUARD_FOV,
       hot ? 0xc45a3a : 0xc9a227,
       hot ? 0.12 : 0.07,

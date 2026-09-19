@@ -4,15 +4,13 @@ import { HeistGame, type HeistEnd } from '../heist/HeistGame'
 import { bindHeistI18n } from '../heist/heistI18n'
 import { LangSwitch } from '../components/LangSwitch'
 import {
-  PRICE_BIG_BAG,
-  PRICE_DISGUISE,
-  PRICE_SHOES,
   bagCap,
   bankCoins,
+  buyLabUpgrade,
+  labNextPrice,
   loadProgress,
   runMods,
-  saveProgress,
-  type PlayerProgress,
+  type LabStat,
 } from '../heist/progress'
 import { useI18n } from '../i18n/LanguageProvider'
 
@@ -52,18 +50,17 @@ export function HeistPage() {
     setScreen('play')
   }
 
-  const buy = (ok: boolean, apply: (p: PlayerProgress) => PlayerProgress, price: number) => {
-    if (ok) {
-      setShopMsg(t('heistOwned'))
+  const buyLab = (stat: LabStat) => {
+    const result = buyLabUpgrade(progress, stat)
+    if (result.reason === 'max') {
+      setShopMsg(t('heistLabMax'))
       return
     }
-    if (progress.bankedDuckCoin < price) {
+    if (result.reason === 'poor') {
       setShopMsg(t('heistNotEnough'))
       return
     }
-    const next = apply({ ...progress, bankedDuckCoin: progress.bankedDuckCoin - price })
-    saveProgress(next)
-    setProgress(next)
+    setProgress(result.next)
     setShopMsg(null)
   }
 
@@ -79,33 +76,42 @@ export function HeistPage() {
   }
 
   if (screen === 'shop') {
-    const items = [
+    const tracks: {
+      stat: LabStat
+      title: string
+      names: string[]
+      hints: string[]
+    }[] = [
       {
-        title: t('heistBigBag'),
-        hint: t('heistBigBagHint'),
-        price: PRICE_BIG_BAG,
-        owned: progress.bagLevel >= 1,
-        onBuy: () => buy(progress.bagLevel >= 1, (p) => ({ ...p, bagLevel: 1 }), PRICE_BIG_BAG),
+        stat: 'bagLevel',
+        title: t('heistLabBag'),
+        names: [t('heistBagLv0'), t('heistBagLv1'), t('heistBagLv2'), t('heistBagLv3')],
+        hints: [t('heistBagLv0Hint'), t('heistBagLv1Hint'), t('heistBagLv2Hint'), t('heistBagLv3Hint')],
       },
       {
-        title: t('heistDisguise'),
-        hint: t('heistDisguiseHint'),
-        price: PRICE_DISGUISE,
-        owned: progress.disguiseLevel >= 1,
-        onBuy: () => buy(progress.disguiseLevel >= 1, (p) => ({ ...p, disguiseLevel: 1 }), PRICE_DISGUISE),
+        stat: 'disguiseLevel',
+        title: t('heistLabDisguise'),
+        names: [t('heistDisguiseLv0'), t('heistDisguiseLv1'), t('heistDisguiseLv2'), t('heistDisguiseLv3')],
+        hints: [t('heistDisguiseLv0Hint'), t('heistDisguiseLv1Hint'), t('heistDisguiseLv2Hint'), t('heistDisguiseLv3Hint')],
       },
       {
-        title: t('heistShoes'),
-        hint: t('heistShoesHint'),
-        price: PRICE_SHOES,
-        owned: progress.shoesLevel >= 1,
-        onBuy: () => buy(progress.shoesLevel >= 1, (p) => ({ ...p, shoesLevel: 1 }), PRICE_SHOES),
+        stat: 'shoesLevel',
+        title: t('heistLabShoes'),
+        names: [t('heistShoesLv0'), t('heistShoesLv1'), t('heistShoesLv2'), t('heistShoesLv3')],
+        hints: [t('heistShoesLv0Hint'), t('heistShoesLv1Hint'), t('heistShoesLv2Hint'), t('heistShoesLv3Hint')],
       },
+    ]
+    const soon = [
+      t('heistLabNightVision'),
+      t('heistLabFasterDash'),
+      t('heistLabMoneyMagnet'),
+      t('heistLabLockpick'),
     ]
     return (
       <section className="relative h-[calc(100dvh-4.75rem-env(safe-area-inset-bottom))] overflow-y-auto bg-[#120c10] px-5 py-6">
         <div className="mx-auto w-full max-w-sm">
-          <p className="text-center text-[11px] font-extrabold tracking-[0.2em] text-amber-200">{t('heistUpgrades')}</p>
+          <p className="text-center text-[11px] font-extrabold tracking-[0.2em] text-amber-200">{t('heistLab')}</p>
+          <p className="mt-1 text-center text-[10px] font-extrabold tracking-[0.18em] text-amber-100/70">{t('heistUpgrades')}</p>
           <p className="mt-3 text-center font-display text-4xl font-black text-amber-300">{progress.bankedDuckCoin}</p>
           <p className="text-center text-xs font-extrabold tracking-[0.18em] text-amber-100/80">{t('heistDuckCoin')}</p>
           <p className="mt-1 text-center text-xs text-zinc-400">
@@ -113,24 +119,56 @@ export function HeistPage() {
           </p>
           {shopMsg ? <p className="mt-3 text-center text-sm font-bold text-orange-300">{shopMsg}</p> : null}
           <div className="mt-5 space-y-3">
-            {items.map((item) => (
-              <div key={item.title} className="rounded-2xl border border-amber-400/30 bg-[#101014]/90 p-4">
-                <p className="font-display text-lg font-black text-amber-100">{item.title}</p>
-                <p className="mt-1 text-sm text-zinc-400">{item.hint}</p>
-                <p className="mt-2 font-mono text-sm font-bold text-amber-200">{item.price} {t('heistDuckCoin')}</p>
-                <button
-                  type="button"
-                  className="buy-btn mt-3 w-full rounded-xl px-4 py-2 text-sm font-black text-zinc-950"
-                  onClick={item.onBuy}
-                >
-                  {item.owned ? t('heistOwned') : t('heistBuy')}
-                </button>
+            {tracks.map((track) => {
+              const level = progress[track.stat]
+              const current = track.names[level] ?? track.names[0]
+              const nextName = track.names[level + 1]
+              const hint = track.hints[Math.min(level + (nextName ? 1 : 0), track.hints.length - 1)]
+              const price = labNextPrice(progress, track.stat)
+              const maxed = price == null
+              return (
+                <div key={track.stat} className="rounded-2xl border border-amber-400/30 bg-[#101014]/90 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="font-display text-lg font-black text-amber-100">{track.title}</p>
+                    <p className="shrink-0 text-[11px] font-extrabold tracking-[0.12em] text-amber-200">
+                      {t('heistLabLevel', { n: level + 1, max: 4 })}
+                    </p>
+                  </div>
+                  <p className="mt-2 text-sm font-semibold text-amber-50">{t('heistLabCurrent', { name: current })}</p>
+                  <p className="mt-1 text-sm text-zinc-400">{t('heistLabNext', { name: maxed ? t('heistLabMax') : nextName })}</p>
+                  <p className="mt-1 text-sm text-zinc-500">{hint}</p>
+                  <p className="mt-2 font-mono text-sm font-bold text-amber-200">
+                    {maxed ? t('heistLabMax') : `${price} ${t('heistDuckCoin')}`}
+                  </p>
+                  <button
+                    type="button"
+                    disabled={maxed}
+                    className="buy-btn mt-3 min-h-12 w-full rounded-xl px-4 py-3 text-sm font-black text-zinc-950 disabled:opacity-50"
+                    onClick={() => buyLab(track.stat)}
+                  >
+                    {maxed ? t('heistLabMax') : t('heistBuy')}
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+          <p className="mt-6 text-center text-[10px] font-extrabold tracking-[0.2em] text-amber-200/70">{t('heistLabSoon')}</p>
+          <div className="mt-3 space-y-2">
+            {soon.map((name) => (
+              <div key={name} className="rounded-2xl border border-white/10 bg-[#101014]/70 p-4 opacity-80">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="font-display text-base font-black text-amber-100/80">{name}</p>
+                  <span className="rounded-full border border-amber-400/30 px-2 py-1 text-[10px] font-extrabold tracking-[0.14em] text-amber-200/80">
+                    {t('heistLabSoon')}
+                  </span>
+                </div>
+                <p className="mt-1 text-sm text-zinc-500">{t('heistLabSoonHint')}</p>
               </div>
             ))}
           </div>
           <button
             type="button"
-            className="mt-5 w-full rounded-2xl border border-white/15 px-4 py-3 text-sm font-bold text-zinc-200"
+            className="mt-5 min-h-12 w-full rounded-2xl border border-white/15 px-4 py-3 text-sm font-bold text-zinc-200"
             onClick={() => {
               setShopMsg(null)
               setScreen('lobby')
