@@ -185,7 +185,6 @@ export class HeistScene extends Phaser.Scene {
   private pauseResumeLbl!: Phaser.GameObjects.Text
   private pauseAbortLbl!: Phaser.GameObjects.Text
   private stealthBroken = false
-  private alertSfxOn = false
   private startedAt = 0
   private combo = 0
   private maxCombo = 0
@@ -1005,6 +1004,7 @@ export class HeistScene extends Phaser.Scene {
   update(_t: number, dtMs: number) {
     if (this.ended || !this.player) return
     if (this.paused) {
+      this.syncHeistSfx()
       this.drawUi()
       return
     }
@@ -1026,12 +1026,7 @@ export class HeistScene extends Phaser.Scene {
     for (const unit of this.units) this.updateGuard(unit, dt)
     this.updateAlert(dt)
     if (this.alert >= 0.7 || this.anyChase()) this.stealthBroken = true
-    if (this.alert >= 0.7) {
-      if (!this.alertSfxOn) heistSfx.alert()
-      this.alertSfxOn = true
-    } else if (this.alert < 0.55) {
-      this.alertSfxOn = false
-    }
+    this.syncHeistSfx()
     this.drawWorldFx()
     this.drawUi()
   }
@@ -1153,6 +1148,7 @@ export class HeistScene extends Phaser.Scene {
   private tryOpenSafe() {
     if (this.ended || this.paused || this.safeOpened || this.safeCrack || !this.nearSafe()) return
     this.safeCrack = true
+    heistSfx.safeStart()
     this.safeHits = 0
     this.safeMarker = 0.08
     this.safeDir = 1
@@ -1185,7 +1181,7 @@ export class HeistScene extends Phaser.Scene {
     const zone = this.safeZone()
     if (Math.abs(this.safeMarker - zone.center) <= zone.width / 2) {
       this.safeHits += 1
-      heistSfx.safeSuccess()
+      heistSfx.safeClick()
       if (this.safeHits >= SAFE_HITS) this.openSafeReward()
     } else {
       this.alert = Math.min(1, this.alert + SAFE_MISS_ALERT)
@@ -1195,6 +1191,7 @@ export class HeistScene extends Phaser.Scene {
 
   private openSafeReward() {
     this.safeCrack = false
+    heistSfx.safeUnlock()
     this.safeOpened = true
     this.safeOpenedAt = this.gameNow()
     const room = Math.max(0, this.mods.bagCap - this.currentLoot)
@@ -1504,6 +1501,18 @@ export class HeistScene extends Phaser.Scene {
     return this.units.some((u) => u.state === 'CHASE')
   }
 
+  private syncHeistSfx(ended = this.ended) {
+    heistSfx.sync({
+      alert: this.alert,
+      cameraHot: this.camSees,
+      investigating: this.units.some((u) => u.state === 'INVESTIGATE' || u.state === 'SEARCH'),
+      chasing: this.anyChase(),
+      cracking: this.safeCrack,
+      paused: this.paused,
+      ended,
+    })
+  }
+
   private maxDetect() {
     return this.units.reduce((m, u) => Math.max(m, u.detect), 0)
   }
@@ -1524,8 +1533,8 @@ export class HeistScene extends Phaser.Scene {
     u.path = []
     u.repathAt = 0
     u.stuckTries = 0
-    if (s === 'CHASE' && prev !== 'CHASE') heistSfx.chase()
-    else if (s === 'INVESTIGATE' && (prev === 'PATROL' || prev === 'RETURN')) heistSfx.detected()
+    if (s === 'CHASE' && prev !== 'CHASE') heistSfx.chaseStart()
+    else if (s === 'INVESTIGATE' && (prev === 'PATROL' || prev === 'RETURN')) heistSfx.investigateStart()
     if (s === 'SEARCH') {
       u.searchT = 5.2
       u.searchI = 0
@@ -1637,10 +1646,12 @@ export class HeistScene extends Phaser.Scene {
       cam.beam.setTint(cam.hot ? 0xffd2a8 : 0xffffff)
       cam.beam.setAlpha(cam.hot ? 1 : 0.82)
       const seen = this.coneSees(cam.x, cam.y, cam.facing, CAM_VISION * this.mods.disguiseMul, CAM_FOV)
-      cam.hot = seen && !this.hidden
+      const hot = seen && !this.hidden
+      if (hot && !cam.hot) heistSfx.cameraAlert()
+      cam.hot = hot
       cam.led.setPosition(cam.x + Math.cos(cam.facing) * 11, cam.y + Math.sin(cam.facing) * 11)
       cam.led.setFillStyle(cam.hot ? 0xffe08a : 0xc9a227, cam.hot ? 1 : 0.85)
-      if (seen && !this.hidden) {
+      if (hot) {
         this.camSees = true
         this.alert = Math.min(1, this.alert + dt * 0.42 * this.mods.disguiseMul)
         for (const u of this.units) {
@@ -1837,6 +1848,7 @@ export class HeistScene extends Phaser.Scene {
     this.ended = true
     if (verdict === 'escaped') heistSfx.exit()
     else heistSfx.caught()
+    this.syncHeistSfx(true)
     this.releaseTouches()
     this.input.enabled = false
     const body = this.player.body as Phaser.Physics.Arcade.Body

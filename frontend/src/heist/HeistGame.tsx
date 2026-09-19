@@ -4,7 +4,7 @@ import { createHeistGame } from './phaser/createHeistGame'
 import type { HeistEnd } from './types'
 import type { HeistRunMods } from './progress'
 import { bindHeistI18n } from './heistI18n'
-import { unlockHeistSfx } from './heistSfx'
+import { haltHeistSfx, unlockHeistSfx } from './heistSfx'
 import { useI18n } from '../i18n/LanguageProvider'
 
 export type { HeistEnd }
@@ -65,6 +65,7 @@ export function HeistGame({ running, mods, onDone }: HeistGameProps) {
     const game = createHeistGame(wrap, (end) => onDoneRef.current(end), mods)
 
     return () => {
+      haltHeistSfx()
       game.destroy(true)
       wrap.removeEventListener('touchmove', stop)
       document.removeEventListener('touchmove', stop)
