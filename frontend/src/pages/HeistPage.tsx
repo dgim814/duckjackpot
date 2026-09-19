@@ -15,6 +15,7 @@ import {
   runMods,
   type LabStat,
 } from '../heist/progress'
+import { requestStarsPurchase, STAR_PACKS } from '../heist/economy/stars'
 import { heistSfx, unlockHeistSfx } from '../heist/heistSfx'
 import { HEIST_LEVEL_CARDS, heistLevelBrief, type HeistLevelId } from '../heist/heistLevel'
 import { useI18n } from '../i18n/LanguageProvider'
@@ -160,6 +161,16 @@ export function HeistPage() {
             {t('heistBag')} {bagCap(progress)}
           </p>
           <p className="mt-1 text-center text-[11px] text-zinc-500">{t('heistStarsHint')}</p>
+          <button
+            type="button"
+            className="mt-3 min-h-12 w-full rounded-xl border border-amber-400/30 px-4 py-3 text-sm font-bold text-amber-100"
+            onClick={() => {
+              const result = requestStarsPurchase(STAR_PACKS[0])
+              if (!result.ok) setShopMsg(t('heistStarsSoon'))
+            }}
+          >
+            {t('heistStarsBuy')}
+          </button>
           {shopMsg ? <p className="mt-3 text-center text-sm font-bold text-orange-300">{shopMsg}</p> : null}
           <div className="mt-5 space-y-3">
             {tracks.map((track) => {

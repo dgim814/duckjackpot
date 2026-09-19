@@ -7,6 +7,7 @@ import { DailyHeistCard } from '../heist/hub/DailyHeistCard'
 import { EnergyBar } from '../heist/hub/EnergyBar'
 import { NextRaidCard } from '../heist/hub/NextRaidCard'
 import { collectionValue } from '../heist/economy/catalog'
+import { countOwned } from '../heist/economy/collection'
 import { bagCap, loadProgress } from '../heist/progress'
 import { heistRank } from '../heist/rank'
 import { heistSfx, unlockHeistSfx } from '../heist/heistSfx'
@@ -18,6 +19,7 @@ export function GameHomePage() {
   const [progress] = useState(loadProgress)
   const rank = heistRank(progress)
   const value = collectionValue(progress.ownedArt ?? {})
+  const items = countOwned(progress.ownedArt ?? {})
   const tap = (path: string) => {
     unlockHeistSfx()
     heistSfx.uiTap()
@@ -32,15 +34,18 @@ export function GameHomePage() {
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="text-[10px] font-extrabold uppercase tracking-[0.2em] text-amber-200">{t('heistDuckCoin')}</p>
-            <p className="gold-text font-display text-[2.6rem] font-black leading-none">{progress.bankedDuckCoin}</p>
+            <p className="gold-text font-display text-[2.6rem] font-black leading-none">{progress.bankedDuckCoin.toLocaleString()}</p>
           </div>
           <div className="text-right">
             <p className="text-[10px] font-extrabold uppercase tracking-[0.2em] text-amber-200/80">{t('collectionValue')}</p>
             <p className="font-display text-xl font-black text-amber-100">{value.toLocaleString()}</p>
+            <p className="mt-1 text-[10px] font-extrabold tracking-[0.14em] text-zinc-500">
+              {t('collectionCount', { n: items })}
+            </p>
           </div>
         </div>
         <p className="mt-1 text-[11px] text-zinc-500">
-          {t('heistBag')} {bagCap(progress)} · STARS {progress.stars || 0}
+          {t(rank.nameKey)} · {t('heistBag')} {bagCap(progress)} · STARS {progress.stars || 0}
         </p>
 
         <div className="relative mx-auto mt-2 flex min-h-[12.5rem] items-end justify-center">
