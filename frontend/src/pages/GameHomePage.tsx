@@ -8,6 +8,7 @@ import { EnergyBar } from '../heist/hub/EnergyBar'
 import { NextRaidCard } from '../heist/hub/NextRaidCard'
 import { bagCap, loadProgress } from '../heist/progress'
 import { heistRank } from '../heist/rank'
+import { heistSfx, unlockHeistSfx } from '../heist/heistSfx'
 import { useI18n } from '../i18n/LanguageProvider'
 
 export function GameHomePage() {
@@ -15,7 +16,11 @@ export function GameHomePage() {
   const navigate = useNavigate()
   const [progress] = useState(loadProgress)
   const rank = heistRank(progress)
-  const openHeist = () => navigate('/heist')
+  const openHeist = () => {
+    unlockHeistSfx()
+    heistSfx.uiTap()
+    navigate('/heist')
+  }
 
   return (
     <div className="overflow-x-hidden px-4 pb-4">
@@ -28,10 +33,10 @@ export function GameHomePage() {
           {t('heistBag')} {bagCap(progress)}
         </p>
 
-        <div className="relative mx-auto mt-3 flex justify-center">
-          <div className="hero-glow pointer-events-none absolute left-1/2 top-1/2 h-40 w-40 -translate-x-1/2 -translate-y-1/2 rounded-full" />
-          <HeistDuck className="hero-duck relative" size={176} />
-          <div className="hero-shadow pointer-events-none absolute inset-x-8 -bottom-1 h-3 rounded-full" />
+        <div className="relative mx-auto mt-4 flex h-[13.5rem] items-end justify-center">
+          <div className="hero-glow pointer-events-none absolute left-1/2 top-[42%] h-52 w-52 -translate-x-1/2 -translate-y-1/2 rounded-full" />
+          <HeistDuck className="hero-duck relative z-[1]" size={208} />
+          <div className="hero-shadow pointer-events-none absolute inset-x-10 bottom-1 h-3 rounded-full" />
         </div>
 
         <button

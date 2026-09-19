@@ -8,7 +8,10 @@ export const MANSION_EXIT = { x: 3280, y: 260 }
 
 export type MansionRect = { x: number; y: number; w: number; h: number }
 export type MansionDoor = MansionRect & { id: 'storageA' | 'storageB' | 'treasure' }
-export type MansionFurn = MansionRect & { kind: 'desk' | 'cabinet' | 'column' }
+export type MansionFurn = MansionRect & {
+  kind: 'desk' | 'cabinet' | 'column' | 'sofa' | 'bed' | 'plant' | 'stove'
+}
+export type MansionDecor = MansionRect & { kind: 'rug' | 'painting' | 'rope' }
 
 /** Inner walls only. Outer bounds and locked doors are added by the scene. */
 export const MANSION_WALLS: MansionRect[] = [
@@ -109,21 +112,33 @@ export const MANSION_DOORS: MansionDoor[] = [
 
 export const MANSION_FURNITURE: MansionFurn[] = [
   { x: 70, y: 2180, w: 90, h: 70, kind: 'cabinet' },
+  { x: 180, y: 2188, w: 44, h: 52, kind: 'plant' },
   { x: 560, y: 1788, w: 64, h: 120, kind: 'cabinet' },
   { x: 780, y: 1920, w: 80, h: 100, kind: 'cabinet' },
-  { x: 460, y: 1600, w: 150, h: 46, kind: 'desk' },
-  { x: 1120, y: 1520, w: 170, h: 46, kind: 'desk' },
-  { x: 1520, y: 1700, w: 170, h: 46, kind: 'desk' },
+  { x: 460, y: 1600, w: 150, h: 46, kind: 'stove' },
+  { x: 1120, y: 1520, w: 170, h: 70, kind: 'sofa' },
+  { x: 1520, y: 1700, w: 190, h: 78, kind: 'sofa' },
   { x: 780, y: 1020, w: 170, h: 46, kind: 'desk' },
   { x: 1580, y: 1220, w: 170, h: 46, kind: 'desk' },
   { x: 1080, y: 1120, w: 46, h: 46, kind: 'column' },
   { x: 1780, y: 1280, w: 46, h: 46, kind: 'column' },
-  { x: 480, y: 80, w: 160, h: 46, kind: 'desk' },
-  { x: 1220, y: 80, w: 160, h: 46, kind: 'desk' },
+  { x: 1320, y: 980, w: 48, h: 56, kind: 'plant' },
+  { x: 480, y: 80, w: 160, h: 90, kind: 'bed' },
+  { x: 1220, y: 80, w: 180, h: 100, kind: 'bed' },
   { x: 70, y: 80, w: 90, h: 70, kind: 'cabinet' },
   { x: 3320, y: 940, w: 90, h: 80, kind: 'cabinet' },
   { x: 1820, y: 80, w: 90, h: 140, kind: 'cabinet' },
   { x: 3180, y: 80, w: 90, h: 70, kind: 'cabinet' },
+  { x: 2100, y: 1680, w: 48, h: 56, kind: 'plant' },
+  { x: 3000, y: 200, w: 48, h: 56, kind: 'plant' },
+]
+
+export const MANSION_DECOR: MansionDecor[] = [
+  { x: 1280, y: 1640, w: 320, h: 200, kind: 'rug' },
+  { x: 1100, y: 1040, w: 360, h: 220, kind: 'rug' },
+  { x: 70, y: 2100, w: 70, h: 46, kind: 'painting' },
+  { x: 1860, y: 900, w: 80, h: 52, kind: 'painting' },
+  { x: 700, y: 900, w: 80, h: 52, kind: 'painting' },
 ]
 
 export const MANSION_HIDES: MansionRect[] = [

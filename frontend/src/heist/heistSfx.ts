@@ -18,12 +18,16 @@ const FILES = {
   camera: '/audio/heist/camera-alert.mp3',
   investigate: '/audio/heist/investigate.mp3',
 } as const
+const FALLBACK: Partial<Record<keyof typeof FILES, string[]>> = {
+  chase: ['/heist/chase.mp3'],
+}
 
 type Clip = keyof typeof FILES
 
 let ctx: AudioContext | null = null
 let unlocked = false
 let graph = false
+let bound = false
 let noiseBuf: AudioBuffer | null = null
 let loading = false
 
@@ -32,6 +36,7 @@ let shotGain: GainNode | null = null
 let safeGain: GainNode | null = null
 let chaseGain: GainNode | null = null
 let tensionGain: GainNode | null = null
+let ambientGain: GainNode | null = null
 
 const buffers: Partial<Record<Clip, AudioBuffer>> = {}
 let chaseSrc: AudioBufferSourceNode | null = null
@@ -41,27 +46,77 @@ let chaseOn = false
 let chasePreview = false
 let chaseDucked = false
 let lastSafeTickAt = 0
+let lastStepAt = 0
 
 function ctor() {
   return window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
 }
 
+function dropGraph() {
+  graph = false
+  master = shotGain = safeGain = chaseGain = tensionGain = ambientGain = null
+  chaseSrc = tensionSrc = null
+  chaseOn = false
+  noiseBuf = null
+  for (const id of Object.keys(buffers) as Clip[]) delete buffers[id]
+}
+
+function resetIfClosed() {
+  if (ctx && ctx.state === 'closed') {
+    ctx = null
+    dropGraph()
+  }
+}
+
+function primeOutput(ac: AudioContext) {
+  try {
+    const buf = ac.createBuffer(1, 1, ac.sampleRate)
+    const src = ac.createBufferSource()
+    src.buffer = buf
+    src.connect(ac.destination)
+    src.start(0)
+  } catch {
+    /* iOS may reject a second prime */
+  }
+}
+
+function wakeContext(ac: AudioContext) {
+  if (ac.state === 'suspended' || (ac.state as string) === 'interrupted') void ac.resume()
+}
+
+/** iPhone only starts Web Audio after a real tap. Bind once from main.tsx. */
+export function bindHeistAudioUnlock() {
+  if (bound || typeof window === 'undefined') return
+  bound = true
+  const fire = () => unlockHeistSfx()
+  const opts: AddEventListenerOptions = { capture: true, passive: true }
+  for (const ev of ['pointerdown', 'touchstart', 'touchend', 'mousedown', 'keydown'] as const) {
+    window.addEventListener(ev, fire, opts)
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') unlockHeistSfx()
+  })
+}
+
 export function unlockHeistSfx() {
   unlocked = true
+  resetIfClosed()
   const Ctor = ctor()
   if (!Ctor) return
   if (!ctx) ctx = new Ctor()
-  if (ctx.state === 'suspended') void ctx.resume()
+  wakeContext(ctx)
   ensureGraph()
+  primeOutput(ctx)
   void loadClips()
 }
 
 function audio() {
   if (!unlocked) return null
+  resetIfClosed()
   const Ctor = ctor()
   if (!Ctor) return null
   if (!ctx) ctx = new Ctor()
-  if (ctx.state === 'suspended') void ctx.resume()
+  wakeContext(ctx)
   ensureGraph()
   return ctx
 }
@@ -89,9 +144,15 @@ function ensureGraph() {
   safeGain.gain.value = 0
   safeGain.connect(master)
 
+  ambientGain = ctx.createGain()
+  ambientGain.gain.value = 0.028
+  ambientGain.connect(master)
+
   noiseBuf = makeNoise(ctx)
   startNoise(ctx, safeGain, 0.16, 280, 0.35)
   startDrone(ctx, safeGain, 92, 'sine', 0.2)
+  startNoise(ctx, ambientGain, 0.45, 380, 0.35)
+  startDrone(ctx, ambientGain, 46, 'sine', 0.28)
 }
 
 async function loadClips() {
@@ -105,7 +166,7 @@ async function loadClips() {
 
 async function loadOne(ac: AudioContext, id: Clip) {
   if (buffers[id]) return
-  const urls = [FILES[id]]
+  const urls = [FILES[id], ...(FALLBACK[id] ?? [])]
   for (const url of urls) {
     try {
       const res = await fetch(url)
@@ -318,14 +379,56 @@ export function haltHeistSfx() {
   stopChaseSource(0.2)
   stopTension(0.2)
   ramp(safeGain, 0, 0.12)
+  ramp(ambientGain, 0, 0.18)
 }
 
 export const heistSfx = {
   pickup() {
     const ac = audio()
     if (!ac) return
-    pickupTone(ac, 880, 0.06, 'triangle', 0.045)
-    pickupTone(ac, 1320, 0.07, 'sine', 0.03, 0.03)
+    pickupTone(ac, 784, 0.09, 'triangle', 0.12)
+    pickupTone(ac, 1176, 0.11, 'sine', 0.08, 0.025)
+    pickupTone(ac, 1568, 0.09, 'sine', 0.045, 0.05)
+  },
+
+  dash() {
+    const ac = audio()
+    if (!ac) return
+    noiseBurst(ac, shotGain ?? ac.destination, 0.045, 0.09, 900, 0, 0.8)
+    pickupTone(ac, 220, 0.08, 'sine', 0.04)
+  },
+
+  step(sneak: boolean) {
+    const ac = audio()
+    if (!ac) return
+    const now = ac.currentTime
+    if (now - lastStepAt < (sneak ? 0.42 : 0.28)) return
+    lastStepAt = now
+    noiseBurst(ac, shotGain ?? ac.destination, sneak ? 0.01 : 0.02, 0.04, sneak ? 420 : 680, 0, 1.1)
+  },
+
+  doorHack() {
+    const ac = audio()
+    if (!ac) return
+    const dest = shotGain ?? ac.destination
+    noiseBurst(ac, dest, 0.04, 0.05, 1800, 0, 3)
+    pickupTone(ac, 540, 0.07, 'square', 0.03)
+  },
+
+  doorUnlock() {
+    const ac = audio()
+    if (!ac) return
+    const dest = shotGain ?? ac.destination
+    const t = ac.currentTime
+    noiseBurst(ac, dest, 0.05, 0.1, 1200, 0, 1.4)
+    const g = env(ac, dest, t, 0.05, 0.01, 0.22)
+    osc(ac, g, 180, 'triangle', t, t + 0.24)
+  },
+
+  uiTap() {
+    const ac = audio()
+    if (!ac) return
+    pickupTone(ac, 660, 0.05, 'sine', 0.035)
   },
 
   cameraAlert() {
@@ -499,8 +602,11 @@ export const heistSfx = {
         ramp(tensionGain, 0, fade)
       }
       ramp(safeGain, 0, 0.12)
+      ramp(ambientGain, mood.ended ? 0 : 0.012, 0.2)
       return
     }
+
+    ramp(ambientGain, mood.chasing ? 0.01 : 0.028, 0.4)
 
     if (mood.chasing) {
       chasePreview = false

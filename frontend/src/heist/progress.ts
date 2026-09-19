@@ -1,3 +1,5 @@
+import type { OwnedCollection } from './economy/catalog'
+
 export type PlayerProgress = {
   bankedDuckCoin: number
   bagLevel: number
@@ -10,6 +12,8 @@ export type PlayerProgress = {
   objLoot: boolean
   objStealth: boolean
   objSpeed: boolean
+  /** Collection counts. Empty until Black Market ships; never wipe this. */
+  ownedArt: OwnedCollection
 }
 
 export type HeistRunMods = {
@@ -58,7 +62,18 @@ const emptyProgress = (): PlayerProgress => ({
   objLoot: false,
   objStealth: false,
   objSpeed: false,
+  ownedArt: {},
 })
+
+function readOwned(raw: unknown): OwnedCollection {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
+  const out: OwnedCollection = {}
+  for (const [id, count] of Object.entries(raw as Record<string, unknown>)) {
+    const n = Math.floor(Number(count) || 0)
+    if (n > 0) out[id] = n
+  }
+  return out
+}
 
 function clampLevel(n: unknown, max = LAB_MAX) {
   const v = Math.floor(Number(n) || 0)
@@ -83,6 +98,7 @@ export function loadProgress(): PlayerProgress {
       objLoot: Boolean(parsed.objLoot),
       objStealth: Boolean(parsed.objStealth),
       objSpeed: Boolean(parsed.objSpeed),
+      ownedArt: readOwned(parsed.ownedArt),
     }
   } catch {
     return emptyProgress()
@@ -153,6 +169,7 @@ export function bankCoins(progress: PlayerProgress, gained: number, objectives?:
     objLoot: progress.objLoot || Boolean(objectives?.loot),
     objStealth: progress.objStealth || Boolean(objectives?.stealth),
     objSpeed: progress.objSpeed || Boolean(objectives?.speed),
+    ownedArt: progress.ownedArt ?? {},
   }
   saveProgress(next)
   return next

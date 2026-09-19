@@ -19,14 +19,14 @@ export const BANK_EXIT = { x: 148, y: 1188 }
 
 export type BankRect = { x: number; y: number; w: number; h: number }
 export type BankDoor = BankRect & { id: 'bankVault' }
-export type BankFurn = BankRect & { kind: 'desk' | 'cabinet' | 'column' }
+export type BankFurn = BankRect & { kind: 'desk' | 'cabinet' | 'column' | 'atm' | 'chair' | 'counter' }
+export type BankDecor = BankRect & { kind: 'rug' | 'painting' | 'rope' }
 
 /** Inner walls only; outer bounds and the locked door are added by the scene. */
 export const BANK_WALLS: BankRect[] = [
-  // vault wall: locked door gap 800..940, narrow service gap 1400..1460
+  // vault wall: lockpick door 800..940 is the only way in
   { x: 40, y: 380, w: 760, h: 28 },
-  { x: 940, y: 380, w: 460, h: 28 },
-  { x: 1460, y: 380, w: 260, h: 28 },
+  { x: 940, y: 380, w: 780, h: 28 },
   // vault inner dividers
   { x: 560, y: 40, w: 28, h: 150 },
   { x: 1180, y: 40, w: 28, h: 200 },
@@ -46,22 +46,39 @@ export const BANK_WALLS: BankRect[] = [
 export const BANK_DOORS: BankDoor[] = [{ id: 'bankVault', x: 800, y: 380, w: 140, h: 28 }]
 
 export const BANK_FURNITURE: BankFurn[] = [
-  // hall counters
-  { x: 320, y: 540, w: 170, h: 46, kind: 'desk' },
-  { x: 320, y: 730, w: 170, h: 46, kind: 'desk' },
+  // hall teller islands
+  { x: 320, y: 540, w: 170, h: 46, kind: 'counter' },
+  { x: 320, y: 730, w: 170, h: 46, kind: 'counter' },
   { x: 980, y: 540, w: 170, h: 46, kind: 'desk' },
   { x: 980, y: 730, w: 170, h: 46, kind: 'desk' },
+  { x: 300, y: 588, w: 36, h: 32, kind: 'chair' },
+  { x: 1024, y: 592, w: 36, h: 32, kind: 'chair' },
   { x: 620, y: 620, w: 46, h: 46, kind: 'column' },
   { x: 1088, y: 620, w: 46, h: 46, kind: 'column' },
-  // corridor lockers to wait a patrol out
+  { x: 860, y: 500, w: 46, h: 46, kind: 'column' },
+  // corridor lockers
   { x: 64, y: 600, w: 72, h: 120, kind: 'cabinet' },
   { x: 1624, y: 600, w: 72, h: 120, kind: 'cabinet' },
-  // lobby counters
-  { x: 240, y: 980, w: 170, h: 46, kind: 'desk' },
+  // lobby: cashiers + ATMs
+  { x: 240, y: 980, w: 170, h: 46, kind: 'counter' },
   { x: 1380, y: 980, w: 170, h: 46, kind: 'desk' },
-  // vault deposit cabinets
+  { x: 840, y: 1012, w: 52, h: 64, kind: 'atm' },
+  { x: 920, y: 1012, w: 52, h: 64, kind: 'atm' },
+  { x: 284, y: 1032, w: 36, h: 32, kind: 'chair' },
+  { x: 1424, y: 1032, w: 36, h: 32, kind: 'chair' },
+  // vault deposit boxes and manager desk
   { x: 1000, y: 60, w: 80, h: 120, kind: 'cabinet' },
+  { x: 80, y: 70, w: 80, h: 110, kind: 'cabinet' },
   { x: 300, y: 250, w: 150, h: 46, kind: 'desk' },
+  { x: 1120, y: 210, w: 46, h: 46, kind: 'column' },
+]
+
+export const BANK_DECOR: BankDecor[] = [
+  { x: 560, y: 1040, w: 280, h: 160, kind: 'rug' },
+  { x: 500, y: 560, w: 240, h: 180, kind: 'rug' },
+  { x: 90, y: 930, w: 70, h: 46, kind: 'painting' },
+  { x: 1600, y: 930, w: 70, h: 46, kind: 'painting' },
+  { x: 780, y: 348, w: 180, h: 18, kind: 'rope' },
 ]
 
 export const BANK_HIDES: BankRect[] = [
@@ -79,34 +96,31 @@ export const BANK_HIDES: BankRect[] = [
   { x: 300, y: 296, w: 150, h: 46 },
 ]
 
-/** Small change near the start, C50 in the hall, C100 behind the vault door. */
+/** Pocket change in the lobby, C10 in the hall, C50/C100 only behind the vault door. */
 export const BANK_LOOT: { x: number; y: number; kind: DuckCoinKind }[] = [
-  // lobby
+  // lobby ~25
   { x: 1450, y: 1150, kind: 'C5' },
   { x: 1300, y: 1060, kind: 'C5' },
   { x: 1120, y: 1180, kind: 'C5' },
-  { x: 900, y: 1120, kind: 'C10' },
   { x: 620, y: 1160, kind: 'C5' },
   { x: 430, y: 1070, kind: 'C5' },
-  { x: 300, y: 1150, kind: 'C10' },
-  // corridors
-  { x: 150, y: 760, kind: 'C10' },
+  // corridors ~20
+  { x: 150, y: 760, kind: 'C5' },
   { x: 150, y: 460, kind: 'C5' },
   { x: 1610, y: 760, kind: 'C5' },
-  { x: 1610, y: 460, kind: 'C10' },
-  // hall
-  { x: 420, y: 640, kind: 'C5' },
+  { x: 1610, y: 460, kind: 'C5' },
+  // hall ~35, cameras and the floor guard
+  { x: 500, y: 680, kind: 'C5' },
   { x: 700, y: 560, kind: 'C5' },
-  { x: 860, y: 700, kind: 'C10' },
+  { x: 860, y: 700, kind: 'C5' },
   { x: 1200, y: 660, kind: 'C5' },
   { x: 520, y: 840, kind: 'C5' },
-  { x: 1000, y: 470, kind: 'C10' },
   { x: 760, y: 840, kind: 'C5' },
-  { x: 380, y: 500, kind: 'C50' },
-  // vault
+  { x: 1000, y: 470, kind: 'C10' },
+  // vault — the reason to lockpick
   { x: 300, y: 140, kind: 'C50' },
   { x: 620, y: 300, kind: 'C10' },
-  { x: 900, y: 140, kind: 'C50' },
+  { x: 740, y: 180, kind: 'C50' },
   { x: 1320, y: 120, kind: 'C100' },
 ]
 
@@ -171,7 +185,7 @@ export const BANK_LAMPS: [number, number][] = [
 ]
 
 export const BANK_FLOORS: { x: number; y: number; w: number; h: number; color: number; alpha: number }[] = [
-  { x: 40, y: 928, w: 1680, h: 312, color: 0x151018, alpha: 0.32 },
-  { x: 264, y: 408, w: 1224, h: 492, color: 0x121016, alpha: 0.22 },
-  { x: 40, y: 40, w: 1680, h: 340, color: 0x1c1410, alpha: 0.3 },
+  { x: 40, y: 928, w: 1680, h: 312, color: 0x1a2438, alpha: 0.38 },
+  { x: 264, y: 408, w: 1224, h: 492, color: 0x141820, alpha: 0.28 },
+  { x: 40, y: 40, w: 1680, h: 340, color: 0x1a1614, alpha: 0.42 },
 ]

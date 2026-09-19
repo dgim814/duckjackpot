@@ -8,10 +8,12 @@ import { heistT } from '../heistI18n'
 import { heistSfx, unlockHeistSfx } from '../heistSfx'
 import { buildNavGrid, cellCenter, findPath, findPathAroundStuck, nearestWalkable, type NavGrid } from '../guardPath'
 import { debugTuningVersion, exposeDebugTuning, resolveTuning } from '../debugConfig'
-import type { HeistTuning } from '../tuning'
+import { adaptiveCameraZoom, type HeistTuning } from '../tuning'
 import type { MessageKey } from '../../i18n/messages'
+import { paintDecor, paintFurniture, type FurnKind } from './furniture'
 import {
   BANK_CAMS,
+  BANK_DECOR,
   BANK_DOORS,
   BANK_EXIT,
   BANK_FLOORS,
@@ -29,6 +31,7 @@ import {
 } from './bankLayout'
 import {
   MANSION_CAMS,
+  MANSION_DECOR,
   MANSION_DOORS,
   MANSION_EXIT,
   MANSION_FLOORS,
@@ -109,7 +112,7 @@ const DOOR_HITS = 2
 
 type Wall = { x: number; y: number; w: number; h: number }
 type HideZone = Wall
-type SolidKind = 'wall' | 'desk' | 'column' | 'cabinet'
+type SolidKind = 'wall' | FurnKind
 type SafeSpot = {
   x: number
   y: number
@@ -145,10 +148,10 @@ type SecCam = {
 const GUARD_PNG = '/heist/guard.png'
 const GUARD_SHEET = '/heist/guard_sheet.png'
 const GUARD_FRAME = 256
-const GUARD_DISPLAY = 44
+const GUARD_DISPLAY = 50
 const DUCK_SHEET = '/heist/duck_sheet.png'
 const DUCK_FRAME = 256
-const DUCK_DISPLAY = 72
+const DUCK_DISPLAY = 84
 const DUCK_BODY_W = 20
 const DUCK_BODY_H = 22
 /** Previous visual size; keep world hitbox identical when display scale changes. */
@@ -396,7 +399,7 @@ export class HeistScene extends Phaser.Scene {
     const uiList = ui.filter((o): o is Phaser.GameObjects.GameObject => Boolean(o))
     const uiSet = new Set(uiList)
 
-    this.cameras.main.setZoom(this.cfg.camera.zoom)
+    this.cameras.main.setZoom(adaptiveCameraZoom(this.scale.width, this.scale.height, this.cfg.camera.zoom))
     this.cameras.main.ignore(uiList)
 
     this.uiCam = this.cameras.add(0, 0, this.scale.width, this.scale.height)
@@ -419,6 +422,7 @@ export class HeistScene extends Phaser.Scene {
 
   private onScaleResize = (size: Phaser.Structs.Size) => {
     this.uiCam?.setSize(size.width, size.height)
+    this.cameras.main.setZoom(adaptiveCameraZoom(size.width, size.height, this.cfg.camera.zoom))
   }
 
   preload() {
@@ -501,8 +505,31 @@ export class HeistScene extends Phaser.Scene {
     const ctx = c.getContext('2d')
     if (!ctx) return
     const mansion = this.levelId === 'mansion'
-    ctx.fillStyle = mansion ? '#1c1410' : '#15131a'
+    ctx.fillStyle = mansion ? '#1c1410' : '#1a222c'
     ctx.fillRect(0, 0, s, s)
+    if (mansion) {
+      ctx.strokeStyle = 'rgba(90,58,32,0.22)'
+      ctx.lineWidth = 2
+      for (let y = 0; y < s; y += 32) {
+        ctx.beginPath()
+        ctx.moveTo(0, y)
+        ctx.lineTo(s, y)
+        ctx.stroke()
+      }
+    } else {
+      ctx.strokeStyle = 'rgba(180,198,214,0.08)'
+      ctx.lineWidth = 1
+      for (let i = 0; i <= s; i += 64) {
+        ctx.beginPath()
+        ctx.moveTo(i, 0)
+        ctx.lineTo(i, s)
+        ctx.stroke()
+        ctx.beginPath()
+        ctx.moveTo(0, i)
+        ctx.lineTo(s, i)
+        ctx.stroke()
+      }
+    }
     for (let i = 0; i < 48; i += 1) {
       const x = (i * 53) % s
       const y = (i * 97) % s
@@ -584,46 +611,28 @@ export class HeistScene extends Phaser.Scene {
   private addSolid(x: number, y: number, w: number, h: number, kind: SolidKind) {
     const cx = x + w / 2
     const cy = y + h / 2
-    const fill = kind === 'wall' ? 0x1c1a22 : kind === 'column' ? 0x2a2430 : kind === 'cabinet' ? 0x241e28 : 0x2a241c
+    if (kind !== 'wall') {
+      paintFurniture(this, { x, y, w, h, kind }, this.levelId === 'mansion' ? 'mansion' : 'bank')
+      const r = this.add.rectangle(cx, cy, w, h, 0x000000, 0).setDepth(4)
+      this.physics.add.existing(r, true)
+      this.walls.add(r)
+      this.wallRects.push({ x, y, w, h })
+      return r
+    }
+    const fill = 0x1c1a22
     this.add.rectangle(cx + 5, cy + 8, w + 2, h + 2, 0x050308, 0.48).setDepth(3)
     const r = this.add.rectangle(cx, cy, w, h, fill).setDepth(4)
     r.setStrokeStyle(1, 0x0a080c, 1)
     const trim = this.add.graphics().setDepth(5)
-    trim.lineStyle(1.25, 0xc9a227, kind === 'wall' ? 0.22 : 0.42)
+    trim.lineStyle(1.25, 0xc9a227, 0.22)
     trim.strokeRect(x + 2, y + 2, w - 4, h - 4)
     trim.fillStyle(0xe8d7a0, 0.14)
     trim.fillRect(x + 2, y + 1, w - 4, 3)
-    if (kind === 'wall') {
-      trim.fillStyle(0x141218, 0.35)
-      if (w >= h && w > 64) {
-        for (let px = x + 28; px < x + w - 12; px += 36) trim.fillRect(px, y + 5, 1, h - 10)
-      } else if (h > 64) {
-        for (let py = y + 28; py < y + h - 12; py += 36) trim.fillRect(x + 5, py, w - 10, 1)
-      }
-    } else if (kind === 'desk') {
-      this.add.rectangle(cx, cy - h / 2 + 8, Math.max(14, w - 12), 9, 0x3a3228).setDepth(5)
-      this.add.rectangle(cx, cy - h / 2 + 6, Math.max(10, w - 18), 3, 0xc9a227, 0.45).setDepth(6)
-      this.add.rectangle(cx - w / 4, cy + 2, 10, h - 14, 0x1a1614).setDepth(5)
-      this.add.rectangle(cx + w / 4, cy + 2, 10, h - 14, 0x1a1614).setDepth(5)
-      trim.fillStyle(0x8ab4c8, 0.14)
-      trim.fillRect(x + 22, y - 18, w - 44, 18)
-      trim.lineStyle(1, 0xc9a227, 0.28)
-      trim.strokeRect(x + 22, y - 18, w - 44, 18)
-      trim.fillStyle(0xe8d7a0, 0.35)
-      trim.fillCircle(cx + 40, cy - h / 2 + 4, 3)
-    } else if (kind === 'column') {
-      this.add.rectangle(cx, cy, w - 12, h - 12, 0x1a181e).setDepth(5)
-      trim.lineStyle(2, 0xc9a227, 0.55)
-      trim.strokeRect(x + 6, y + 6, w - 12, h - 12)
-      trim.fillStyle(0xc9a227, 0.35)
-      trim.fillCircle(cx, cy, 4)
-    } else {
-      trim.fillStyle(0xc9a227, 0.28)
-      trim.fillRect(cx - w / 2 + 8, cy - 8, w - 16, 3)
-      trim.lineStyle(1, 0x100c12, 0.65)
-      trim.strokeRect(x + 8, y + 14, w - 16, 18)
-      trim.strokeRect(x + 8, y + 36, w - 16, 18)
-      trim.strokeRect(x + 8, y + 58, w - 16, Math.max(12, h - 72))
+    trim.fillStyle(0x141218, 0.35)
+    if (w >= h && w > 64) {
+      for (let px = x + 28; px < x + w - 12; px += 36) trim.fillRect(px, y + 5, 1, h - 10)
+    } else if (h > 64) {
+      for (let py = y + 28; py < y + h - 12; py += 36) trim.fillRect(x + 5, py, w - 10, 1)
     }
     this.physics.add.existing(r, true)
     this.walls.add(r)
@@ -1049,6 +1058,8 @@ export class HeistScene extends Phaser.Scene {
     for (const w of BANK_WALLS) this.addSolid(w.x, w.y, w.w, w.h, 'wall')
     this.doors = BANK_DOORS.map((d) => this.addLockedDoor(d))
     for (const f of BANK_FURNITURE) this.addSolid(f.x, f.y, f.w, f.h, f.kind)
+    const theme = 'bank' as const
+    for (const d of BANK_DECOR) paintDecor(this, d, theme)
     for (const h of BANK_HIDES) this.addHide(h.x, h.y, h.w, h.h)
     this.paintHideMats()
     this.paintLamps(BANK_LAMPS)
@@ -1123,6 +1134,7 @@ export class HeistScene extends Phaser.Scene {
     })
     this.doors = MANSION_DOORS.map((d) => this.addLockedDoor(d))
     for (const f of MANSION_FURNITURE) this.addSolid(f.x, f.y, f.w, f.h, f.kind)
+    for (const d of MANSION_DECOR) paintDecor(this, d, 'mansion')
     for (const h of MANSION_HIDES) this.addHide(h.x, h.y, h.w, h.h)
     this.paintHideMats()
 
@@ -1176,10 +1188,9 @@ export class HeistScene extends Phaser.Scene {
       g.fillStyle(f.color, f.alpha)
       g.fillRect(f.x, f.y, f.w, f.h)
     }
-    // golden thresholds mark the two ways into the vault
-    g.fillStyle(0xc9a227, 0.07)
+    // golden threshold marks the lockpick door into the vault
+    g.fillStyle(0xc9a227, 0.1)
     g.fillRoundedRect(800, 368, 140, 28, 4)
-    g.fillRoundedRect(1400, 368, 60, 28, 4)
     g.fillStyle(0xc9a227, 0.05)
     g.fillCircle(1520, 150, 150)
     g.fillCircle(860, 620, 200)
@@ -1307,6 +1318,16 @@ export class HeistScene extends Phaser.Scene {
     const weight = Number(item.getData('weight') ?? this.lootWeight(kind))
     if (gained > 0) this.carried.push({ kind, value: gained, weight })
     heistSfx.pickup()
+    const glow = item.getData('glow') as Phaser.GameObjects.Arc | undefined
+    if (glow) {
+      this.tweens.add({
+        targets: glow,
+        alpha: 0,
+        scale: 1.6,
+        duration: 180,
+        onComplete: () => glow.destroy(),
+      })
+    }
     const now = this.gameNow()
     this.combo = now - this.lastPickup < 3800 ? this.combo + 1 : 1
     this.maxCombo = Math.max(this.maxCombo, this.combo)
@@ -1341,7 +1362,7 @@ export class HeistScene extends Phaser.Scene {
     const big = kind === 'C100' || amount >= 100
     const mid = kind === 'C50' || amount >= 50
     const label = this.add
-      .text(x, y, heistT(dropped ? 'heistDropped' : 'heistSafeReward', { n: amount }), {
+      .text(x, y, heistT(dropped ? 'heistDropped' : 'heistPickup', { n: amount }), {
         fontFamily: 'Unbounded, sans-serif',
         fontSize: big ? '22px' : mid ? '19px' : '16px',
         color: dropped ? '#ffb070' : big ? '#fff3c4' : '#ffe08a',
@@ -1660,7 +1681,7 @@ export class HeistScene extends Phaser.Scene {
       this.crackKind = 'door'
       this.crackDoor = door
       this.safeCrack = true
-      heistSfx.safeStart()
+      heistSfx.doorHack()
       this.safeHits = 0
       this.safeMarker = 0.08
       this.safeDir = 1
@@ -1722,7 +1743,7 @@ export class HeistScene extends Phaser.Scene {
 
   private openDoorReward() {
     this.safeCrack = false
-    heistSfx.safeUnlock()
+    heistSfx.doorUnlock()
     const door = this.crackDoor
     this.crackDoor = null
     this.hitHeld = false
@@ -1838,9 +1859,12 @@ export class HeistScene extends Phaser.Scene {
     opts?: { value?: number; weight?: number; lockMs?: number },
   ) {
     const def = coinDef(kind)
+    const glow = this.add.circle(x, y, def.size * 0.72, kind === 'C100' ? 0xffe08a : 0xc9a227, kind === 'C100' ? 0.28 : 0.16)
+    glow.setDepth(5)
     const s = this.physics.add.sprite(x, y, def.key)
     applyCoinSpriteSize(s, def)
     s.setDepth(6)
+    s.setData('glow', glow)
     this.lootSpawn += 1
     s.setData('lootId', `loot-${this.lootSpawn}`)
     s.setData('value', opts?.value ?? def.value)
@@ -1862,6 +1886,7 @@ export class HeistScene extends Phaser.Scene {
     if (now < this.dashReady) return
     this.dashUntil = now + this.cfg.player.dashMs
     this.dashReady = now + this.cfg.player.dashCd
+    heistSfx.dash()
   }
 
   private releaseTouches() {
@@ -2072,6 +2097,7 @@ export class HeistScene extends Phaser.Scene {
       this.facing.set(vx, vy).normalize()
       body.setMaxVelocity(spd, spd)
       body.setVelocity(vx * spd, vy * spd)
+      if (!dashing) heistSfx.step(sneaking)
     } else {
       body.setVelocity(0, 0)
     }

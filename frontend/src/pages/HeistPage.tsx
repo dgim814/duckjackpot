@@ -75,6 +75,7 @@ export function HeistPage() {
 
   const playLevel = (id: HeistLevelId) => {
     unlockHeistSfx()
+    heistSfx.uiTap()
     setLevelId(id)
     setEnd(null)
     setRunKey((n) => n + 1)

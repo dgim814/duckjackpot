@@ -69,17 +69,21 @@ const safe = { x: L.BANK_SAFES[0].x - 110, y: L.BANK_SAFES[0].y }
 const cases = [
   ['vault door locked: spawn -> exit', locked, spawn, exit],
   ['vault door locked: spawn -> hall centre', locked, spawn, { x: 860, y: 700 }],
-  ['vault door locked: spawn -> vault via service gap', locked, spawn, safe],
+  ['vault door locked: spawn -> vault is sealed', locked, spawn, safe],
   ['vault door open: spawn -> safe', open, spawn, safe],
   ['vault door open: safe -> exit (escape run)', open, safe, exit],
   ['west corridor: spawn -> west corridor loot', locked, spawn, { x: 150, y: 460 }],
   ['east corridor: spawn -> east corridor loot', locked, spawn, { x: 1610, y: 460 }],
 ]
 
+let failed = 0
 for (const [name, rects, from, to] of cases) {
   const d = dist(rects, from, to)
   const walkS = d < 0 ? '' : `  ~${d}px  ~${Math.round(d / 98)}s at loaded run speed`
-  console.log(`${d >= 0 ? 'REACHABLE ' : 'BLOCKED   '} ${name}${walkS}`)
+  const sealed = name.includes('vault is sealed')
+  const ok = sealed ? d < 0 : d >= 0
+  if (!ok) failed += 1
+  console.log(`${d >= 0 ? 'REACHABLE ' : 'BLOCKED   '} ${ok ? 'ok ' : 'FAIL '} ${name}${walkS}`)
 }
 
 for (const [i, route] of L.BANK_GUARD_ROUTES.entries()) {
@@ -104,3 +108,8 @@ const zone = (p) => (p.y < 380 ? 'vault' : p.y < 900 ? 'hall' : 'lobby')
 const zones = {}
 for (const p of L.BANK_LOOT) zones[zone(p)] = (zones[zone(p)] ?? 0) + Number(p.kind.slice(1))
 console.log('loot by zone', zones)
+
+if (failed || badLoot.length) {
+  console.error('bank layout check failed')
+  process.exit(1)
+}

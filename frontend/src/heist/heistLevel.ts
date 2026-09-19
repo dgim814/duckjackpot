@@ -20,8 +20,8 @@ export const HEIST_LEVEL_CARDS: readonly HeistLevelCard[] = [
 
 export function heistLevelObjectives(id: HeistLevelId) {
   if (id === 'mansion') return { loot: 250, timeS: 150 }
-  // Bank: the lobby alone is not enough, the hall has to be worked.
-  return { loot: 150, timeS: RAID_OBJ_TIME_S }
+  // Bank: lobby pocket change is not enough. Hall is close; vault is the real score.
+  return { loot: 100, timeS: RAID_OBJ_TIME_S }
 }
 
 /** Shown on the level card so the risk is known before the raid starts. */

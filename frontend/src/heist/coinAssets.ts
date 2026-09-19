@@ -12,7 +12,7 @@ export type DuckCoinDef = {
 }
 
 export const DUCK_COIN_DEFS: DuckCoinDef[] = [
-  { kind: 'C5', value: 5, key: 'dc_5', size: 34, file: '/heist/coin_5.png' },
+  { kind: 'C5', value: 5, key: 'dc_5', size: 40, file: '/heist/coin_5.png' },
   { kind: 'C10', value: 10, key: 'dc_10', size: 44, file: '/heist/coin_10.png' },
   { kind: 'C50', value: 50, key: 'dc_50', size: 56, file: '/heist/coin_50.png' },
   { kind: 'C100', value: 100, key: 'dc_100', size: 68, file: '/heist/coin_100.png' },
@@ -91,20 +91,20 @@ export function playCoinIdle(scene: Phaser.Scene, sprite: Phaser.GameObjects.Spr
   sprite.setData('coinIdleTweens', [motion, shine])
 }
 
-/** Fallback if a PNG fails to load. Keeps the same family of gold/copper rims. */
+/** Gold family for every denomination. C5 used to read as a copper blob on iPhone. */
 function paintCoinPlaceholder(ctx: CanvasRenderingContext2D, size: number, value: number) {
   const c = size / 2
   const r = size / 2 - 1.5
-  const big = value >= 50
-  const rim = big ? '#e0a92a' : '#c98a3c'
-  const rimDark = big ? '#8a5f10' : '#6f4416'
-  const face = big ? '#ffe08a' : '#f0c98d'
-  const faceLow = big ? '#d4a017' : '#c08a4a'
+  const rich = value >= 50
+  const rim = rich ? '#f0c24a' : '#e0b03a'
+  const rimDark = rich ? '#8a5f10' : '#9a6a14'
+  const face = rich ? '#ffe08a' : '#f6d56a'
+  const faceLow = rich ? '#d4a017' : '#c89628'
   ctx.clearRect(0, 0, size, size)
 
   ctx.beginPath()
   ctx.arc(c, c + size * 0.05, r, 0, Math.PI * 2)
-  ctx.fillStyle = 'rgba(0,0,0,0.35)'
+  ctx.fillStyle = 'rgba(0,0,0,0.38)'
   ctx.fill()
 
   ctx.beginPath()
@@ -117,24 +117,28 @@ function paintCoinPlaceholder(ctx: CanvasRenderingContext2D, size: number, value
 
   const grad = ctx.createLinearGradient(0, c - r, 0, c + r)
   grad.addColorStop(0, face)
-  grad.addColorStop(1, faceLow)
+  grad.addColorStop(0.55, faceLow)
+  grad.addColorStop(1, rimDark)
   ctx.beginPath()
-  ctx.arc(c, c, r * 0.76, 0, Math.PI * 2)
+  ctx.arc(c, c, r * 0.78, 0, Math.PI * 2)
   ctx.fillStyle = grad
   ctx.fill()
-  ctx.lineWidth = 1
+  ctx.lineWidth = 1.25
   ctx.strokeStyle = rimDark
   ctx.stroke()
 
   ctx.beginPath()
-  ctx.ellipse(c - r * 0.25, c - r * 0.35, r * 0.3, r * 0.16, -0.5, 0, Math.PI * 2)
-  ctx.fillStyle = 'rgba(255,255,255,0.45)'
+  ctx.ellipse(c - r * 0.22, c - r * 0.32, r * 0.32, r * 0.16, -0.5, 0, Math.PI * 2)
+  ctx.fillStyle = 'rgba(255,255,255,0.42)'
   ctx.fill()
 
-  ctx.fillStyle = rimDark
-  ctx.font = `800 ${Math.floor(size * 0.46)}px Unbounded, system-ui, sans-serif`
+  ctx.fillStyle = '#fff6d4'
+  ctx.strokeStyle = rimDark
+  ctx.lineWidth = Math.max(2, size * 0.045)
+  ctx.font = `800 ${Math.floor(size * 0.52)}px Unbounded, system-ui, sans-serif`
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
+  ctx.strokeText(String(value), c, c + size * 0.04)
   ctx.fillText(String(value), c, c + size * 0.04)
 }
 
@@ -142,14 +146,15 @@ export function ensureCoinPlaceholders(scene: Phaser.Scene) {
   for (const def of DUCK_COIN_DEFS) {
     if (scene.textures.exists(def.key)) {
       const src = scene.textures.get(def.key).getSourceImage()
-      if (src instanceof HTMLImageElement) continue
+      if (src instanceof HTMLImageElement && src.naturalWidth >= 48) continue
     }
     const canvas = document.createElement('canvas')
-    canvas.width = def.size
-    canvas.height = def.size
+    const size = Math.max(96, def.size * 2)
+    canvas.width = size
+    canvas.height = size
     const ctx = canvas.getContext('2d')
     if (!ctx) continue
-    paintCoinPlaceholder(ctx, def.size, def.value)
+    paintCoinPlaceholder(ctx, size, def.value)
     if (scene.textures.exists(def.key)) scene.textures.remove(def.key)
     scene.textures.addCanvas(def.key, canvas)
   }

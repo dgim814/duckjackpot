@@ -1,4 +1,5 @@
 import type { MessageKey } from '../i18n/messages'
+import { prestigeScore } from './economy/catalog'
 import type { PlayerProgress } from './progress'
 
 export type HeistRank = {
@@ -17,6 +18,11 @@ const RANKS: { nameKey: MessageKey; from: number }[] = [
   { nameKey: 'hubRank5', from: 5000 },
   { nameKey: 'hubRank6', from: 12000 },
 ]
+
+/** Future server rank. Keep hub rank on banked coins until the collection shop ships. */
+export function collectionRankScore(progress: PlayerProgress) {
+  return prestigeScore(progress.bankedDuckCoin, progress.ownedArt ?? {})
+}
 
 export function heistRank(progress: PlayerProgress): HeistRank {
   const banked = Math.max(0, Math.floor(progress.bankedDuckCoin))
