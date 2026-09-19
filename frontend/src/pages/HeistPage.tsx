@@ -5,9 +5,7 @@ import { bindHeistI18n } from '../heist/heistI18n'
 import { LangSwitch } from '../components/LangSwitch'
 import {
   RAID_OBJ_ALL,
-  RAID_OBJ_LOOT,
   RAID_OBJ_REWARD,
-  RAID_OBJ_TIME_S,
   bagCap,
   bankCoins,
   buyLabUpgrade,
@@ -17,6 +15,7 @@ import {
   type LabStat,
 } from '../heist/progress'
 import { heistSfx, unlockHeistSfx } from '../heist/heistSfx'
+import { HEIST_LEVEL_CARDS, type HeistLevelId } from '../heist/heistLevel'
 import { useI18n } from '../i18n/LanguageProvider'
 
 function formatTime(ms: number) {
@@ -34,6 +33,7 @@ export function HeistPage() {
   const [end, setEnd] = useState<HeistEnd | null>(null)
   const [progress, setProgress] = useState(loadProgress)
   const [runKey, setRunKey] = useState(0)
+  const [levelId, setLevelId] = useState<HeistLevelId>('bank')
   const [shopMsg, setShopMsg] = useState<string | null>(null)
   const mods = useMemo(() => runMods(progress), [progress])
 
@@ -49,8 +49,9 @@ export function HeistPage() {
     setScreen('result')
   }
 
-  const playAgain = () => {
+  const playLevel = (id: HeistLevelId) => {
     unlockHeistSfx()
+    setLevelId(id)
     setEnd(null)
     setRunKey((n) => n + 1)
     setScreen('play')
@@ -78,7 +79,7 @@ export function HeistPage() {
         className="relative h-[calc(100dvh-4.75rem-env(safe-area-inset-bottom))] overflow-hidden overscroll-none bg-[#120c10]"
         style={{ touchAction: 'none', overscrollBehavior: 'none' }}
       >
-        <HeistGame key={runKey} running mods={mods} onDone={onDone} />
+        <HeistGame key={`${levelId}-${runKey}`} running mods={mods} levelId={levelId} onDone={onDone} />
       </section>
     )
   }
@@ -224,7 +225,7 @@ export function HeistPage() {
               <div className="mt-4 rounded-2xl border border-amber-400/25 bg-[#120c10]/80 p-3 text-left">
                 <p className="text-center text-[10px] font-extrabold tracking-[0.18em] text-amber-200">{t('heistObjectives')}</p>
                 <p className={`mt-2 text-sm ${end.objectives.loot ? 'text-amber-100' : 'text-zinc-500'}`}>
-                  {end.objectives.loot ? '✓' : '□'} {t('heistObjLoot', { n: RAID_OBJ_LOOT })}
+                  {end.objectives.loot ? '✓' : '□'} {t('heistObjLoot', { n: end.lootGoal })}
                   {end.objectives.loot ? `  +${RAID_OBJ_REWARD}` : ''}
                 </p>
                 <p className={`mt-1 text-sm ${end.objectives.stealth ? 'text-amber-100' : 'text-zinc-500'}`}>
@@ -232,7 +233,7 @@ export function HeistPage() {
                   {end.objectives.stealth ? `  +${RAID_OBJ_REWARD}` : ''}
                 </p>
                 <p className={`mt-1 text-sm ${end.objectives.speed ? 'text-amber-100' : 'text-zinc-500'}`}>
-                  {end.objectives.speed ? '✓' : '□'} {t('heistObjSpeed', { n: RAID_OBJ_TIME_S })}
+                  {end.objectives.speed ? '✓' : '□'} {t('heistObjSpeed', { n: end.speedGoalS })}
                   {end.objectives.speed ? `  +${RAID_OBJ_REWARD}` : ''}
                 </p>
                 {end.objectives.loot && end.objectives.stealth && end.objectives.speed ? (
@@ -249,7 +250,7 @@ export function HeistPage() {
               </p>
             </>
           )}
-          <button type="button" className="buy-btn mt-6 w-full rounded-2xl px-4 py-3 text-zinc-950" onClick={playAgain}>
+          <button type="button" className="buy-btn mt-6 w-full rounded-2xl px-4 py-3 text-zinc-950" onClick={() => playLevel(levelId)}>
             {win ? t('heistAgain') : t('heistTryAgain')}
           </button>
           <button
@@ -269,17 +270,16 @@ export function HeistPage() {
   }
 
   return (
-    <section className="relative h-[calc(100dvh-4.75rem-env(safe-area-inset-bottom))] overflow-hidden bg-[#120c10]">
+    <section className="relative h-[calc(100dvh-4.75rem-env(safe-area-inset-bottom))] overflow-y-auto bg-[#120c10]">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(255,107,0,0.18),transparent_50%)]" />
-      <div className="absolute inset-0 flex flex-col items-center justify-end px-5 pb-6">
-        <HeistDuck className="mb-2" />
-        <div className="w-full max-w-sm rounded-3xl border border-amber-400/35 bg-[#120c10]/88 p-4 backdrop-blur-md">
+      <div className="relative mx-auto flex min-h-full w-full max-w-sm flex-col items-center px-5 pb-6 pt-4">
+        <HeistDuck className="mb-1 max-h-28 w-auto" />
+        <div className="w-full rounded-3xl border border-amber-400/35 bg-[#120c10]/88 p-4 backdrop-blur-md">
           <div className="mb-3 flex justify-center">
             <LangSwitch gold />
           </div>
           <p className="text-center text-[11px] font-extrabold uppercase tracking-[0.2em] text-amber-200">{t('heistKicker')}</p>
           <h1 className="font-display mt-1 text-center text-3xl font-black text-amber-50">{t('heistTitle')}</h1>
-          <p className="mt-2 whitespace-pre-line text-center text-sm font-semibold text-amber-50/90">{t('heistHint')}</p>
           <div className="mt-3 flex justify-between text-sm text-zinc-300">
             <span>{t('heistBanked')}</span>
             <span className="font-mono font-bold text-amber-200">{progress.bankedDuckCoin}</span>
@@ -288,18 +288,53 @@ export function HeistPage() {
             <span>{t('heistBag')}</span>
             <span className="font-mono font-bold text-amber-200">{bagCap(progress)}</span>
           </div>
-          <button
-            type="button"
-            className="buy-btn mt-4 w-full rounded-full px-6 py-4 font-display text-2xl font-black tracking-[0.12em] text-zinc-950"
-            onClick={() => {
-              unlockHeistSfx()
-              setEnd(null)
-              setRunKey((n) => n + 1)
-              setScreen('play')
-            }}
-          >
-            {t('heistPlay')}
-          </button>
+          <div className="mt-4 space-y-3">
+            {HEIST_LEVEL_CARDS.map((card) => {
+              const open = !card.locked && card.id
+              const tone =
+                card.tone === 'bank'
+                  ? 'border-amber-400/45 bg-[#1a140c]/95'
+                  : card.tone === 'mansion'
+                    ? 'border-orange-300/40 bg-[#1a1014]/95'
+                    : 'border-white/10 bg-[#101014]/80 opacity-70'
+              return (
+                <div key={card.n} className={`rounded-2xl border p-3 ${tone}`}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-[10px] font-extrabold tracking-[0.18em] text-amber-200/80">{t('heistLevelNum', { n: card.n })}</p>
+                      <p className="font-display mt-0.5 text-xl font-black text-amber-50">{t(card.nameKey)}</p>
+                    </div>
+                    <span
+                      className={`rounded-full px-2 py-1 text-[10px] font-extrabold tracking-[0.14em] ${
+                        open ? 'border border-amber-400/40 text-amber-200' : 'border border-white/15 text-zinc-500'
+                      }`}
+                    >
+                      {open ? t('heistLevelOpen') : t('heistLevelLocked')}
+                    </span>
+                  </div>
+                  {open ? (
+                    <button
+                      type="button"
+                      className="buy-btn mt-3 min-h-12 w-full rounded-xl px-4 py-3 font-display text-lg font-black tracking-[0.12em] text-zinc-950"
+                      onClick={() => {
+                        if (card.id) playLevel(card.id)
+                      }}
+                    >
+                      {t('heistPlay')}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled
+                      className="mt-3 min-h-11 w-full rounded-xl border border-white/10 px-4 py-2.5 text-sm font-extrabold tracking-[0.14em] text-zinc-500"
+                    >
+                      {t('heistLevelLocked')}
+                    </button>
+                  )}
+                </div>
+              )
+            })}
+          </div>
           <button
             type="button"
             className="mt-3 w-full rounded-2xl border border-white/15 px-4 py-3 text-sm font-bold text-zinc-200"

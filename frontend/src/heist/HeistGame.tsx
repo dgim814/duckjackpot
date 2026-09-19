@@ -3,6 +3,7 @@ import WebApp from '@twa-dev/sdk'
 import { createHeistGame } from './phaser/createHeistGame'
 import type { HeistEnd } from './types'
 import type { HeistRunMods } from './progress'
+import type { HeistLevelId } from './heistLevel'
 import { bindHeistI18n } from './heistI18n'
 import { haltHeistSfx, unlockHeistSfx } from './heistSfx'
 import { useI18n } from '../i18n/LanguageProvider'
@@ -12,6 +13,7 @@ export type { HeistEnd }
 type HeistGameProps = {
   running: boolean
   mods: HeistRunMods
+  levelId?: HeistLevelId
   onDone: (end: HeistEnd) => void
 }
 
@@ -20,7 +22,7 @@ function telegramApp() {
   return tg ?? WebApp
 }
 
-export function HeistGame({ running, mods, onDone }: HeistGameProps) {
+export function HeistGame({ running, mods, levelId = 'bank', onDone }: HeistGameProps) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const onDoneRef = useRef(onDone)
   onDoneRef.current = onDone
@@ -62,7 +64,7 @@ export function HeistGame({ running, mods, onDone }: HeistGameProps) {
       /* ignore */
     }
 
-    const game = createHeistGame(wrap, (end) => onDoneRef.current(end), mods)
+    const game = createHeistGame(wrap, (end) => onDoneRef.current(end), mods, levelId)
 
     return () => {
       haltHeistSfx()
@@ -82,7 +84,7 @@ export function HeistGame({ running, mods, onDone }: HeistGameProps) {
         /* ignore */
       }
     }
-  }, [running, mods])
+  }, [running, mods, levelId])
 
   return (
     <div

@@ -2,9 +2,10 @@ import Phaser from 'phaser'
 import { HeistScene } from './HeistScene'
 import type { HeistEnd } from '../types'
 import type { HeistRunMods } from '../progress'
+import type { HeistLevelId } from '../heistLevel'
 
-export function createHeistGame(parent: HTMLElement, onDone: (end: HeistEnd) => void, mods: HeistRunMods) {
-  const scene = new HeistScene(onDone, mods)
+export function createHeistGame(parent: HTMLElement, onDone: (end: HeistEnd) => void, mods: HeistRunMods, levelId: HeistLevelId = 'bank') {
+  const scene = new HeistScene(onDone, mods, levelId)
   const game = new Phaser.Game({
     type: Phaser.AUTO,
     parent,

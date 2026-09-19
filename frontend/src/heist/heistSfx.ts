@@ -8,29 +8,39 @@ export type HeistSfxMood = {
   ended: boolean
 }
 
+const CHASE_FADE = 1.0
+const CHASE_FADE_IN = 0.8
+const CHASE_VOL = 0.4
+const TENSION_CAM = 0.22
+const TENSION_INV = 0.34
+const FILES = {
+  chase: '/audio/heist/chase.mp3',
+  camera: '/audio/heist/camera-alert.mp3',
+  investigate: '/audio/heist/investigate.mp3',
+} as const
+
+type Clip = keyof typeof FILES
+
 let ctx: AudioContext | null = null
 let unlocked = false
 let graph = false
 let noiseBuf: AudioBuffer | null = null
+let loading = false
 
 let master: GainNode | null = null
 let shotGain: GainNode | null = null
-let ambientGain: GainNode | null = null
-let tensionGain: GainNode | null = null
-let cameraGain: GainNode | null = null
-let investigateGain: GainNode | null = null
-let chaseGain: GainNode | null = null
 let safeGain: GainNode | null = null
-let chaseFilter: BiquadFilterNode | null = null
+let chaseGain: GainNode | null = null
+let tensionGain: GainNode | null = null
 
-let lastPulseAt = 0
-let lastCamTickAt = 0
-let lastInvHitAt = 0
-let lastChaseTickAt = 0
+const buffers: Partial<Record<Clip, AudioBuffer>> = {}
+let chaseSrc: AudioBufferSourceNode | null = null
+let tensionSrc: AudioBufferSourceNode | null = null
+let chaseWanted = false
+let chaseOn = false
+let chasePreview = false
+let chaseDucked = false
 let lastSafeTickAt = 0
-let lastStingAt = 0
-let lastStingPri = 0
-let prevChase = false
 
 function ctor() {
   return window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
@@ -43,6 +53,7 @@ export function unlockHeistSfx() {
   if (!ctx) ctx = new Ctor()
   if (ctx.state === 'suspended') void ctx.resume()
   ensureGraph()
+  void loadClips()
 }
 
 function audio() {
@@ -59,56 +70,53 @@ function ensureGraph() {
   if (!ctx || graph) return
   graph = true
   master = ctx.createGain()
-  master.gain.value = 0.9
+  master.gain.value = 1
   master.connect(ctx.destination)
 
   shotGain = ctx.createGain()
   shotGain.gain.value = 1
   shotGain.connect(master)
 
-  ambientGain = ctx.createGain()
-  ambientGain.gain.value = 0
-  ambientGain.connect(master)
+  chaseGain = ctx.createGain()
+  chaseGain.gain.value = 0
+  chaseGain.connect(master)
 
   tensionGain = ctx.createGain()
   tensionGain.gain.value = 0
   tensionGain.connect(master)
-
-  cameraGain = ctx.createGain()
-  cameraGain.gain.value = 0
-  cameraGain.connect(master)
-
-  investigateGain = ctx.createGain()
-  investigateGain.gain.value = 0
-  investigateGain.connect(master)
-
-  chaseGain = ctx.createGain()
-  chaseGain.gain.value = 0
-  chaseFilter = ctx.createBiquadFilter()
-  chaseFilter.type = 'lowpass'
-  chaseFilter.frequency.value = 140
-  chaseFilter.Q.value = 0.7
-  chaseFilter.connect(chaseGain)
-  chaseGain.connect(master)
 
   safeGain = ctx.createGain()
   safeGain.gain.value = 0
   safeGain.connect(master)
 
   noiseBuf = makeNoise(ctx)
-
-  startDrone(ctx, ambientGain, 38, 'sine', 0.35)
-  startNoise(ctx, ambientGain, 0.22, 90, 0.4)
-  startDrone(ctx, tensionGain, 52, 'sine', 0.55)
-  startDrone(ctx, cameraGain, 64, 'sine', 0.4)
-  startNoise(ctx, cameraGain, 0.12, 420, 0.55)
-  startDrone(ctx, investigateGain, 46, 'triangle', 0.45)
-  startDrone(ctx, investigateGain, 29, 'sine', 0.55)
-  startDrone(ctx, chaseFilter, 44, 'sawtooth', 0.22)
-  startDrone(ctx, chaseFilter, 62, 'sine', 0.35)
-  startNoise(ctx, chaseFilter, 0.18, 180, 0.7)
   startNoise(ctx, safeGain, 0.16, 280, 0.35)
   startDrone(ctx, safeGain, 92, 'sine', 0.2)
+}
+
+async function loadClips() {
+  const ac = audio()
+  if (!ac || loading) return
+  loading = true
+  await Promise.all((Object.keys(FILES) as Clip[]).map((id) => loadOne(ac, id)))
+  loading = false
+  if (chaseWanted) startChaseNow()
+}
+
+async function loadOne(ac: AudioContext, id: Clip) {
+  if (buffers[id]) return
+  const urls = [FILES[id]]
+  for (const url of urls) {
+    try {
+      const res = await fetch(url)
+      if (!res.ok) continue
+      const raw = await res.arrayBuffer()
+      buffers[id] = await ac.decodeAudioData(raw.slice(0))
+      return
+    } catch {
+      /* try next */
+    }
+  }
 }
 
 function makeNoise(ac: AudioContext) {
@@ -153,10 +161,10 @@ function startNoise(ac: AudioContext, dest: AudioNode, level: number, cutoff: nu
 function ramp(node: GainNode | null, value: number, seconds: number) {
   if (!node || !ctx) return
   const t = ctx.currentTime
-  const cur = node.gain.value
+  const cur = Math.max(0, node.gain.value)
   node.gain.cancelScheduledValues(t)
   node.gain.setValueAtTime(cur, t)
-  node.gain.linearRampToValueAtTime(Math.max(0, value), t + Math.max(0.04, seconds))
+  node.gain.linearRampToValueAtTime(Math.max(0, value), t + Math.max(0.02, seconds))
 }
 
 function env(ac: AudioContext, dest: AudioNode, start: number, peak: number, attack: number, dur: number) {
@@ -210,43 +218,106 @@ function pickupTone(ac: AudioContext, freq: number, duration: number, type: Osci
   o.stop(t + duration + 0.02)
 }
 
-function heartbeat(ac: AudioContext, intensity: number, chase: boolean) {
-  const dest = shotGain ?? ac.destination
+function fireShot(id: Clip, vol = 0.7) {
+  const ac = audio()
+  const buf = buffers[id]
+  if (!ac || !buf || !shotGain) return
+  const src = ac.createBufferSource()
+  src.buffer = buf
+  const g = ac.createGain()
+  g.gain.value = vol
+  src.connect(g)
+  g.connect(shotGain)
+  src.start()
+}
+
+function muteTension(seconds: number) {
+  ramp(tensionGain, 0, seconds)
+}
+
+function startTensionLoop() {
+  const ac = audio()
+  const buf = buffers.investigate
+  if (!ac || !buf || !tensionGain) return
+  if (tensionSrc) return
+  const src = ac.createBufferSource()
+  src.buffer = buf
+  src.loop = true
+  src.connect(tensionGain)
+  src.start()
+  tensionSrc = src
+  src.onended = () => {
+    if (tensionSrc === src) tensionSrc = null
+  }
+}
+
+function stopTension(seconds: number) {
+  muteTension(seconds)
+  const src = tensionSrc
+  if (!src || !ctx) return
+  try {
+    src.stop(ctx.currentTime + seconds + 0.05)
+  } catch {
+    /* already stopped */
+  }
+}
+
+function startChaseNow() {
+  const ac = audio()
+  if (!ac || !chaseGain) return
+  const buf = buffers.chase
+  if (!buf) {
+    chaseWanted = true
+    void loadClips()
+    return
+  }
+  muteTension(0.08)
+  stopTension(0.12)
+  if (chaseOn && chaseSrc) {
+    chaseWanted = true
+    chaseDucked = false
+    return
+  }
+  stopChaseSource(0.02)
+  const src = ac.createBufferSource()
+  src.buffer = buf
+  src.loop = true
+  src.connect(chaseGain)
   const t = ac.currentTime
-  const g1 = env(ac, dest, t, (chase ? 0.05 : 0.034) * intensity, 0.012, chase ? 0.09 : 0.13)
-  osc(ac, g1, chase ? 68 : 54, 'sine', t, t + 0.16)
-  const t2 = t + (chase ? 0.09 : 0.13)
-  const g2 = env(ac, dest, t2, (chase ? 0.038 : 0.026) * intensity, 0.01, chase ? 0.11 : 0.16)
-  osc(ac, g2, chase ? 46 : 36, 'sine', t2, t2 + 0.2)
+  chaseGain.gain.cancelScheduledValues(t)
+  chaseGain.gain.setValueAtTime(0.0001, t)
+  chaseGain.gain.linearRampToValueAtTime(CHASE_VOL, t + CHASE_FADE_IN)
+  src.start()
+  chaseSrc = src
+  chaseOn = true
+  chaseWanted = true
+  chaseDucked = false
+  src.onended = () => {
+    if (chaseSrc === src) chaseSrc = null
+  }
 }
 
-function alarmTick(ac: AudioContext, peak: number) {
-  noiseBurst(ac, shotGain ?? ac.destination, peak, 0.045, 1750, 0, 3.2)
-  const t = ac.currentTime
-  const g = env(ac, shotGain ?? ac.destination, t, peak * 0.55, 0.004, 0.05)
-  osc(ac, g, 880, 'sine', t, t + 0.06)
-}
-
-function canSting(pri: number) {
-  if (!ctx) return false
-  if (ctx.currentTime - lastStingAt < 0.12 && pri < lastStingPri) return false
-  lastStingAt = ctx.currentTime
-  lastStingPri = pri
-  return true
-}
-
-function fadeDanger(seconds: number) {
-  ramp(cameraGain, 0, seconds)
-  ramp(investigateGain, 0, seconds)
-  ramp(chaseGain, 0, seconds)
-  ramp(tensionGain, 0.006, seconds)
+function stopChaseSource(fade: number) {
+  const ac = ctx
+  const src = chaseSrc
+  chaseSrc = null
+  chaseOn = false
+  if (!ac || !chaseGain) return
+  ramp(chaseGain, 0, fade)
+  if (!src) return
+  try {
+    src.stop(ac.currentTime + fade + 0.06)
+  } catch {
+    /* already stopped */
+  }
 }
 
 export function haltHeistSfx() {
-  fadeDanger(0.25)
-  ramp(ambientGain, 0, 0.25)
-  ramp(safeGain, 0, 0.15)
-  ramp(tensionGain, 0, 0.25)
+  chaseWanted = false
+  chasePreview = false
+  stopChaseSource(0.2)
+  stopTension(0.2)
+  ramp(safeGain, 0, 0.12)
 }
 
 export const heistSfx = {
@@ -259,41 +330,49 @@ export const heistSfx = {
 
   cameraAlert() {
     const ac = audio()
-    if (!ac || !canSting(2)) return
-    const dest = shotGain ?? ac.destination
-    noiseBurst(ac, dest, 0.045, 0.07, 2100, 0, 2.4)
-    const t = ac.currentTime
-    const g1 = env(ac, dest, t, 0.038, 0.006, 0.09)
-    const o1 = osc(ac, g1, 920, 'sine', t, t + 0.1)
-    o1.frequency.exponentialRampToValueAtTime(640, t + 0.09)
-    const t2 = t + 0.1
-    const g2 = env(ac, dest, t2, 0.03, 0.006, 0.11)
-    const o2 = osc(ac, g2, 720, 'sine', t2, t2 + 0.12)
-    o2.frequency.exponentialRampToValueAtTime(480, t2 + 0.11)
+    if (!ac) return
+    void loadClips()
+    if (chaseWanted || chaseOn) return
+    fireShot('camera', 0.72)
+    startTensionLoop()
+    ramp(tensionGain, TENSION_CAM, 0.2)
   },
 
   investigateStart() {
     const ac = audio()
-    if (!ac || !canSting(3)) return
-    const dest = shotGain ?? ac.destination
-    noiseBurst(ac, dest, 0.04, 0.16, 240, 0, 0.8)
-    const t = ac.currentTime
-    const g = env(ac, dest, t, 0.048, 0.02, 0.32)
-    const o = osc(ac, g, 118, 'sine', t, t + 0.34)
-    o.frequency.exponentialRampToValueAtTime(52, t + 0.3)
+    if (!ac) return
+    void loadClips()
+    if (chaseWanted || chaseOn) return
+    startTensionLoop()
+    ramp(tensionGain, TENSION_INV, 0.16)
   },
 
   chaseStart() {
     const ac = audio()
-    if (!ac || !canSting(5)) return
-    const dest = shotGain ?? ac.destination
-    noiseBurst(ac, dest, 0.055, 0.12, 380, 0, 0.9)
-    const t = ac.currentTime
-    const g = env(ac, dest, t, 0.07, 0.008, 0.28)
-    const o = osc(ac, g, 92, 'triangle', t, t + 0.3)
-    o.frequency.exponentialRampToValueAtTime(48, t + 0.26)
-    const g2 = env(ac, dest, t + 0.04, 0.04, 0.01, 0.22)
-    osc(ac, g2, 36, 'sine', t + 0.04, t + 0.28)
+    if (!ac) return
+    chaseWanted = true
+    startChaseNow()
+  },
+
+  chaseStop() {
+    chaseWanted = false
+    chasePreview = false
+    stopChaseSource(CHASE_FADE)
+  },
+
+  toggleChasePreview() {
+    const ac = audio()
+    if (!ac) return
+    if (chaseOn && !chasePreview) return
+    if (chasePreview || chaseOn || chaseWanted) {
+      chasePreview = false
+      chaseWanted = false
+      stopChaseSource(CHASE_FADE)
+      return
+    }
+    chasePreview = true
+    chaseWanted = true
+    startChaseNow()
   },
 
   safeStart() {
@@ -343,8 +422,7 @@ export const heistSfx = {
   exit() {
     const ac = audio()
     if (!ac) return
-    fadeDanger(0.35)
-    ramp(safeGain, 0, 0.2)
+    haltHeistSfx()
     const dest = shotGain ?? ac.destination
     const t = ac.currentTime
     const notes = [392, 523, 659]
@@ -358,9 +436,7 @@ export const heistSfx = {
   caught() {
     const ac = audio()
     if (!ac) return
-    fadeDanger(0.2)
-    ramp(safeGain, 0, 0.12)
-    ramp(ambientGain, 0, 0.4)
+    haltHeistSfx()
     const dest = shotGain ?? ac.destination
     noiseBurst(ac, dest, 0.08, 0.14, 220, 0, 0.6)
     const t = ac.currentTime
@@ -393,117 +469,58 @@ export const heistSfx = {
 
   sync(mood: HeistSfxMood) {
     const ac = audio()
-    if (!ac || !ambientGain || !tensionGain || !cameraGain || !investigateGain || !chaseGain || !safeGain) return
+    if (!ac || !safeGain || !chaseGain || !tensionGain) return
 
     if (mood.ended || mood.paused) {
-      const fade = mood.ended ? 0.4 : 0.18
-      ramp(ambientGain, 0, fade)
-      ramp(tensionGain, 0, fade)
-      ramp(cameraGain, 0, fade)
-      ramp(investigateGain, 0, fade)
-      ramp(chaseGain, 0, fade)
+      const fade = mood.ended ? 0.35 : 0.16
+      if (mood.ended) {
+        chaseWanted = false
+        chasePreview = false
+        stopChaseSource(fade)
+        stopTension(fade)
+      } else {
+        chaseDucked = true
+        ramp(chaseGain, 0, fade)
+        ramp(tensionGain, 0, fade)
+      }
       ramp(safeGain, 0, 0.12)
-      prevChase = mood.chasing
       return
     }
 
-    const a = Math.max(0, Math.min(1, mood.alert))
-    let ambient = 0.01
-    let tension = 0
-    if (a < 0.3) {
-      ambient = 0.01 + a * 0.02
-      tension = a * 0.012
-    } else if (a < 0.7) {
-      ambient = 0.016
-      tension = 0.014 + (a - 0.3) * 0.05
-    } else {
-      ambient = 0.012
-      tension = 0.034 + (a - 0.7) * 0.06
+    if (mood.chasing) {
+      chasePreview = false
+      if (!chaseOn) startChaseNow()
+      else if (chaseDucked) {
+        chaseDucked = false
+        ramp(chaseGain, CHASE_VOL, CHASE_FADE_IN)
+      }
+    } else if (chasePreview) {
+      if (!chaseOn) startChaseNow()
+      else if (chaseDucked) {
+        chaseDucked = false
+        ramp(chaseGain, CHASE_VOL, CHASE_FADE_IN)
+      }
+    } else if (chaseOn || chaseWanted) {
+      chaseWanted = false
+      stopChaseSource(CHASE_FADE)
     }
 
-    const chase = mood.chasing
-    const inv = mood.investigating && !chase
-    const cam = mood.cameraHot && !chase
-    if (chase) {
-      ambient = 0.006
-      tension = 0.01
-    } else if (inv) {
-      tension = Math.max(tension, 0.028)
-    } else if (cam) {
-      tension = Math.max(tension, 0.018)
+    if (!mood.chasing) {
+      if (mood.cameraHot || mood.investigating) {
+        startTensionLoop()
+        ramp(tensionGain, mood.investigating ? TENSION_INV : TENSION_CAM, 0.2)
+      } else {
+        ramp(tensionGain, 0, 1.1)
+      }
     }
 
-    const leavingChase = prevChase && !chase
-    prevChase = chase
-
-    ramp(ambientGain, ambient, 0.4)
-    ramp(tensionGain, tension, leavingChase || (!inv && !cam && a < 0.55) ? 1.45 : 0.28)
-    ramp(cameraGain, cam ? 0.028 : 0, cam ? 0.18 : 1.4)
-    ramp(investigateGain, inv ? 0.04 : 0, inv ? 0.2 : 1.4)
-    ramp(chaseGain, chase ? 0.055 : 0, chase ? 0.16 : 1.55)
-    if (chaseFilter) {
-      const t = ac.currentTime
-      chaseFilter.frequency.cancelScheduledValues(t)
-      chaseFilter.frequency.setValueAtTime(chaseFilter.frequency.value, t)
-      chaseFilter.frequency.linearRampToValueAtTime(chase ? 190 : 120, t + 0.2)
-    }
     ramp(safeGain, mood.cracking ? 0.03 : 0, 0.16)
-
     const now = ac.currentTime
     if (mood.cracking && now - lastSafeTickAt >= 0.32) {
       lastSafeTickAt = now
       const dest = shotGain ?? ac.destination
-      const t = now
-      const g = env(ac, dest, t, 0.014, 0.003, 0.04)
-      osc(ac, g, 1240, 'sine', t, t + 0.045)
-    }
-
-    if (chase) {
-      if (now - lastPulseAt >= 0.27) {
-        lastPulseAt = now
-        heartbeat(ac, 1, true)
-      }
-      if (now - lastChaseTickAt >= 0.135) {
-        lastChaseTickAt = now
-        noiseBurst(ac, shotGain ?? ac.destination, 0.022, 0.028, 1900, 0, 2.8)
-      }
-      return
-    }
-
-    if (inv) {
-      if (now - lastPulseAt >= 0.68) {
-        lastPulseAt = now
-        heartbeat(ac, 0.85, false)
-      }
-      if (now - lastInvHitAt >= 1.85) {
-        lastInvHitAt = now
-        alarmTick(ac, 0.024)
-      }
-      return
-    }
-
-    if (cam) {
-      if (now - lastPulseAt >= 1.05) {
-        lastPulseAt = now
-        heartbeat(ac, 0.55, false)
-      }
-      if (now - lastCamTickAt >= 1.45) {
-        lastCamTickAt = now
-        alarmTick(ac, 0.018)
-      }
-      return
-    }
-
-    if (a >= 0.7) {
-      if (now - lastPulseAt >= 0.82) {
-        lastPulseAt = now
-        heartbeat(ac, 0.45 + (a - 0.7), false)
-      }
-    } else if (a >= 0.3) {
-      if (now - lastPulseAt >= 1.2) {
-        lastPulseAt = now
-        heartbeat(ac, 0.28 + (a - 0.3) * 0.4, false)
-      }
+      const g = env(ac, dest, now, 0.014, 0.003, 0.04)
+      osc(ac, g, 1240, 'sine', now, now + 0.045)
     }
   },
 }

@@ -10,6 +10,8 @@ export type HeistEnd = {
   bonus: number
   objBonus: number
   objectives: HeistObjectives
+  lootGoal: number
+  speedGoalS: number
   banked: number
   timeMs: number
   alert: number
