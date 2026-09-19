@@ -1,7 +1,7 @@
 import type { OwnedCollection } from './economy/catalog'
 import { catalogItem } from './economy/catalog'
-import { addToCollection, removeFromCollection } from './economy/collection'
-import { cancelListing, listItem } from './economy/marketStore'
+import { addToCollection } from './economy/collection'
+import { cancelListing, listItem, loadListings, localPlayerId } from './economy/marketStore'
 
 export type OwnedMeta = Record<string, { acquiredAt: number }>
 
@@ -111,13 +111,29 @@ function clampLevel(n: unknown, max = LAB_MAX) {
   return Math.max(0, Math.min(max, v))
 }
 
+/** ACTIVE lots used to leave the vault. Restore those copies so listings match ownedArt. */
+function restoreListedCopies(owned: OwnedCollection): OwnedCollection {
+  const me = localPlayerId()
+  const listed: OwnedCollection = {}
+  for (const row of loadListings()) {
+    if (row.sellerId !== me || row.status !== 'ACTIVE') continue
+    if (!catalogItem(row.itemId)) continue
+    listed[row.itemId] = (listed[row.itemId] ?? 0) + 1
+  }
+  const next = { ...owned }
+  for (const [id, n] of Object.entries(listed)) {
+    if ((next[id] ?? 0) < n) next[id] = n
+  }
+  return next
+}
+
 export function loadProgress(): PlayerProgress {
   try {
     const raw = localStorage.getItem(KEY)
     if (!raw) return emptyProgress()
     const parsed = JSON.parse(raw) as Partial<PlayerProgress>
-    const ownedArt = readOwned(parsed.ownedArt)
-    return {
+    const ownedArt = restoreListedCopies(readOwned(parsed.ownedArt))
+    const next: PlayerProgress = {
       bankedDuckCoin: Math.max(0, Math.floor(Number(parsed.bankedDuckCoin) || 0)),
       bagLevel: clampLevel(parsed.bagLevel),
       disguiseLevel: clampLevel(parsed.disguiseLevel),
@@ -133,6 +149,9 @@ export function loadProgress(): PlayerProgress {
       ownedMeta: readMeta(parsed.ownedMeta, ownedArt),
       stars: Math.max(0, Math.floor(Number((parsed as { stars?: unknown }).stars) || 0)),
     }
+    const before = JSON.stringify(readOwned(parsed.ownedArt))
+    if (before !== JSON.stringify(ownedArt)) saveProgress(next)
+    return next
   } catch {
     return emptyProgress()
   }
@@ -235,23 +254,18 @@ export function buyCatalogItem(progress: PlayerProgress, itemId: string) {
 }
 
 export function listOwnedItem(progress: PlayerProgress, itemId: string, priceDuckCoin: number) {
-  const owned = removeFromCollection(progress.ownedArt ?? {}, itemId)
-  if (!owned) return { ok: false as const, reason: 'none' as const, next: progress, listing: null }
+  const have = Math.max(0, Math.floor((progress.ownedArt ?? {})[itemId] ?? 0))
+  if (have <= 0) return { ok: false as const, reason: 'none' as const, next: progress, listing: null }
+  const me = localPlayerId()
+  const listed = loadListings().filter((row) => row.sellerId === me && row.status === 'ACTIVE' && row.itemId === itemId).length
+  if (listed >= have) return { ok: false as const, reason: 'listed' as const, next: progress, listing: null }
   const listing = listItem(itemId, priceDuckCoin)
   if (!listing) return { ok: false as const, reason: 'bad' as const, next: progress, listing: null }
-  const next: PlayerProgress = { ...progress, ...keepWallet(progress), ownedArt: owned }
-  saveProgress(next)
-  return { ok: true as const, reason: 'ok' as const, next, listing }
+  return { ok: true as const, reason: 'ok' as const, next: progress, listing }
 }
 
 export function recallListing(progress: PlayerProgress, listingId: string) {
   const listing = cancelListing(listingId)
   if (!listing) return { ok: false as const, reason: 'gone' as const, next: progress }
-  const next: PlayerProgress = {
-    ...progress,
-    ...keepWallet(progress),
-    ownedArt: addToCollection(progress.ownedArt ?? {}, listing.itemId),
-  }
-  saveProgress(next)
-  return { ok: true as const, reason: 'ok' as const, next }
+  return { ok: true as const, reason: 'ok' as const, next: progress }
 }

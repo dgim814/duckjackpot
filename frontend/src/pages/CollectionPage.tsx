@@ -26,7 +26,9 @@ export function CollectionPage() {
     [progress.ownedArt, progress.bankedDuckCoin, t, you],
   )
   const place = boardPlace(board, you)
-  const mine = listings.filter((row) => row.sellerId === you && row.status === 'ACTIVE')
+  const mine = listings.filter(
+    (row) => row.sellerId === you && row.status === 'ACTIVE' && Math.max(0, Math.floor(progress.ownedArt?.[row.itemId] ?? 0)) > 0,
+  )
 
   const list = (itemId: string) => {
     unlockHeistSfx()
@@ -95,7 +97,7 @@ export function CollectionPage() {
                 {t('collectionValue')}: {item.collectionValue.toLocaleString()}
               </p>
               <p className="mt-1 text-[10px] font-extrabold tracking-[0.14em] text-emerald-200/80">{t('collectionOwned')}</p>
-              {item.tradable ? (
+              {item.tradable && mine.filter((row) => row.itemId === item.id).length < item.count ? (
                 <button
                   type="button"
                   className="mt-3 min-h-12 w-full rounded-xl border border-amber-400/40 px-3 text-[12px] font-extrabold tracking-[0.1em] text-amber-100"
