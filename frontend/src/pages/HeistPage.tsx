@@ -4,6 +4,10 @@ import { HeistGame, type HeistEnd } from '../heist/HeistGame'
 import { bindHeistI18n } from '../heist/heistI18n'
 import { LangSwitch } from '../components/LangSwitch'
 import {
+  RAID_OBJ_ALL,
+  RAID_OBJ_LOOT,
+  RAID_OBJ_REWARD,
+  RAID_OBJ_TIME_S,
   bagCap,
   bankCoins,
   buyLabUpgrade,
@@ -34,8 +38,8 @@ export function HeistPage() {
 
   const onDone = (next: HeistEnd) => {
     if (next.verdict === 'escaped') {
-      const gained = next.coins + next.bonus
-      const updated = bankCoins(progress, gained)
+      const gained = next.coins + next.bonus + next.objBonus
+      const updated = bankCoins(progress, gained, next.objectives)
       setProgress(updated)
       setEnd({ ...next, banked: updated.bankedDuckCoin })
     } else {
@@ -186,11 +190,11 @@ export function HeistPage() {
     return (
       <section className="relative flex h-[calc(100dvh-4.75rem-env(safe-area-inset-bottom))] items-center justify-center overflow-hidden bg-[#120c10] px-5">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_20%,rgba(255,193,7,0.22),transparent_55%)]" />
-        <div className="relative w-full max-w-sm rounded-3xl border border-amber-400/40 bg-[#101014]/92 p-6 text-center shadow-[0_0_60px_rgba(255,176,40,0.12)]">
+        <div className="relative max-h-full w-full max-w-sm overflow-y-auto rounded-3xl border border-amber-400/40 bg-[#101014]/92 p-6 text-center shadow-[0_0_60px_rgba(255,176,40,0.12)]">
           <p className="font-display text-3xl font-black text-amber-300">{win ? t('heistEscaped') : t('heistCaught')}</p>
           {win ? (
             <>
-              <p className="mt-5 font-display text-5xl font-black text-white">+{end.coins + end.bonus}</p>
+              <p className="mt-5 font-display text-5xl font-black text-white">+{end.coins + end.bonus + end.objBonus}</p>
               <p className="text-xs font-extrabold tracking-[0.18em] text-amber-200">{t('heistDuckCoin')}</p>
               <p className="mt-3 text-sm text-zinc-300">
                 {t('heistBanked')}: {end.banked}
@@ -210,8 +214,26 @@ export function HeistPage() {
                 </div>
                 <div>
                   <p className="text-[10px] font-extrabold tracking-[0.14em] text-zinc-500">{t('heistBonus')}</p>
-                  <p className="font-display text-xl font-black">{end.bonus}</p>
+                  <p className="font-display text-xl font-black">{end.bonus + end.objBonus}</p>
                 </div>
+              </div>
+              <div className="mt-4 rounded-2xl border border-amber-400/25 bg-[#120c10]/80 p-3 text-left">
+                <p className="text-center text-[10px] font-extrabold tracking-[0.18em] text-amber-200">{t('heistObjectives')}</p>
+                <p className={`mt-2 text-sm ${end.objectives.loot ? 'text-amber-100' : 'text-zinc-500'}`}>
+                  {end.objectives.loot ? '✓' : '□'} {t('heistObjLoot', { n: RAID_OBJ_LOOT })}
+                  {end.objectives.loot ? `  +${RAID_OBJ_REWARD}` : ''}
+                </p>
+                <p className={`mt-1 text-sm ${end.objectives.stealth ? 'text-amber-100' : 'text-zinc-500'}`}>
+                  {end.objectives.stealth ? '✓' : '□'} {t('heistObjStealth')}
+                  {end.objectives.stealth ? `  +${RAID_OBJ_REWARD}` : ''}
+                </p>
+                <p className={`mt-1 text-sm ${end.objectives.speed ? 'text-amber-100' : 'text-zinc-500'}`}>
+                  {end.objectives.speed ? '✓' : '□'} {t('heistObjSpeed', { n: RAID_OBJ_TIME_S })}
+                  {end.objectives.speed ? `  +${RAID_OBJ_REWARD}` : ''}
+                </p>
+                {end.objectives.loot && end.objectives.stealth && end.objectives.speed ? (
+                  <p className="mt-2 text-center text-sm font-bold text-amber-200">{t('heistObjAll', { n: RAID_OBJ_ALL })}</p>
+                ) : null}
               </div>
             </>
           ) : (

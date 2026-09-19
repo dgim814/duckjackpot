@@ -17,7 +17,7 @@ export const DUCK_COIN_DEFS: DuckCoinDef[] = [
   { kind: 'C100', value: 100, key: 'dc_100', size: 68, file: '/heist/coin_100.png' },
 ]
 
-export const SAFE_REWARD = 500
+export const SAFE_REWARD = 100
 
 export function coinDef(kind: DuckCoinKind) {
   return DUCK_COIN_DEFS.find((d) => d.kind === kind) ?? DUCK_COIN_DEFS[0]

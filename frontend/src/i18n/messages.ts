@@ -479,6 +479,11 @@ const ru = {
   heistPaused: 'ПАУЗА',
   heistResume: '▶ ПРОДОЛЖИТЬ',
   heistAbortRaid: 'ВЫЙТИ ИЗ РЕЙДА',
+  heistObjectives: 'HEIST OBJECTIVES',
+  heistObjLoot: 'LOOT {n}',
+  heistObjStealth: 'STEALTH',
+  heistObjSpeed: 'UNDER {n}s',
+  heistObjAll: 'ВСЕ ЦЕЛИ +{n} DUCK COIN',
 } as const
 
 const en: Record<keyof typeof ru, string> = {
@@ -962,6 +967,11 @@ const en: Record<keyof typeof ru, string> = {
   heistPaused: 'PAUSED',
   heistResume: '▶ RESUME',
   heistAbortRaid: 'EXIT HEIST',
+  heistObjectives: 'HEIST OBJECTIVES',
+  heistObjLoot: 'LOOT {n}',
+  heistObjStealth: 'STEALTH',
+  heistObjSpeed: 'UNDER {n}s',
+  heistObjAll: 'ALL OBJECTIVES +{n} DUCK COIN',
 }
 
 export const messages = { ru, en } as const

@@ -1,7 +1,7 @@
 import Phaser from 'phaser'
 import { punchBackdrop } from '../sprite'
 import type { HeistEnd } from '../types'
-import type { HeistRunMods } from '../progress'
+import { RAID_OBJ_LOOT, RAID_OBJ_TIME_S, raidObjectiveBonus, type HeistRunMods } from '../progress'
 import { applyCoinSpriteSize, coinDef, ensureCoinPlaceholders, loadDuckCoinImages, playCoinIdle, stopCoinIdle, SAFE_REWARD, type DuckCoinKind } from '../coinAssets'
 import { heistT } from '../heistI18n'
 import { buildNavGrid, cellCenter, findPath, findPathAroundStuck, nearestWalkable, type NavGrid } from '../guardPath'
@@ -26,7 +26,7 @@ type MoveAnim = 'idle' | 'walk' | 'run' | 'sneak' | 'dash'
 type LootKind = DuckCoinKind
 const SAFE_RANGE = 86
 const SAFE_MISS_ALERT = 0.2
-const SAFE_HITS = 3
+const SAFE_HITS = 5
 
 type Wall = { x: number; y: number; w: number; h: number }
 type HideZone = Wall
@@ -77,12 +77,14 @@ export class HeistScene extends Phaser.Scene {
   private wallRects: Wall[] = []
   private hideZones: HideZone[] = []
   private lootGroup!: Phaser.Physics.Arcade.Group
+  private lootSpawn = 0
   private exitZone!: Phaser.GameObjects.Rectangle
   private visionGfx!: Phaser.GameObjects.Graphics
   private worldGfx!: Phaser.GameObjects.Graphics
   private uiGfx!: Phaser.GameObjects.Graphics
   private hud!: Phaser.GameObjects.Text
   private bagHud!: Phaser.GameObjects.Text
+  private objHud!: Phaser.GameObjects.Text
   private crackHud!: Phaser.GameObjects.Text
   private crackHint!: Phaser.GameObjects.Text
   private fx?: Phaser.GameObjects.Particles.ParticleEmitter
@@ -161,6 +163,7 @@ export class HeistScene extends Phaser.Scene {
   private pauseTitle!: Phaser.GameObjects.Text
   private pauseResumeLbl!: Phaser.GameObjects.Text
   private pauseAbortLbl!: Phaser.GameObjects.Text
+  private stealthBroken = false
   private startedAt = 0
   private combo = 0
   private maxCombo = 0
@@ -675,32 +678,19 @@ export class HeistScene extends Phaser.Scene {
 
     this.lootGroup = this.physics.add.group()
     const slots: [number, number, LootKind][] = [
-      [300, 1080, 'C10'],
-      [200, 1120, 'C10'],
-      [120, 760, 'C50'],
-      [400, 660, 'C50'],
-      [860, 800, 'C50'],
-      [1620, 760, 'C50'],
-      [120, 250, 'C100'],
-      [720, 240, 'C100'],
-      [1020, 220, 'C100'],
+      [560, 1110, 'C10'],
+      [760, 1080, 'C10'],
+      [300, 1140, 'C10'],
+      [700, 850, 'C10'],
+      [410, 500, 'C50'],
+      [1120, 780, 'C50'],
+      [1610, 620, 'C50'],
+      [340, 780, 'C50'],
+      [1080, 520, 'C100'],
+      [1610, 200, 'C100'],
     ]
     slots.forEach(([sx, sy, kind], i) => {
-      const def = coinDef(kind)
-      const x = Phaser.Math.Clamp(jitter(sx, 22), 70, W - 70)
-      const y = Phaser.Math.Clamp(jitter(sy, 16), 70, H - 70)
-      const s = this.physics.add.sprite(x, y, def.key)
-      applyCoinSpriteSize(s, def)
-      s.setDepth(6)
-      s.setData('lootId', `loot-${i}`)
-      s.setData('value', def.value)
-      s.setData('collected', false)
-      const b = s.body as Phaser.Physics.Arcade.Body
-      b.setAllowGravity(false)
-      b.setImmovable(true)
-      b.setCircle(20)
-      this.lootGroup.add(s)
-      playCoinIdle(this, s, i)
+      this.spawnLoot(Phaser.Math.Clamp(jitter(sx, 12), 70, W - 70), Phaser.Math.Clamp(jitter(sy, 10), 70, H - 70), kind, i)
     })
 
     this.physics.add.collider(this.player, this.walls)
@@ -755,6 +745,10 @@ export class HeistScene extends Phaser.Scene {
       .setDepth(21)
     this.bagHud = this.add
       .text(12, 26, '', { fontFamily: 'Unbounded, sans-serif', fontSize: '12px', color: '#f3e6c4' })
+      .setScrollFactor(0)
+      .setDepth(21)
+    this.objHud = this.add
+      .text(10, 52, '', { fontFamily: 'Unbounded, sans-serif', fontSize: '9px', color: '#d8c49a', lineSpacing: 2 })
       .setScrollFactor(0)
       .setDepth(21)
     this.crackHud = this.add
@@ -1025,6 +1019,7 @@ export class HeistScene extends Phaser.Scene {
     this.updateCams(dt)
     this.updateGuard(dt)
     this.updateAlert(dt)
+    if (this.alert >= 0.7 || this.gState === 'CHASE') this.stealthBroken = true
     this.drawWorldFx()
     this.drawUi()
   }
@@ -1192,6 +1187,24 @@ export class HeistScene extends Phaser.Scene {
     if (gained > 0) this.floatGain(gained)
     else this.bagFullFlash = this.gameNow() + 900
     this.fx?.explode(18, this.safePos.x, this.safePos.y)
+    this.spawnLoot(1280, 250, 'C50', 20)
+  }
+
+  private spawnLoot(x: number, y: number, kind: LootKind, seed: number) {
+    const def = coinDef(kind)
+    const s = this.physics.add.sprite(x, y, def.key)
+    applyCoinSpriteSize(s, def)
+    s.setDepth(6)
+    this.lootSpawn += 1
+    s.setData('lootId', `loot-${this.lootSpawn}`)
+    s.setData('value', def.value)
+    s.setData('collected', false)
+    const b = s.body as Phaser.Physics.Arcade.Body
+    b.setAllowGravity(false)
+    b.setImmovable(true)
+    b.setCircle(20)
+    this.lootGroup.add(s)
+    playCoinIdle(this, s, seed)
   }
 
   private tryDash() {
@@ -1776,10 +1789,18 @@ export class HeistScene extends Phaser.Scene {
     const coins = this.currentLoot
     const timeMs = this.gameNow() - this.startedAt
     const bonus = verdict === 'escaped' && this.alert < 0.3 && coins > 0 ? Math.max(5, Math.floor(coins * 0.1)) : 0
+    const objectives = {
+      loot: coins >= RAID_OBJ_LOOT,
+      stealth: !this.stealthBroken,
+      speed: timeMs < RAID_OBJ_TIME_S * 1000,
+    }
+    const objBonus = raidObjectiveBonus(verdict === 'escaped', objectives.loot, objectives.stealth, objectives.speed)
     this.onDone({
       verdict,
       coins,
       bonus,
+      objBonus,
+      objectives,
       banked: 0,
       timeMs,
       alert: this.alert,
@@ -1905,6 +1926,7 @@ export class HeistScene extends Phaser.Scene {
     this.bagHud.setText(
       `${heistT('heistBag')} ${this.currentLoot}/${this.mods.bagCap}    ${heistT('heistAlert')} ${a}% ${band}    ${heistT('heistTime')} ${formatClock(now - this.startedAt)}${escape}`,
     )
+    this.drawObjectives(now - this.startedAt)
     this.exitLabel?.setText(heistT('heistExit'))
     this.lobbyLabel?.setText(heistT('heistRoomLobby'))
     this.vaultLabel?.setText(heistT('heistRoomVault'))
@@ -1928,6 +1950,26 @@ export class HeistScene extends Phaser.Scene {
       this.crackHint.setVisible(false)
     }
     this.drawPauseUi()
+  }
+
+  private drawObjectives(elapsedMs: number) {
+    if (this.safeCrack) {
+      this.objHud.setVisible(false)
+      return
+    }
+    this.objHud.setVisible(true)
+    const loot = this.currentLoot >= RAID_OBJ_LOOT
+    const stealth = !this.stealthBroken
+    const speed = elapsedMs < RAID_OBJ_TIME_S * 1000
+    const mark = (ok: boolean) => (ok ? '✓' : '□')
+    const w = Math.min(148, Math.max(120, this.camW() - 88))
+    this.uiGfx.fillStyle(0x080604, 0.5)
+    this.uiGfx.fillRoundedRect(6, 50, w, 58, 8)
+    this.objHud.setPosition(12, 53)
+    this.objHud.setWordWrapWidth(w - 12, true)
+    this.objHud.setText(
+      `${heistT('heistObjectives')}\n${mark(loot)} ${heistT('heistObjLoot', { n: RAID_OBJ_LOOT })}\n${mark(stealth)} ${heistT('heistObjStealth')}\n${mark(speed)} ${heistT('heistObjSpeed', { n: RAID_OBJ_TIME_S })}`,
+    )
   }
 
   private drawPauseUi() {

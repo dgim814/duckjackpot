@@ -7,6 +7,9 @@ export type PlayerProgress = {
   dashLevel: number
   magnetLevel: number
   lockpickLevel: number
+  objLoot: boolean
+  objStealth: boolean
+  objSpeed: boolean
 }
 
 export type HeistRunMods = {
@@ -37,6 +40,11 @@ export const PRICE_BIG_BAG = BAG_PRICES[0]
 export const PRICE_DISGUISE = DISGUISE_PRICES[0]
 export const PRICE_SHOES = SHOES_PRICES[0]
 
+export const RAID_OBJ_LOOT = 100
+export const RAID_OBJ_TIME_S = 120
+export const RAID_OBJ_REWARD = 25
+export const RAID_OBJ_ALL = 50
+
 const emptyProgress = (): PlayerProgress => ({
   bankedDuckCoin: 0,
   bagLevel: 0,
@@ -46,6 +54,9 @@ const emptyProgress = (): PlayerProgress => ({
   dashLevel: 0,
   magnetLevel: 0,
   lockpickLevel: 0,
+  objLoot: false,
+  objStealth: false,
+  objSpeed: false,
 })
 
 function clampLevel(n: unknown, max = LAB_MAX) {
@@ -68,6 +79,9 @@ export function loadProgress(): PlayerProgress {
       dashLevel: clampLevel(parsed.dashLevel, 1),
       magnetLevel: clampLevel(parsed.magnetLevel, 1),
       lockpickLevel: clampLevel(parsed.lockpickLevel, 1),
+      objLoot: Boolean(parsed.objLoot),
+      objStealth: Boolean(parsed.objStealth),
+      objSpeed: Boolean(parsed.objSpeed),
     }
   } catch {
     return emptyProgress()
@@ -124,8 +138,20 @@ export function runMods(progress: PlayerProgress): HeistRunMods {
   }
 }
 
-export function bankCoins(progress: PlayerProgress, gained: number) {
-  const next = { ...progress, bankedDuckCoin: progress.bankedDuckCoin + Math.max(0, Math.floor(gained)) }
+export function raidObjectiveBonus(escaped: boolean, loot: boolean, stealth: boolean, speed: boolean) {
+  if (!escaped) return 0
+  const n = Number(loot) + Number(stealth) + Number(speed)
+  return n * RAID_OBJ_REWARD + (n === 3 ? RAID_OBJ_ALL : 0)
+}
+
+export function bankCoins(progress: PlayerProgress, gained: number, objectives?: { loot: boolean; stealth: boolean; speed: boolean }) {
+  const next: PlayerProgress = {
+    ...progress,
+    bankedDuckCoin: progress.bankedDuckCoin + Math.max(0, Math.floor(gained)),
+    objLoot: progress.objLoot || Boolean(objectives?.loot),
+    objStealth: progress.objStealth || Boolean(objectives?.stealth),
+    objSpeed: progress.objSpeed || Boolean(objectives?.speed),
+  }
   saveProgress(next)
   return next
 }
