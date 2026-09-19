@@ -4,6 +4,7 @@ import { createHeistGame } from './phaser/createHeistGame'
 import type { HeistEnd } from './types'
 import type { HeistRunMods } from './progress'
 import { bindHeistI18n } from './heistI18n'
+import { unlockHeistSfx } from './heistSfx'
 import { useI18n } from '../i18n/LanguageProvider'
 
 export type { HeistEnd }
@@ -49,6 +50,9 @@ export function HeistGame({ running, mods, onDone }: HeistGameProps) {
     const stop = (e: TouchEvent) => e.preventDefault()
     wrap.addEventListener('touchmove', stop, { passive: false })
     document.addEventListener('touchmove', stop, { passive: false })
+    const unlock = () => unlockHeistSfx()
+    wrap.addEventListener('pointerdown', unlock)
+    wrap.addEventListener('touchstart', unlock, { passive: true })
     try {
       const tg = telegramApp()
       tg.expand?.()
@@ -64,6 +68,8 @@ export function HeistGame({ running, mods, onDone }: HeistGameProps) {
       game.destroy(true)
       wrap.removeEventListener('touchmove', stop)
       document.removeEventListener('touchmove', stop)
+      wrap.removeEventListener('pointerdown', unlock)
+      wrap.removeEventListener('touchstart', unlock)
       html.style.overflow = prev.htmlOverflow
       body.style.overflow = prev.bodyOverflow
       html.style.overscrollBehavior = prev.htmlOverscroll

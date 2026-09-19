@@ -4,6 +4,7 @@ import type { HeistEnd } from '../types'
 import { RAID_OBJ_LOOT, RAID_OBJ_TIME_S, raidObjectiveBonus, type HeistRunMods } from '../progress'
 import { applyCoinSpriteSize, coinDef, ensureCoinPlaceholders, loadDuckCoinImages, playCoinIdle, stopCoinIdle, SAFE_REWARD, type DuckCoinKind } from '../coinAssets'
 import { heistT } from '../heistI18n'
+import { heistSfx, unlockHeistSfx } from '../heistSfx'
 import { buildNavGrid, cellCenter, findPath, findPathAroundStuck, nearestWalkable, type NavGrid } from '../guardPath'
 
 const W = 1760
@@ -134,6 +135,7 @@ export class HeistScene extends Phaser.Scene {
     if (e.code === 'Escape') {
       if (down) {
         e.preventDefault()
+        unlockHeistSfx()
         this.togglePause()
       }
       return
@@ -183,6 +185,7 @@ export class HeistScene extends Phaser.Scene {
   private pauseResumeLbl!: Phaser.GameObjects.Text
   private pauseAbortLbl!: Phaser.GameObjects.Text
   private stealthBroken = false
+  private alertSfxOn = false
   private startedAt = 0
   private combo = 0
   private maxCombo = 0
@@ -927,6 +930,7 @@ export class HeistScene extends Phaser.Scene {
     item.setData('collected', true)
     item.disableBody(true, false)
     this.currentLoot += gained
+    heistSfx.pickup()
     const now = this.gameNow()
     this.combo = now - this.lastPickup < 3800 ? this.combo + 1 : 1
     this.maxCombo = Math.max(this.maxCombo, this.combo)
@@ -1022,6 +1026,12 @@ export class HeistScene extends Phaser.Scene {
     for (const unit of this.units) this.updateGuard(unit, dt)
     this.updateAlert(dt)
     if (this.alert >= 0.7 || this.anyChase()) this.stealthBroken = true
+    if (this.alert >= 0.7) {
+      if (!this.alertSfxOn) heistSfx.alert()
+      this.alertSfxOn = true
+    } else if (this.alert < 0.55) {
+      this.alertSfxOn = false
+    }
     this.drawWorldFx()
     this.drawUi()
   }
@@ -1069,6 +1079,7 @@ export class HeistScene extends Phaser.Scene {
   private setPaused(on: boolean) {
     if (this.ended || this.paused === on) return
     if (on) {
+      heistSfx.pause()
       this.pauseAt = this.time.now
       this.paused = true
       this.releaseTouches()
@@ -1174,9 +1185,11 @@ export class HeistScene extends Phaser.Scene {
     const zone = this.safeZone()
     if (Math.abs(this.safeMarker - zone.center) <= zone.width / 2) {
       this.safeHits += 1
+      heistSfx.safeSuccess()
       if (this.safeHits >= SAFE_HITS) this.openSafeReward()
     } else {
       this.alert = Math.min(1, this.alert + SAFE_MISS_ALERT)
+      heistSfx.safeFail()
     }
   }
 
@@ -1232,6 +1245,7 @@ export class HeistScene extends Phaser.Scene {
   }
 
   private onDown(p: Phaser.Input.Pointer) {
+    unlockHeistSfx()
     if (this.ended) return
     const x = p.x
     const y = p.y
@@ -1505,10 +1519,13 @@ export class HeistScene extends Phaser.Scene {
 
   private setG(u: GuardUnit, s: GuardState) {
     if (u.state === s) return
+    const prev = u.state
     u.state = s
     u.path = []
     u.repathAt = 0
     u.stuckTries = 0
+    if (s === 'CHASE' && prev !== 'CHASE') heistSfx.chase()
+    else if (s === 'INVESTIGATE' && (prev === 'PATROL' || prev === 'RETURN')) heistSfx.detected()
     if (s === 'SEARCH') {
       u.searchT = 5.2
       u.searchI = 0
@@ -1818,6 +1835,8 @@ export class HeistScene extends Phaser.Scene {
   private finish(verdict: HeistEnd['verdict']) {
     if (this.ended) return
     this.ended = true
+    if (verdict === 'escaped') heistSfx.exit()
+    else heistSfx.caught()
     this.releaseTouches()
     this.input.enabled = false
     const body = this.player.body as Phaser.Physics.Arcade.Body

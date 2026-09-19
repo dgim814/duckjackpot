@@ -16,6 +16,7 @@ import {
   runMods,
   type LabStat,
 } from '../heist/progress'
+import { heistSfx, unlockHeistSfx } from '../heist/heistSfx'
 import { useI18n } from '../i18n/LanguageProvider'
 
 function formatTime(ms: number) {
@@ -49,6 +50,7 @@ export function HeistPage() {
   }
 
   const playAgain = () => {
+    unlockHeistSfx()
     setEnd(null)
     setRunKey((n) => n + 1)
     setScreen('play')
@@ -66,6 +68,8 @@ export function HeistPage() {
     }
     setProgress(result.next)
     setShopMsg(null)
+    unlockHeistSfx()
+    heistSfx.purchase()
   }
 
   if (screen === 'play') {
@@ -288,6 +292,7 @@ export function HeistPage() {
             type="button"
             className="buy-btn mt-4 w-full rounded-full px-6 py-4 font-display text-2xl font-black tracking-[0.12em] text-zinc-950"
             onClick={() => {
+              unlockHeistSfx()
               setEnd(null)
               setRunKey((n) => n + 1)
               setScreen('play')
