@@ -89,7 +89,7 @@ export function HeistPage() {
       return
     }
     if (result.reason === 'poor') {
-      setShopMsg(t('heistNotEnough'))
+            setShopMsg(t('heistNotEnoughStars'))
       return
     }
     setProgress(result.next)
@@ -146,11 +146,12 @@ export function HeistPage() {
         <div className="mx-auto w-full max-w-sm">
           <p className="text-center text-[11px] font-extrabold tracking-[0.2em] text-amber-200">{t('heistLab')}</p>
           <p className="mt-1 text-center text-[10px] font-extrabold tracking-[0.18em] text-amber-100/70">{t('heistUpgrades')}</p>
-          <p className="mt-3 text-center font-display text-4xl font-black text-amber-300">{progress.bankedDuckCoin}</p>
-          <p className="text-center text-xs font-extrabold tracking-[0.18em] text-amber-100/80">{t('heistDuckCoin')}</p>
+          <p className="mt-3 text-center font-display text-4xl font-black text-amber-300">{progress.stars || 0}</p>
+          <p className="text-center text-xs font-extrabold tracking-[0.18em] text-amber-100/80">{t('heistStars')}</p>
           <p className="mt-1 text-center text-xs text-zinc-400">
             {t('heistBag')} {bagCap(progress)}
           </p>
+          <p className="mt-1 text-center text-[11px] text-zinc-500">{t('heistStarsHint')}</p>
           {shopMsg ? <p className="mt-3 text-center text-sm font-bold text-orange-300">{shopMsg}</p> : null}
           <div className="mt-5 space-y-3">
             {tracks.map((track) => {
@@ -172,7 +173,7 @@ export function HeistPage() {
                   <p className="mt-1 text-sm text-zinc-400">{t('heistLabNext', { name: maxed ? t('heistLabMax') : nextName })}</p>
                   <p className="mt-1 text-sm text-zinc-500">{hint}</p>
                   <p className="mt-2 font-mono text-sm font-bold text-amber-200">
-                    {maxed ? t('heistLabMax') : `${price} ${t('heistDuckCoin')}`}
+                    {maxed ? t('heistLabMax') : `${price} ${t('heistStars')}`}
                   </p>
                   <button
                     type="button"
@@ -298,7 +299,7 @@ export function HeistPage() {
     <section className="relative h-[calc(100dvh-4.75rem-env(safe-area-inset-bottom))] overflow-y-auto bg-[#120c10]">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(255,107,0,0.18),transparent_50%)]" />
       <div className="relative mx-auto flex min-h-full w-full max-w-sm flex-col items-center px-5 pb-6 pt-4">
-        <HeistDuck className="hero-duck mb-1 block" size={112} />
+        <HeistDuck className="hero-duck mb-1 block" size={120} fit="height" />
         <div className="w-full rounded-3xl border border-amber-400/35 bg-[#120c10]/88 p-4 backdrop-blur-md">
           <div className="mb-3 flex justify-center">
             <LangSwitch gold />

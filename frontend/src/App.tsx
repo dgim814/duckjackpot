@@ -23,6 +23,8 @@ import { GameHomePage } from './pages/GameHomePage'
 import { HistoryPage } from './pages/HistoryPage'
 import { HomePage } from './pages/HomePage'
 import { HeistPage } from './pages/HeistPage'
+import { BlackMarketPage } from './pages/BlackMarketPage'
+import { CollectionPage } from './pages/CollectionPage'
 import { HuntPage } from './pages/HuntPage'
 import { LegalDocPage } from './pages/LegalDocPage'
 import { MyCardsPage } from './pages/MyCardsPage'
@@ -88,6 +90,8 @@ export default function App() {
                 <Route path="/drop" element={<HomePage />} />
                 <Route path="/nft" element={<Navigate to="/drop" replace />} />
                 <Route path="/heist" element={<HeistPage />} />
+                <Route path="/market" element={<BlackMarketPage />} />
+                <Route path="/collection" element={<CollectionPage />} />
                 <Route path="/hunt" element={<HuntPage />} />
                 <Route path="/cards" element={<MyCardsPage />} />
                 <Route path="/terms" element={<TermsPage />} />

@@ -1,6 +1,21 @@
 import type Phaser from 'phaser'
 
-export type FurnKind = 'desk' | 'cabinet' | 'column' | 'atm' | 'chair' | 'sofa' | 'bed' | 'plant' | 'stove' | 'counter'
+export type FurnKind =
+  | 'desk'
+  | 'cabinet'
+  | 'column'
+  | 'atm'
+  | 'chair'
+  | 'sofa'
+  | 'bed'
+  | 'plant'
+  | 'stove'
+  | 'counter'
+  | 'shelf'
+  | 'toilet'
+  | 'nightstand'
+  | 'bench'
+  | 'lamp'
 
 const BANK = {
   wood: 0x3a4554,
@@ -136,6 +151,75 @@ export function paintFurniture(
     return
   }
 
+  if (kind === 'shelf') {
+    g.fillStyle(0x050308, 0.35)
+    g.fillRoundedRect(x + 4, y + 6, w, h, 3)
+    g.fillStyle(theme === 'bank' ? 0x2a3848 : HOME.wood)
+    g.fillRoundedRect(x, y, w, h, 3)
+    g.lineStyle(1.25, pal.brass, 0.45)
+    g.strokeRoundedRect(x + 2, y + 2, w - 4, h - 4, 2)
+    const rows = Math.max(2, Math.floor(h / 22))
+    for (let i = 1; i < rows; i += 1) {
+      const yy = y + (h / rows) * i
+      g.lineStyle(1.5, pal.brass, 0.35)
+      g.lineBetween(x + 6, yy, x + w - 6, yy)
+      g.fillStyle(theme === 'bank' ? 0x6ec8ff : 0xc45a2a, 0.25)
+      g.fillRect(x + 10, yy - 8, 10, 6)
+    }
+    return
+  }
+
+  if (kind === 'toilet') {
+    g.fillStyle(0x050308, 0.3)
+    g.fillRoundedRect(x + 3, y + 5, w, h, 8)
+    g.fillStyle(0xd8d4cc)
+    g.fillRoundedRect(x, y, w, h, 8)
+    g.fillStyle(0x8aa0b0)
+    g.fillCircle(cx, cy - 2, Math.min(w, h) * 0.28)
+    g.fillStyle(0x4a5a66)
+    g.fillCircle(cx, cy - 2, Math.min(w, h) * 0.14)
+    return
+  }
+
+  if (kind === 'nightstand') {
+    g.fillStyle(0x050308, 0.35)
+    g.fillRoundedRect(x + 3, y + 5, w, h, 4)
+    g.fillStyle(HOME.wood)
+    g.fillRoundedRect(x, y, w, h, 4)
+    g.lineStyle(1.25, pal.brass, 0.4)
+    g.strokeRoundedRect(x + 3, y + 3, w - 6, h - 6, 3)
+    g.fillStyle(pal.brass, 0.7)
+    g.fillCircle(cx, cy, 2.4)
+    g.fillStyle(0xffe08a, 0.35)
+    g.fillCircle(cx, y - 6, 5)
+    return
+  }
+
+  if (kind === 'bench') {
+    g.fillStyle(0x050308, 0.35)
+    g.fillRoundedRect(x + 4, y + 6, w, h, 6)
+    g.fillStyle(theme === 'bank' ? 0x3a4554 : 0x6a3a32)
+    g.fillRoundedRect(x, y, w, h, 6)
+    g.fillStyle(theme === 'bank' ? 0x243040 : 0x4a2824)
+    g.fillRoundedRect(x + 8, y + 6, w * 0.38, h - 12, 4)
+    g.fillRoundedRect(x + w * 0.52, y + 6, w * 0.38, h - 12, 4)
+    g.lineStyle(1.25, pal.brass, 0.35)
+    g.strokeRoundedRect(x + 2, y + 2, w - 4, h - 4, 5)
+    return
+  }
+
+  if (kind === 'lamp') {
+    g.fillStyle(0x050308, 0.25)
+    g.fillCircle(cx + 2, cy + 4, 10)
+    g.fillStyle(theme === 'bank' ? 0x243044 : 0x3a2418)
+    g.fillRoundedRect(cx - 4, cy - 2, 8, Math.max(12, h * 0.4), 2)
+    g.fillStyle(0xffe08a, 0.55)
+    g.fillCircle(cx, cy - 8, 8)
+    g.fillStyle(0xfff3c4, 0.35)
+    g.fillCircle(cx, cy - 8, 14)
+    return
+  }
+
   if (kind === 'cabinet') {
     g.fillStyle(0x050308, 0.4)
     g.fillRoundedRect(x + 4, y + 6, w, h, 4)
@@ -174,27 +258,32 @@ export function paintFurniture(
   }
 }
 
-/** Visual-only props: rugs, paintings, velvet ropes. No collision. */
+export type DecorKind = 'rug' | 'painting' | 'rope'
 export function paintDecor(
   scene: Phaser.Scene,
-  spec: { x: number; y: number; w: number; h: number; kind: 'rug' | 'painting' | 'rope' },
+  spec: { x: number; y: number; w: number; h: number; kind: DecorKind },
   theme: 'bank' | 'mansion',
 ) {
   const { x, y, w, h, kind } = spec
   const g = scene.add.graphics().setDepth(1)
   if (kind === 'rug') {
-    g.fillStyle(theme === 'bank' ? 0x1a3048 : 0x5a2420, 0.45)
+    g.fillStyle(theme === 'bank' ? 0x1a3048 : 0x5a2420, 0.5)
     g.fillRoundedRect(x, y, w, h, 8)
-    g.lineStyle(2, 0xc9a227, 0.25)
+    g.lineStyle(2, 0xc9a227, 0.28)
     g.strokeRoundedRect(x + 6, y + 6, w - 12, h - 12, 6)
+    g.lineStyle(1, 0xc9a227, 0.12)
+    g.strokeRoundedRect(x + 14, y + 14, w - 28, h - 28, 4)
     return
   }
   if (kind === 'painting') {
     g.fillStyle(0x1a1410, 1)
     g.fillRect(x, y, w, h)
-    g.fillStyle(theme === 'bank' ? 0x3a5068 : 0x6a3a28, 1)
+    const inner = theme === 'bank' ? [0x3a5068, 0xc9a227, 0x6a3a28] : [0x6a3a28, 0xc9a227, 0x2f6a3a]
+    g.fillStyle(inner[(Math.abs(x + y) | 0) % inner.length], 1)
     g.fillRect(x + 4, y + 4, w - 8, h - 8)
-    g.lineStyle(2, 0xc9a227, 0.7)
+    g.fillStyle(0xffe08a, 0.18)
+    g.fillRect(x + 8, y + 8, w * 0.35, h * 0.25)
+    g.lineStyle(2, 0xc9a227, 0.75)
     g.strokeRect(x + 1, y + 1, w - 2, h - 2)
     return
   }

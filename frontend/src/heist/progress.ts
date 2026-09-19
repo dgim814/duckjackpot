@@ -1,4 +1,7 @@
 import type { OwnedCollection } from './economy/catalog'
+import { catalogItem } from './economy/catalog'
+import { addToCollection, removeFromCollection } from './economy/collection'
+import { cancelListing, listItem } from './economy/marketStore'
 
 export type PlayerProgress = {
   bankedDuckCoin: number
@@ -14,6 +17,8 @@ export type PlayerProgress = {
   objSpeed: boolean
   /** Collection counts. Empty until Black Market ships; never wipe this. */
   ownedArt: OwnedCollection
+  /** Telegram Stars for gameplay upgrades. Never mixed with DUCK COIN. */
+  stars: number
 }
 
 export type HeistRunMods = {
@@ -41,6 +46,11 @@ export const BAG_PRICES = [500, 1600, 4200] as const
 export const DISGUISE_PRICES = [750, 1800, 3600] as const
 export const SHOES_PRICES = [1000, 2200, 4500] as const
 
+/** Gameplay upgrades: Telegram Stars only. */
+export const BAG_STAR_PRICES = [50, 150, 400] as const
+export const DISGUISE_STAR_PRICES = [75, 200, 450] as const
+export const SHOES_STAR_PRICES = [80, 220, 500] as const
+
 export const PRICE_BIG_BAG = BAG_PRICES[0]
 export const PRICE_DISGUISE = DISGUISE_PRICES[0]
 export const PRICE_SHOES = SHOES_PRICES[0]
@@ -63,6 +73,7 @@ const emptyProgress = (): PlayerProgress => ({
   objStealth: false,
   objSpeed: false,
   ownedArt: {},
+  stars: 0,
 })
 
 function readOwned(raw: unknown): OwnedCollection {
@@ -99,6 +110,7 @@ export function loadProgress(): PlayerProgress {
       objStealth: Boolean(parsed.objStealth),
       objSpeed: Boolean(parsed.objSpeed),
       ownedArt: readOwned(parsed.ownedArt),
+      stars: Math.max(0, Math.floor(Number((parsed as { stars?: unknown }).stars) || 0)),
     }
   } catch {
     return emptyProgress()
@@ -118,9 +130,9 @@ export function bagCap(progress: PlayerProgress) {
 }
 
 export function labPrices(stat: LabStat): readonly number[] {
-  if (stat === 'bagLevel') return BAG_PRICES
-  if (stat === 'disguiseLevel') return DISGUISE_PRICES
-  return SHOES_PRICES
+  if (stat === 'bagLevel') return BAG_STAR_PRICES
+  if (stat === 'disguiseLevel') return DISGUISE_STAR_PRICES
+  return SHOES_STAR_PRICES
 }
 
 export function labNextPrice(progress: PlayerProgress, stat: LabStat) {
@@ -133,10 +145,12 @@ export function labNextPrice(progress: PlayerProgress, stat: LabStat) {
 export function buyLabUpgrade(progress: PlayerProgress, stat: LabStat) {
   const price = labNextPrice(progress, stat)
   if (price == null) return { ok: false as const, reason: 'max' as const, next: progress }
-  if (progress.bankedDuckCoin < price) return { ok: false as const, reason: 'poor' as const, next: progress }
+  const stars = Math.max(0, Math.floor(progress.stars || 0))
+  if (stars < price) return { ok: false as const, reason: 'poor' as const, next: progress }
   const next: PlayerProgress = {
     ...progress,
-    bankedDuckCoin: progress.bankedDuckCoin - price,
+    stars: stars - price,
+    ownedArt: progress.ownedArt ?? {},
     [stat]: clampLevel(progress[stat] + 1),
   }
   saveProgress(next)
@@ -170,7 +184,44 @@ export function bankCoins(progress: PlayerProgress, gained: number, objectives?:
     objStealth: progress.objStealth || Boolean(objectives?.stealth),
     objSpeed: progress.objSpeed || Boolean(objectives?.speed),
     ownedArt: progress.ownedArt ?? {},
+    stars: Math.max(0, Math.floor(progress.stars || 0)),
   }
   saveProgress(next)
   return next
+}
+
+export function buyCatalogItem(progress: PlayerProgress, itemId: string) {
+  const item = catalogItem(itemId)
+  if (!item) return { ok: false as const, reason: 'missing' as const, next: progress }
+  if (progress.bankedDuckCoin < item.duckCoinValue) return { ok: false as const, reason: 'poor' as const, next: progress }
+  const next: PlayerProgress = {
+    ...progress,
+    bankedDuckCoin: progress.bankedDuckCoin - item.duckCoinValue,
+    ownedArt: addToCollection(progress.ownedArt ?? {}, itemId),
+    stars: Math.max(0, Math.floor(progress.stars || 0)),
+  }
+  saveProgress(next)
+  return { ok: true as const, reason: 'ok' as const, next }
+}
+
+export function listOwnedItem(progress: PlayerProgress, itemId: string, priceDuckCoin: number) {
+  const owned = removeFromCollection(progress.ownedArt ?? {}, itemId)
+  if (!owned) return { ok: false as const, reason: 'none' as const, next: progress, listing: null }
+  const listing = listItem(itemId, priceDuckCoin)
+  if (!listing) return { ok: false as const, reason: 'bad' as const, next: progress, listing: null }
+  const next: PlayerProgress = { ...progress, ownedArt: owned, stars: Math.max(0, Math.floor(progress.stars || 0)) }
+  saveProgress(next)
+  return { ok: true as const, reason: 'ok' as const, next, listing }
+}
+
+export function recallListing(progress: PlayerProgress, listingId: string) {
+  const listing = cancelListing(listingId)
+  if (!listing) return { ok: false as const, reason: 'gone' as const, next: progress }
+  const next: PlayerProgress = {
+    ...progress,
+    ownedArt: addToCollection(progress.ownedArt ?? {}, listing.itemId),
+    stars: Math.max(0, Math.floor(progress.stars || 0)),
+  }
+  saveProgress(next)
+  return { ok: true as const, reason: 'ok' as const, next }
 }

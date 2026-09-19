@@ -1,6 +1,6 @@
-import { catalogItem, type ItemRarity, type MarketListing } from './catalog'
+import { catalogItem, type MarketListing } from './catalog'
+import { listItem, cancelListing } from './marketStore'
 
-/** Local listing shape for a future P2P Black Market. No auto-buyback. */
 export type ListingDraft = {
   itemId: string
   ownerId: string
@@ -20,10 +20,12 @@ export function makeListing(draft: ListingDraft, now = Date.now()): MarketListin
   }
 }
 
-export function listingRarity(listing: MarketListing): ItemRarity | null {
+export function listingRarity(listing: MarketListing) {
   return catalogItem(listing.itemId)?.rarity ?? null
 }
 
 export function listingCollectionValue(listing: MarketListing) {
   return catalogItem(listing.itemId)?.duckCoinValue ?? 0
 }
+
+export { listItem, cancelListing }

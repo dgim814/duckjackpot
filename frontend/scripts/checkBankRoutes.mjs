@@ -72,8 +72,8 @@ const cases = [
   ['vault door locked: spawn -> vault is sealed', locked, spawn, safe],
   ['vault door open: spawn -> safe', open, spawn, safe],
   ['vault door open: safe -> exit (escape run)', open, safe, exit],
-  ['west corridor: spawn -> west corridor loot', locked, spawn, { x: 150, y: 460 }],
-  ['east corridor: spawn -> east corridor loot', locked, spawn, { x: 1610, y: 460 }],
+  ['west corridor: spawn -> west corridor loot', locked, spawn, { x: 170, y: 540 }],
+  ['east corridor: spawn -> east corridor loot', locked, spawn, { x: 1560, y: 520 }],
 ]
 
 let failed = 0

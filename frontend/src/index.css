@@ -73,7 +73,6 @@ body {
 .hero-duck {
   filter: drop-shadow(0 16px 24px rgba(0, 0, 0, 0.62)) drop-shadow(0 0 34px rgba(255, 176, 40, 0.34));
   animation: duck-float 4.6s ease-in-out infinite;
-  will-change: transform;
 }
 
 .hero-glow {

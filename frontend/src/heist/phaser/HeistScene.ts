@@ -148,10 +148,10 @@ type SecCam = {
 const GUARD_PNG = '/heist/guard.png'
 const GUARD_SHEET = '/heist/guard_sheet.png'
 const GUARD_FRAME = 256
-const GUARD_DISPLAY = 50
+const GUARD_DISPLAY = 60
 const DUCK_SHEET = '/heist/duck_sheet.png'
 const DUCK_FRAME = 256
-const DUCK_DISPLAY = 84
+const DUCK_DISPLAY = 104
 const DUCK_BODY_W = 20
 const DUCK_BODY_H = 22
 /** Previous visual size; keep world hitbox identical when display scale changes. */
@@ -619,16 +619,17 @@ export class HeistScene extends Phaser.Scene {
       this.wallRects.push({ x, y, w, h })
       return r
     }
-    const fill = 0x1c1a22
+    const mansion = this.levelId === 'mansion'
+    const fill = mansion ? 0x2a1c14 : 0x1c2430
     this.add.rectangle(cx + 5, cy + 8, w + 2, h + 2, 0x050308, 0.48).setDepth(3)
     const r = this.add.rectangle(cx, cy, w, h, fill).setDepth(4)
     r.setStrokeStyle(1, 0x0a080c, 1)
     const trim = this.add.graphics().setDepth(5)
-    trim.lineStyle(1.25, 0xc9a227, 0.22)
+    trim.lineStyle(1.25, mansion ? 0xb8894a : 0x8aa0b4, mansion ? 0.28 : 0.2)
     trim.strokeRect(x + 2, y + 2, w - 4, h - 4)
-    trim.fillStyle(0xe8d7a0, 0.14)
+    trim.fillStyle(mansion ? 0xe8d7a0 : 0xc5d4e0, 0.12)
     trim.fillRect(x + 2, y + 1, w - 4, 3)
-    trim.fillStyle(0x141218, 0.35)
+    trim.fillStyle(mansion ? 0x1a100c : 0x101820, 0.35)
     if (w >= h && w > 64) {
       for (let px = x + 28; px < x + w - 12; px += 36) trim.fillRect(px, y + 5, 1, h - 10)
     } else if (h > 64) {
@@ -654,13 +655,16 @@ export class HeistScene extends Phaser.Scene {
 
   private paintLamps(lamps: readonly [number, number][]) {
     const g = this.add.graphics().setDepth(2)
+    const mansion = this.levelId === 'mansion'
     for (const [lx, ly] of lamps) {
-      g.fillStyle(0xc9a227, 0.06)
-      g.fillCircle(lx, ly, 36)
-      g.fillStyle(0x1a181e)
-      g.fillCircle(lx, ly, 5)
-      g.fillStyle(0xe8d7a0, 0.55)
-      g.fillCircle(lx, ly, 2.4)
+      g.fillStyle(mansion ? 0xd4a24a : 0xc9a227, 0.08)
+      g.fillCircle(lx, ly, 48)
+      g.fillStyle(mansion ? 0x3a2418 : 0x1a2430)
+      g.fillCircle(lx, ly, 7)
+      g.lineStyle(1.5, 0xc9a227, 0.55)
+      g.strokeCircle(lx, ly, 7)
+      g.fillStyle(0xffe08a, 0.7)
+      g.fillCircle(lx, ly, 2.8)
     }
   }
 
@@ -1353,27 +1357,31 @@ export class HeistScene extends Phaser.Scene {
     })
   }
 
-  /** Bigger and brighter for the rare coins so a C100 pickup reads as a win. */
+  /** Short gold popup: +5 DUCK COIN. Bigger for rare coins. */
   private floatGain(gained: number, kind?: LootKind) {
     const x = this.player.x
-    const y = this.player.y - 18
+    const y = this.player.y - 22
     const dropped = gained < 0
     const amount = Math.abs(gained)
     const big = kind === 'C100' || amount >= 100
     const mid = kind === 'C50' || amount >= 50
+    const color = dropped ? '#ffb070' : big ? '#fff8d6' : mid ? '#ffe08a' : '#f6d56a'
     const label = this.add
-      .text(x, y, heistT(dropped ? 'heistDropped' : 'heistPickup', { n: amount }), {
+      .text(x, y, `${dropped ? '−' : '+'}${amount} DUCK COIN`, {
         fontFamily: 'Unbounded, sans-serif',
-        fontSize: big ? '22px' : mid ? '19px' : '16px',
-        color: dropped ? '#ffb070' : big ? '#fff3c4' : '#ffe08a',
+        fontSize: big ? '20px' : mid ? '17px' : '15px',
+        color,
+        stroke: '#1a1008',
+        strokeThickness: 4,
       })
       .setOrigin(0.5)
       .setDepth(16)
     this.tweens.add({
       targets: label,
-      y: y - 42,
+      y: y - 46,
       alpha: 0,
-      duration: 700,
+      duration: 780,
+      ease: 'Cubic.easeOut',
       onComplete: () => label.destroy(),
     })
     if (this.currentLoot >= this.mods.bagCap) this.bagFullFlash = this.gameNow() + 900
@@ -1947,6 +1955,7 @@ export class HeistScene extends Phaser.Scene {
     if (Phaser.Math.Distance.Between(x, y, sneak.x, sneak.y) < sneak.r) {
       this.sneakHeld = true
       this.sneakId = p.id
+      heistSfx.sneak()
       return
     }
     if (x < w * 0.52 && y > h * 0.32 && !this.stick.active) {

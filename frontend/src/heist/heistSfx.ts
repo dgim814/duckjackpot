@@ -386,16 +386,23 @@ export const heistSfx = {
   pickup() {
     const ac = audio()
     if (!ac) return
-    pickupTone(ac, 784, 0.09, 'triangle', 0.12)
-    pickupTone(ac, 1176, 0.11, 'sine', 0.08, 0.025)
-    pickupTone(ac, 1568, 0.09, 'sine', 0.045, 0.05)
+    pickupTone(ac, 784, 0.1, 'triangle', 0.16)
+    pickupTone(ac, 1176, 0.12, 'sine', 0.1, 0.022)
+    pickupTone(ac, 1568, 0.1, 'sine', 0.055, 0.045)
   },
 
   dash() {
     const ac = audio()
     if (!ac) return
-    noiseBurst(ac, shotGain ?? ac.destination, 0.045, 0.09, 900, 0, 0.8)
-    pickupTone(ac, 220, 0.08, 'sine', 0.04)
+    noiseBurst(ac, shotGain ?? ac.destination, 0.055, 0.1, 900, 0, 0.8)
+    pickupTone(ac, 220, 0.09, 'sine', 0.05)
+  },
+
+  sneak() {
+    const ac = audio()
+    if (!ac) return
+    noiseBurst(ac, shotGain ?? ac.destination, 0.028, 0.08, 280, 0, 1.4)
+    pickupTone(ac, 180, 0.07, 'sine', 0.03)
   },
 
   step(sneak: boolean) {
@@ -436,7 +443,11 @@ export const heistSfx = {
     if (!ac) return
     void loadClips()
     if (chaseWanted || chaseOn) return
-    fireShot('camera', 0.72)
+    if (buffers.camera) fireShot('camera', 0.72)
+    else {
+      pickupTone(ac, 880, 0.08, 'square', 0.05)
+      pickupTone(ac, 1320, 0.1, 'sine', 0.04, 0.05)
+    }
     startTensionLoop()
     ramp(tensionGain, TENSION_CAM, 0.2)
   },
@@ -446,6 +457,11 @@ export const heistSfx = {
     if (!ac) return
     void loadClips()
     if (chaseWanted || chaseOn) return
+    if (buffers.investigate) {
+      startTensionLoop()
+    } else {
+      pickupTone(ac, 240, 0.12, 'triangle', 0.04)
+    }
     startTensionLoop()
     ramp(tensionGain, TENSION_INV, 0.16)
   },

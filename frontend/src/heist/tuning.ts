@@ -158,11 +158,11 @@ export const DEFAULT_TUNING: HeistTuning = {
     cams: null,
   },
   camera: {
-    zoom: 0.64,
+    zoom: 0.5,
   },
 }
 
-/** Zoom out ~25% from 0.8, then nudge by phone size so iPhone SE and Pro Max both read. */
+/** Zoom out ~25% from 0.64, then nudge by phone size so iPhone SE and Pro Max both read. */
 export function adaptiveCameraZoom(viewW: number, viewH: number, base = DEFAULT_TUNING.camera.zoom) {
   const short = Math.min(viewW, viewH)
   const long = Math.max(viewW, viewH)
@@ -172,7 +172,7 @@ export function adaptiveCameraZoom(viewW: number, viewH: number, base = DEFAULT_
   else if (short < 390) zoom = base * 0.97
   else if (short >= 430) zoom = base * 1.06
   if (aspect > 2.05) zoom *= 0.95
-  return Math.max(0.52, Math.min(0.74, zoom))
+  return Math.max(0.4, Math.min(0.6, zoom))
 }
 
 /**

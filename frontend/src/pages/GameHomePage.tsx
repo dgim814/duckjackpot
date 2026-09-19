@@ -6,6 +6,7 @@ import { currentEnergy } from '../heist/energy'
 import { DailyHeistCard } from '../heist/hub/DailyHeistCard'
 import { EnergyBar } from '../heist/hub/EnergyBar'
 import { NextRaidCard } from '../heist/hub/NextRaidCard'
+import { collectionValue } from '../heist/economy/catalog'
 import { bagCap, loadProgress } from '../heist/progress'
 import { heistRank } from '../heist/rank'
 import { heistSfx, unlockHeistSfx } from '../heist/heistSfx'
@@ -16,33 +17,42 @@ export function GameHomePage() {
   const navigate = useNavigate()
   const [progress] = useState(loadProgress)
   const rank = heistRank(progress)
-  const openHeist = () => {
+  const value = collectionValue(progress.ownedArt ?? {})
+  const tap = (path: string) => {
     unlockHeistSfx()
     heistSfx.uiTap()
-    navigate('/heist')
+    navigate(path)
   }
 
   return (
     <div className="overflow-x-hidden px-4 pb-4">
       <ScreenHeader kicker={t('hubKicker')} title={t('hubTitle')} subtitle={t('hubSubtitle')} />
 
-      <section className="hero-stage relative mt-3 overflow-hidden rounded-3xl border border-amber-400/40 px-4 pb-5 pt-5">
-        <p className="text-center text-[11px] font-extrabold uppercase tracking-[0.22em] text-amber-200">{t('heistDuckCoin')}</p>
-        <p className="gold-text font-display text-center text-[3rem] font-black leading-none">{progress.bankedDuckCoin}</p>
-        <p className="mt-1 text-center text-[11px] text-zinc-400">
-          {t('heistBag')} {bagCap(progress)}
+      <section className="hero-stage relative mt-3 overflow-hidden rounded-3xl border border-amber-400/40 px-4 pb-5 pt-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-[10px] font-extrabold uppercase tracking-[0.2em] text-amber-200">{t('heistDuckCoin')}</p>
+            <p className="gold-text font-display text-[2.6rem] font-black leading-none">{progress.bankedDuckCoin}</p>
+          </div>
+          <div className="text-right">
+            <p className="text-[10px] font-extrabold uppercase tracking-[0.2em] text-amber-200/80">{t('collectionValue')}</p>
+            <p className="font-display text-xl font-black text-amber-100">{value.toLocaleString()}</p>
+          </div>
+        </div>
+        <p className="mt-1 text-[11px] text-zinc-500">
+          {t('heistBag')} {bagCap(progress)} · STARS {progress.stars || 0}
         </p>
 
-        <div className="relative mx-auto mt-4 flex h-[13.5rem] items-end justify-center">
-          <div className="hero-glow pointer-events-none absolute left-1/2 top-[42%] h-52 w-52 -translate-x-1/2 -translate-y-1/2 rounded-full" />
-          <HeistDuck className="hero-duck relative z-[1]" size={208} />
+        <div className="relative mx-auto mt-2 flex min-h-[12.5rem] items-end justify-center">
+          <div className="hero-glow pointer-events-none absolute left-1/2 top-[44%] h-52 w-52 -translate-x-1/2 -translate-y-1/2 rounded-full" />
+          <HeistDuck className="hero-duck relative z-[1]" size={200} fit="height" />
           <div className="hero-shadow pointer-events-none absolute inset-x-10 bottom-1 h-3 rounded-full" />
         </div>
 
         <button
           type="button"
-          onClick={openHeist}
-          className="buy-btn relative mt-5 min-h-[4.35rem] w-full rounded-2xl px-4 py-3.5 text-zinc-950"
+          onClick={() => tap('/heist')}
+          className="buy-btn relative mt-4 min-h-[4.35rem] w-full rounded-2xl px-4 py-3.5 text-zinc-950"
         >
           <span className="block font-display text-[1.85rem] font-black leading-none tracking-[0.16em]">{t('heistPlay')}</span>
           <span className="mt-1.5 block text-[11px] font-bold uppercase tracking-[0.12em] opacity-80">{t('hubPlayHint')}</span>
@@ -67,28 +77,26 @@ export function GameHomePage() {
       <EnergyBar value={currentEnergy()} />
 
       <div className="mt-3 grid grid-cols-2 gap-3">
-        <button
-          type="button"
-          onClick={openHeist}
-          className="rounded-2xl border border-amber-400/30 bg-[#141218] px-3 py-3 text-left"
-        >
+        <button type="button" onClick={() => tap('/heist')} className="rounded-2xl border border-amber-400/30 bg-[#141218] px-3 py-3 text-left">
           <p className="font-display text-sm font-black text-amber-100">{t('hubLab')}</p>
           <p className="mt-1 text-[11px] leading-snug text-zinc-400">{t('hubLabHint')}</p>
         </button>
-        <div className="rounded-2xl border border-white/10 bg-[#141218]/70 px-3 py-3 opacity-70">
-          <div className="flex items-center justify-between gap-2">
-            <p className="font-display text-sm font-black text-amber-100/80">{t('hubVault')}</p>
-            <span className="rounded-full border border-amber-400/30 px-2 py-0.5 text-[9px] font-extrabold tracking-[0.14em] text-amber-200/80">
-              {t('heistLabSoon')}
-            </span>
-          </div>
-          <p className="mt-1 text-[11px] leading-snug text-zinc-500">{t('hubVaultHint')}</p>
-        </div>
+        <button type="button" onClick={() => tap('/market')} className="rounded-2xl border border-amber-400/30 bg-[#141218] px-3 py-3 text-left">
+          <p className="font-display text-sm font-black text-amber-100">{t('marketTitle')}</p>
+          <p className="mt-1 text-[11px] leading-snug text-zinc-400">{t('marketHubHint')}</p>
+        </button>
+        <button type="button" onClick={() => tap('/collection')} className="rounded-2xl border border-amber-400/30 bg-[#141218] px-3 py-3 text-left">
+          <p className="font-display text-sm font-black text-amber-100">{t('collectionTitle')}</p>
+          <p className="mt-1 text-[11px] leading-snug text-zinc-400">{t('collectionHubHint')}</p>
+        </button>
+        <button type="button" onClick={() => tap('/collection')} className="rounded-2xl border border-white/10 bg-[#141218] px-3 py-3 text-left">
+          <p className="font-display text-sm font-black text-amber-100">{t('rankTitle')}</p>
+          <p className="mt-1 text-[11px] leading-snug text-zinc-400">{t('rankHubHint')}</p>
+        </button>
       </div>
 
-      <DailyHeistCard onOpen={openHeist} />
-
-      <NextRaidCard progress={progress} onPlay={openHeist} />
+      <DailyHeistCard onOpen={() => tap('/heist')} />
+      <NextRaidCard progress={progress} onPlay={() => tap('/heist')} />
     </div>
   )
 }

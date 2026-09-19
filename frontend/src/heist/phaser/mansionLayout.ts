@@ -9,7 +9,7 @@ export const MANSION_EXIT = { x: 3280, y: 260 }
 export type MansionRect = { x: number; y: number; w: number; h: number }
 export type MansionDoor = MansionRect & { id: 'storageA' | 'storageB' | 'treasure' }
 export type MansionFurn = MansionRect & {
-  kind: 'desk' | 'cabinet' | 'column' | 'sofa' | 'bed' | 'plant' | 'stove'
+  kind: 'desk' | 'cabinet' | 'column' | 'sofa' | 'bed' | 'plant' | 'stove' | 'toilet' | 'nightstand' | 'bench' | 'shelf' | 'lamp' | 'chair' | 'counter'
 }
 export type MansionDecor = MansionRect & { kind: 'rug' | 'painting' | 'rope' }
 
@@ -131,6 +131,14 @@ export const MANSION_FURNITURE: MansionFurn[] = [
   { x: 3180, y: 80, w: 90, h: 70, kind: 'cabinet' },
   { x: 2100, y: 1680, w: 48, h: 56, kind: 'plant' },
   { x: 3000, y: 200, w: 48, h: 56, kind: 'plant' },
+  { x: 490, y: 1960, w: 42, h: 52, kind: 'toilet' },
+  { x: 500, y: 1520, w: 100, h: 36, kind: 'counter' },
+  { x: 680, y: 90, w: 40, h: 44, kind: 'nightstand' },
+  { x: 1420, y: 80, w: 40, h: 44, kind: 'nightstand' },
+  { x: 1360, y: 1520, w: 160, h: 44, kind: 'bench' },
+  { x: 80, y: 1480, w: 70, h: 100, kind: 'shelf' },
+  { x: 1680, y: 980, w: 28, h: 40, kind: 'lamp' },
+  { x: 700, y: 1180, w: 32, h: 32, kind: 'chair' },
 ]
 
 export const MANSION_DECOR: MansionDecor[] = [
@@ -139,6 +147,10 @@ export const MANSION_DECOR: MansionDecor[] = [
   { x: 70, y: 2100, w: 70, h: 46, kind: 'painting' },
   { x: 1860, y: 900, w: 80, h: 52, kind: 'painting' },
   { x: 700, y: 900, w: 80, h: 52, kind: 'painting' },
+  { x: 460, y: 1768, w: 70, h: 44, kind: 'painting' },
+  { x: 1220, y: 900, w: 80, h: 52, kind: 'painting' },
+  { x: 500, y: 1488, w: 220, h: 140, kind: 'rug' },
+  { x: 1860, y: 80, w: 70, h: 46, kind: 'painting' },
 ]
 
 export const MANSION_HIDES: MansionRect[] = [

@@ -19,7 +19,9 @@ export const BANK_EXIT = { x: 148, y: 1188 }
 
 export type BankRect = { x: number; y: number; w: number; h: number }
 export type BankDoor = BankRect & { id: 'bankVault' }
-export type BankFurn = BankRect & { kind: 'desk' | 'cabinet' | 'column' | 'atm' | 'chair' | 'counter' }
+export type BankFurn = BankRect & {
+  kind: 'desk' | 'cabinet' | 'column' | 'atm' | 'chair' | 'counter' | 'shelf' | 'plant' | 'bench' | 'lamp'
+}
 export type BankDecor = BankRect & { kind: 'rug' | 'painting' | 'rope' }
 
 /** Inner walls only; outer bounds and the locked door are added by the scene. */
@@ -71,6 +73,12 @@ export const BANK_FURNITURE: BankFurn[] = [
   { x: 80, y: 70, w: 80, h: 110, kind: 'cabinet' },
   { x: 300, y: 250, w: 150, h: 46, kind: 'desk' },
   { x: 1120, y: 210, w: 46, h: 46, kind: 'column' },
+  { x: 64, y: 420, w: 70, h: 70, kind: 'shelf' },
+  { x: 1624, y: 420, w: 70, h: 70, kind: 'shelf' },
+  { x: 80, y: 1040, w: 40, h: 48, kind: 'plant' },
+  { x: 1640, y: 1040, w: 40, h: 48, kind: 'plant' },
+  { x: 480, y: 1010, w: 120, h: 40, kind: 'bench' },
+  { x: 1100, y: 640, w: 28, h: 40, kind: 'lamp' },
 ]
 
 export const BANK_DECOR: BankDecor[] = [
@@ -78,6 +86,8 @@ export const BANK_DECOR: BankDecor[] = [
   { x: 500, y: 560, w: 240, h: 180, kind: 'rug' },
   { x: 90, y: 930, w: 70, h: 46, kind: 'painting' },
   { x: 1600, y: 930, w: 70, h: 46, kind: 'painting' },
+  { x: 600, y: 408, w: 64, h: 40, kind: 'painting' },
+  { x: 1100, y: 408, w: 64, h: 40, kind: 'painting' },
   { x: 780, y: 348, w: 180, h: 18, kind: 'rope' },
 ]
 
@@ -94,6 +104,7 @@ export const BANK_HIDES: BankRect[] = [
   { x: 1380, y: 1026, w: 170, h: 48 },
   { x: 1080, y: 70, w: 46, h: 100 },
   { x: 300, y: 296, w: 150, h: 46 },
+  { x: 840, y: 1078, w: 130, h: 40 },
 ]
 
 /** Pocket change in the lobby, C10 in the hall, C50/C100 only behind the vault door. */
@@ -102,25 +113,28 @@ export const BANK_LOOT: { x: number; y: number; kind: DuckCoinKind }[] = [
   { x: 1450, y: 1150, kind: 'C5' },
   { x: 1300, y: 1060, kind: 'C5' },
   { x: 1120, y: 1180, kind: 'C5' },
+  { x: 1000, y: 1120, kind: 'C5' },
+  { x: 200, y: 1080, kind: 'C5' },
   { x: 620, y: 1160, kind: 'C5' },
   { x: 430, y: 1070, kind: 'C5' },
-  // corridors ~20
+  // corridors — cameras watch the far coins
   { x: 150, y: 760, kind: 'C5' },
-  { x: 150, y: 460, kind: 'C5' },
+  { x: 170, y: 540, kind: 'C10' },
   { x: 1610, y: 760, kind: 'C5' },
-  { x: 1610, y: 460, kind: 'C5' },
-  // hall ~35, cameras and the floor guard
+  { x: 1560, y: 520, kind: 'C10' },
+  // hall — C5 mass, C10 under the camera, C50 on a patrol line
   { x: 500, y: 680, kind: 'C5' },
   { x: 700, y: 560, kind: 'C5' },
   { x: 860, y: 700, kind: 'C5' },
   { x: 1200, y: 660, kind: 'C5' },
   { x: 520, y: 840, kind: 'C5' },
   { x: 760, y: 840, kind: 'C5' },
-  { x: 1000, y: 470, kind: 'C10' },
-  // vault — the reason to lockpick
+  { x: 940, y: 460, kind: 'C10' },
+  { x: 1280, y: 500, kind: 'C50' },
+  // vault — C100 only here
   { x: 300, y: 140, kind: 'C50' },
   { x: 620, y: 300, kind: 'C10' },
-  { x: 740, y: 180, kind: 'C50' },
+  { x: 740, y: 180, kind: 'C5' },
   { x: 1320, y: 120, kind: 'C100' },
 ]
 
