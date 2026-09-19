@@ -23,7 +23,11 @@ export const COLLECTION_RANKS: { nameKey: MessageKey; from: number }[] = [
 ]
 
 export const STOCK_RULES = {
-  always: ['COMMON', 'UNCOMMON', 'LUX'] as const,
+  dailyEntry: 4,
+  dailyArt: 3,
+  dailyWatch: 3,
+  dailyCars: 3,
+  dailyOther: 3,
   dailyRare: 3,
   dailyEpic: 2,
   dailyLegendary: 1,

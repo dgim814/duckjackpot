@@ -9,14 +9,15 @@ import { buyCatalogItem, loadProgress } from '../heist/progress'
 import { useI18n } from '../i18n/LanguageProvider'
 import type { MessageKey } from '../i18n/messages'
 
-type Filter = 'ALL' | 'ART' | 'LUXURY' | 'RARE'
+type Filter = 'ALL' | 'ART' | 'LUXURY' | 'CARS' | 'RARE'
 
-const FILTERS: Filter[] = ['ALL', 'ART', 'LUXURY', 'RARE']
+const FILTERS: Filter[] = ['ALL', 'ART', 'LUXURY', 'CARS', 'RARE']
 
 const CAT_KEY: Record<Filter, MessageKey> = {
   ALL: 'marketCatAll',
   ART: 'marketCatArt',
   LUXURY: 'marketCatLuxury',
+  CARS: 'marketCatCars',
   RARE: 'marketCatRare',
 }
 
@@ -29,6 +30,7 @@ const HINT_KEY: Record<ReturnType<typeof raidsHint>, MessageKey> = {
 
 function lotKind(item: CatalogItem) {
   if (item.category === 'ART') return 'art'
+  if (item.category === 'CARS') return 'rare'
   if (item.category === 'LUXURY' || item.rarity === 'LUX') return 'lux'
   if (item.rarity === 'RARE' || item.rarity === 'EPIC' || item.rarity === 'LEGENDARY' || item.rarity === 'ICONIC') return 'rare'
   return 'rest'
@@ -36,8 +38,9 @@ function lotKind(item: CatalogItem) {
 
 function kindLabel(item: CatalogItem) {
   if (item.category === 'ART') return 'ART'
+  if (item.category === 'CARS') return 'CARS'
   if (item.category === 'LUXURY' || item.rarity === 'LUX') return 'LUX'
-  if (item.rarity === 'RARE') return 'RARE'
+  if (item.rarity === 'RARE' || item.rarity === 'EPIC' || item.rarity === 'LEGENDARY' || item.rarity === 'ICONIC') return 'RARE'
   return item.rarity
 }
 
@@ -117,6 +120,9 @@ export function BlackMarketPage() {
             needMore={t('marketNeedMore', { n: Math.max(0, item.purchasePrice - progress.bankedDuckCoin) })}
             hint={t(HINT_KEY[raidsHint(item.purchasePrice, progress.bankedDuckCoin)])}
             limited={item.limited ? t('marketLimited', { n: item.limited }) : null}
+            factLabel={t('marketFact')}
+            whyLabel={t('marketWhy')}
+            engineLabel={t('marketEngine')}
             onBuy={() => buy(item.id)}
           />
         ))}
@@ -142,6 +148,9 @@ function MarketLotCard({
   needMore,
   hint,
   limited,
+  factLabel,
+  whyLabel,
+  engineLabel,
   onBuy,
 }: {
   item: CatalogItem
@@ -152,17 +161,22 @@ function MarketLotCard({
   needMore: string
   hint: string
   limited: string | null
+  factLabel: string
+  whyLabel: string
+  engineLabel: string
   onBuy: () => void
 }) {
   const can = banked >= item.purchasePrice
   const kind = lotKind(item)
+  const maker = item.maker?.[locale] ?? item.artist?.[locale]
   return (
     <article className={`market-lot market-lot-${kind} rounded-2xl p-3 ${hero ? 'market-lot-hero' : ''}`}>
       <LotArt item={item} className={hero ? 'mb-4 aspect-[16/10] h-auto w-full' : 'mb-3 aspect-[2/1] h-auto w-full'} />
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="font-display text-[15px] font-black leading-snug text-[#f6edd4]">{item.name[locale]}</p>
-          {item.artist ? <p className="mt-1 text-[10px] font-extrabold tracking-[0.14em] text-[#d4af58]/80">{item.artist[locale]}</p> : null}
+          {maker ? <p className="mt-1 text-[10px] font-extrabold tracking-[0.12em] text-[#d4af58]/80">{maker}</p> : null}
+          {item.year ? <p className="mt-0.5 text-[10px] tracking-[0.08em] text-zinc-500">{item.year[locale]}</p> : null}
           <p className="mt-1 text-[12px] leading-snug text-zinc-400">{item.blurb[locale]}</p>
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1">
@@ -170,6 +184,21 @@ function MarketLotCard({
           <span className="text-[9px] font-extrabold tracking-[0.14em] text-zinc-500">{item.rarity}</span>
         </div>
       </div>
+      {item.engine ? (
+        <p className="mt-2 text-[11px] text-zinc-400">
+          <span className="font-extrabold tracking-[0.12em] text-[#d4af58]">{engineLabel}</span> {item.engine[locale]}
+        </p>
+      ) : null}
+      {item.fact ? (
+        <p className="mt-2 text-[11px] leading-snug text-[#e6d3a3]/90">
+          <span className="font-extrabold tracking-[0.12em] text-[#d4af58]">{factLabel}</span> {item.fact[locale]}
+        </p>
+      ) : null}
+      {item.significance ? (
+        <p className="mt-1 text-[11px] leading-snug text-zinc-500">
+          <span className="font-extrabold tracking-[0.12em] text-zinc-400">{whyLabel}</span> {item.significance[locale]}
+        </p>
+      ) : null}
       <div className="mt-3 grid grid-cols-2 gap-2">
         <div className="market-stat">
           <p className="text-[9px] font-extrabold tracking-[0.16em] text-[#d4af58]">DUCK COIN</p>

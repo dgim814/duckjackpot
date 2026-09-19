@@ -2,58 +2,61 @@
  *  Famous-painting lots are in-game collectibles, not real-world sales. */
 
 import { COLLECTION_MARKUP } from './config'
+import { ART_LOTS, CAR_LOTS, COLLECTIBLE_LOTS, WATCH_LOTS } from './lots'
 
 export type ItemRarity = 'COMMON' | 'UNCOMMON' | 'LUX' | 'RARE' | 'EPIC' | 'LEGENDARY' | 'ICONIC'
 export type ItemCategory = 'ART' | 'LUXURY' | 'INTERIOR' | 'CARS' | 'SPECIAL'
 
 export const MARKET_CATEGORIES: ItemCategory[] = ['ART', 'LUXURY', 'INTERIOR', 'CARS', 'SPECIAL']
 
+export type LocaleText = { ru: string; en: string }
+
 export type CatalogItem = {
   id: string
-  name: { ru: string; en: string }
-  blurb: { ru: string; en: string }
+  name: LocaleText
+  blurb: LocaleText
   rarity: ItemRarity
   category: ItemCategory
   purchasePrice: number
   collectionValue: number
   tradable: boolean
   limited?: number
-  artist?: { ru: string; en: string }
+  artist?: LocaleText
+  maker?: LocaleText
+  year?: LocaleText
+  fact?: LocaleText
+  significance?: LocaleText
+  engine?: LocaleText
+  /** False keeps a save-compatible id off the rotating market. */
+  market?: boolean
   /** Local public asset for lot preview. Optional — most lots still use LotArt marks. */
   image?: string
   /** Same as purchasePrice. Kept so older call sites keep compiling. */
   duckCoinValue: number
 }
 
-type LotDraft = Omit<CatalogItem, 'collectionValue' | 'tradable' | 'duckCoinValue'> & {
+export type LotDraft = Omit<CatalogItem, 'collectionValue' | 'tradable' | 'duckCoinValue'> & {
   collectionValue?: number
   tradable?: boolean
 }
 
-function lot(draft: LotDraft): CatalogItem {
+export function lot(draft: LotDraft): CatalogItem {
   const purchasePrice = Math.max(1, Math.floor(draft.purchasePrice))
   const collectionValue = Math.max(purchasePrice, Math.floor(draft.collectionValue ?? purchasePrice * COLLECTION_MARKUP))
+  const maker = draft.maker ?? draft.artist
   return {
     ...draft,
+    maker,
+    artist: draft.artist ?? maker,
     purchasePrice,
     collectionValue,
     tradable: draft.tradable !== false,
+    market: draft.market !== false,
     duckCoinValue: purchasePrice,
   }
 }
 
-export const CATALOG: readonly CatalogItem[] = [
-  lot({
-    id: 'art_sketch',
-    name: { ru: 'Ренуар — Бал в Мулен де ла Галетт', en: 'Renoir — Bal du moulin de la Galette' },
-    artist: { ru: 'Пьер-Огюст Ренуар', en: 'Pierre-Auguste Renoir' },
-    blurb: { ru: 'Коллекционный арт-лот закрытого рынка. Не продажа настоящей картины.', en: 'An in-game art lot for the closed market. Not a real painting sale.' },
-    rarity: 'LUX',
-    category: 'ART',
-    purchasePrice: 40,
-    collectionValue: 48,
-    image: '/heist/lots/renoir-galette.png',
-  }),
+export const LEGACY_LOTS: CatalogItem[] = [
   lot({
     id: 'art_velvet',
     name: { ru: 'Ночной бархат', en: 'Night velvet' },
@@ -342,6 +345,11 @@ export const CATALOG: readonly CatalogItem[] = [
     collectionValue: 1_200_000,
     limited: 1,
   }),
+]
+
+export const CATALOG: readonly CatalogItem[] = [
+  ...[...ART_LOTS, ...WATCH_LOTS, ...CAR_LOTS, ...COLLECTIBLE_LOTS].map(lot),
+  ...LEGACY_LOTS.map((item) => ({ ...item, market: false })),
 ]
 
 export function catalogItem(id: string) {

@@ -24,19 +24,69 @@ function pick(pool: CatalogItem[], count: number, seed: number) {
   return out
 }
 
+function live() {
+  return CATALOG.filter((item) => item.market !== false)
+}
+
 export function marketStock(now = Date.now()): CatalogItem[] {
   const day = dayKey(now)
-  const alwaysSet = new Set<string>(STOCK_RULES.always)
-  const always = CATALOG.filter((item) => alwaysSet.has(item.rarity))
-  const of = (rarity: ItemRarity) => CATALOG.filter((item) => item.rarity === rarity)
-  const rare = pick(of('RARE'), STOCK_RULES.dailyRare, day + 11)
-  const epic = pick(of('EPIC'), STOCK_RULES.dailyEpic, day + 29)
-  const legendary = pick(of('LEGENDARY'), STOCK_RULES.dailyLegendary, day + 47)
+  const pool = live()
+  const pin = pool.filter((item) => item.id === 'art_sketch')
+  const rest = pool.filter((item) => item.id !== 'art_sketch')
+  const notIcon = rest.filter((item) => item.rarity !== 'ICONIC')
+  const entry = pick(
+    notIcon.filter((item) => item.rarity === 'COMMON' || item.rarity === 'UNCOMMON' || item.rarity === 'LUX'),
+    STOCK_RULES.dailyEntry,
+    day + 2,
+  )
+  const art = pick(
+    notIcon.filter((item) => item.category === 'ART'),
+    STOCK_RULES.dailyArt,
+    day + 3,
+  )
+  const watches = pick(
+    notIcon.filter((item) => item.id.startsWith('watch_')),
+    STOCK_RULES.dailyWatch,
+    day + 5,
+  )
+  const cars = pick(
+    notIcon.filter((item) => item.category === 'CARS'),
+    STOCK_RULES.dailyCars,
+    day + 7,
+  )
+  const other = pick(
+    notIcon.filter(
+      (item) => item.category !== 'ART' && item.category !== 'CARS' && !item.id.startsWith('watch_'),
+    ),
+    STOCK_RULES.dailyOther,
+    day + 9,
+  )
+  const rare = pick(
+    rest.filter((item) => item.rarity === 'RARE'),
+    STOCK_RULES.dailyRare,
+    day + 11,
+  )
+  const epic = pick(
+    rest.filter((item) => item.rarity === 'EPIC'),
+    STOCK_RULES.dailyEpic,
+    day + 29,
+  )
+  const legendary = pick(
+    rest.filter((item) => item.rarity === 'LEGENDARY'),
+    STOCK_RULES.dailyLegendary,
+    day + 47,
+  )
   const iconic =
-    day % STOCK_RULES.iconicEveryDays === 0 ? pick(of('ICONIC'), 1, day + 73) : []
+    day % STOCK_RULES.iconicEveryDays === 0
+      ? pick(
+          rest.filter((item) => item.rarity === 'ICONIC'),
+          1,
+          day + 73,
+        )
+      : []
   const seen = new Set<string>()
   const out: CatalogItem[] = []
-  for (const item of [...always, ...rare, ...epic, ...legendary, ...iconic]) {
+  for (const item of [...pin, ...entry, ...art, ...watches, ...cars, ...other, ...rare, ...epic, ...legendary, ...iconic]) {
     if (seen.has(item.id)) continue
     seen.add(item.id)
     out.push(item)
@@ -51,9 +101,9 @@ export function marketStock(now = Date.now()): CatalogItem[] {
     ICONIC: 6,
   }
   out.sort((a, b) => rarityRank[a.rarity] - rarityRank[b.rarity] || a.purchasePrice - b.purchasePrice)
-  const pin = out.findIndex((item) => item.id === 'art_sketch')
-  if (pin > 0) {
-    const [hero] = out.splice(pin, 1)
+  const pinAt = out.findIndex((item) => item.id === 'art_sketch')
+  if (pinAt > 0) {
+    const [hero] = out.splice(pinAt, 1)
     out.unshift(hero)
   }
   return out
@@ -69,8 +119,17 @@ export type MarketFilter = ItemCategory | 'ALL' | 'RARE'
 export function stockByCategory(category: MarketFilter, now = Date.now()) {
   const stock = marketStock(now)
   if (category === 'ALL') return stock
-  if (category === 'RARE') return stock.filter((item) => item.rarity === 'RARE')
-  if (category === 'LUXURY') return stock.filter((item) => item.category === 'LUXURY' || item.rarity === 'LUX')
+  if (category === 'RARE') return stock.filter((item) => item.rarity === 'RARE' || item.rarity === 'EPIC' || item.rarity === 'LEGENDARY' || item.rarity === 'ICONIC')
+  if (category === 'LUXURY') {
+    return stock.filter(
+      (item) =>
+        item.category === 'LUXURY' ||
+        item.rarity === 'LUX' ||
+        item.id.startsWith('watch_') ||
+        item.id.startsWith('jewel_') ||
+        item.id.startsWith('fashion_'),
+    )
+  }
   return stock.filter((item) => item.category === category)
 }
 

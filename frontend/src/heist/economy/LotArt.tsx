@@ -29,6 +29,16 @@ function LotGlyph({ item }: { item: CatalogItem }) {
   if (item.id === 'luxury_chain') return <ChainGlyph />
   if (item.id === 'rare_cameo') return <CameoGlyph />
   if (item.id === 'lux_lighter') return <LighterGlyph />
+  if (item.id === 'special_faberge_egg') return <JewelGlyph hue={hue} rare />
+  if (item.id === 'special_mystery') return <TokenGlyph hue={hue} />
+  if (item.id.startsWith('watch_')) return <WatchGlyph hue={hue} />
+  if (item.id.startsWith('car_')) return <CarGlyph hue={hue} />
+  if (item.id.startsWith('fashion_')) return <FashionGlyph hue={hue} />
+  if (item.id.startsWith('jewel_')) return <JewelGlyph hue={hue} rare={item.rarity !== 'LUX' && item.rarity !== 'COMMON'} />
+  if (item.id.startsWith('tech_')) return <DeviceGlyph hue={hue} />
+  if (item.id.startsWith('music_')) return <GuitarGlyph hue={hue} />
+  if (item.id.startsWith('book_')) return <BookGlyph hue={hue} />
+  if (item.id.startsWith('sci_') || item.id.startsWith('antique_')) return <InstrumentGlyph hue={hue} />
   if (item.category === 'ART') return <PaintingGlyph hue={hue} />
   if (item.category === 'CARS') return <CarGlyph hue={hue} />
   if (item.category === 'SPECIAL') return <TokenGlyph hue={hue} />
@@ -183,6 +193,84 @@ function TokenGlyph({ hue }: { hue: number }) {
       <circle cx="160" cy="90" r="48" fill="#c4a028" />
       <circle cx="160" cy="90" r="38" fill="#1a140e" stroke="#f3e2b8" strokeWidth="2" />
       <circle cx="160" cy="90" r="14" fill={`hsl(${hue} 40% 46%)`} />
+    </svg>
+  )
+}
+
+function WatchGlyph({ hue }: { hue: number }) {
+  const face = `hsl(${hue % 360} 18% 18%)`
+  return (
+    <svg viewBox="0 0 320 180" preserveAspectRatio="xMidYMid slice" aria-hidden>
+      <rect width="320" height="180" fill="#100c08" />
+      <rect x="148" y="18" width="24" height="22" rx="3" fill="#c4a028" />
+      <rect x="148" y="140" width="24" height="22" rx="3" fill="#c4a028" />
+      <circle cx="160" cy="90" r="52" fill="#c4a028" />
+      <circle cx="160" cy="90" r="42" fill={face} stroke="#f3e2b8" strokeWidth="2" />
+      <circle cx="160" cy="90" r="4" fill="#d4af58" />
+      <line x1="160" y1="90" x2="160" y2="62" stroke="#e6d3a3" strokeWidth="3" />
+      <line x1="160" y1="90" x2="186" y2="90" stroke="#d4af58" strokeWidth="2" />
+    </svg>
+  )
+}
+
+function FashionGlyph({ hue }: { hue: number }) {
+  const leather = `hsl(${28 + (hue % 16)} 32% 28%)`
+  return (
+    <svg viewBox="0 0 320 180" preserveAspectRatio="xMidYMid slice" aria-hidden>
+      <rect width="320" height="180" fill="#120e0c" />
+      <path d="M118 58h84v18c22 6 34 22 34 42v28H84v-28c0-20 12-36 34-42z" fill={leather} stroke="#d4af58" strokeWidth="3" />
+      <path d="M132 58c0-22 12-36 28-36s28 14 28 36" fill="none" stroke="#c4a028" strokeWidth="6" />
+    </svg>
+  )
+}
+
+function DeviceGlyph({ hue }: { hue: number }) {
+  const body = `hsl(${hue % 360} 12% 16%)`
+  return (
+    <svg viewBox="0 0 320 180" preserveAspectRatio="xMidYMid slice" aria-hidden>
+      <rect width="320" height="180" fill="#0c1014" />
+      <rect x="86" y="38" width="148" height="104" rx="10" fill={body} stroke="#d4af58" strokeWidth="3" />
+      <rect x="102" y="52" width="116" height="58" rx="4" fill="#1a2430" />
+      <circle cx="160" cy="126" r="8" fill="#c4a028" />
+    </svg>
+  )
+}
+
+function GuitarGlyph({ hue }: { hue: number }) {
+  const body = `hsl(${28 + (hue % 20)} 38% 32%)`
+  return (
+    <svg viewBox="0 0 320 180" preserveAspectRatio="xMidYMid slice" aria-hidden>
+      <rect width="320" height="180" fill="#100c0a" />
+      <ellipse cx="128" cy="108" rx="46" ry="38" fill={body} stroke="#d4af58" strokeWidth="3" />
+      <ellipse cx="168" cy="88" rx="36" ry="30" fill={body} stroke="#d4af58" strokeWidth="3" />
+      <rect x="188" y="42" width="72" height="10" rx="3" fill="#c4a028" transform="rotate(-28 224 47)" />
+      <circle cx="148" cy="98" r="10" fill="#1a140e" stroke="#e6d3a3" strokeWidth="2" />
+    </svg>
+  )
+}
+
+function BookGlyph({ hue }: { hue: number }) {
+  const cover = `hsl(${hue % 360} 28% 24%)`
+  return (
+    <svg viewBox="0 0 320 180" preserveAspectRatio="xMidYMid slice" aria-hidden>
+      <rect width="320" height="180" fill="#14100c" />
+      <rect x="92" y="32" width="136" height="116" rx="4" fill={cover} stroke="#d4af58" strokeWidth="3" />
+      <rect x="108" y="48" width="104" height="12" fill="#e6d3a3" opacity="0.35" />
+      <rect x="108" y="70" width="88" height="8" fill="#f3e2b8" opacity="0.2" />
+      <rect x="92" y="32" width="14" height="116" fill="#c4a028" />
+    </svg>
+  )
+}
+
+function InstrumentGlyph({ hue }: { hue: number }) {
+  const brass = `hsl(${38 + (hue % 12)} 48% 46%)`
+  return (
+    <svg viewBox="0 0 320 180" preserveAspectRatio="xMidYMid slice" aria-hidden>
+      <rect width="320" height="180" fill="#10140c" />
+      <circle cx="160" cy="96" r="46" fill="none" stroke={brass} strokeWidth="8" />
+      <circle cx="160" cy="96" r="8" fill="#d4af58" />
+      <line x1="160" y1="50" x2="160" y2="88" stroke="#e6d3a3" strokeWidth="3" />
+      <polygon points="160,44 168,56 152,56" fill="#c4a028" />
     </svg>
   )
 }

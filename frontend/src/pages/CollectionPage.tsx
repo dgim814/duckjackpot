@@ -89,7 +89,21 @@ export function CollectionPage() {
             <article key={item.id} className={`lot-card rounded-2xl border bg-[#141218] p-3 ${RARITY_TONE[item.rarity]}`}>
               <LotArt item={item} className="mb-3 h-28 w-full" />
               <p className="font-display text-sm font-black text-amber-50">{item.name[locale]}</p>
+              {item.maker?.[locale] ? (
+                <p className="mt-0.5 text-[10px] font-extrabold tracking-[0.12em] text-amber-200/80">{item.maker[locale]}</p>
+              ) : null}
+              {item.year ? <p className="mt-0.5 text-[10px] tracking-[0.08em] text-zinc-500">{item.year[locale]}</p> : null}
               <p className={`mt-0.5 text-[10px] font-extrabold tracking-[0.14em] ${RARITY_TONE[item.rarity]}`}>{item.rarity}</p>
+              {item.engine ? (
+                <p className="mt-2 text-[11px] text-zinc-400">
+                  <span className="font-extrabold tracking-[0.12em] text-amber-200/80">{t('marketEngine')}</span> {item.engine[locale]}
+                </p>
+              ) : null}
+              {item.fact ? (
+                <p className="mt-1 text-[11px] leading-snug text-zinc-400">
+                  <span className="font-extrabold tracking-[0.12em] text-amber-200/80">{t('marketFact')}</span> {item.fact[locale]}
+                </p>
+              ) : null}
               <p className="mt-2 text-[11px] text-zinc-500">
                 {t('marketBuyPrice')}: {item.purchasePrice.toLocaleString()} {t('heistDuckCoin')}
               </p>
