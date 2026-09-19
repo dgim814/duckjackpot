@@ -158,7 +158,7 @@ function MarketLotCard({
   const kind = lotKind(item)
   return (
     <article className={`market-lot market-lot-${kind} rounded-2xl p-3 ${hero ? 'market-lot-hero' : ''}`}>
-      <LotArt item={item} className={hero ? 'mb-4 h-52 w-full' : 'mb-3 h-40 w-full'} />
+      <LotArt item={item} className={hero ? 'mb-4 aspect-[16/10] h-auto w-full' : 'mb-3 aspect-[2/1] h-auto w-full'} />
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="font-display text-[15px] font-black leading-snug text-[#f6edd4]">{item.name[locale]}</p>
