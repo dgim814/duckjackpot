@@ -31,5 +31,5 @@ export function heistLevelObjectives(id: HeistLevelId) {
 export function heistLevelBrief(id: HeistLevelId) {
   const obj = heistLevelObjectives(id)
   if (id === 'mansion') return { ...obj, guards: 5, cams: 6, safes: 2 }
-  return { ...obj, guards: 5, cams: 10, safes: 2 }
+  return { ...obj, guards: 5, cams: 12, safes: 2 }
 }

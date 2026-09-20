@@ -10,14 +10,14 @@ import { buildNavGrid, cellCenter, findPath, findPathAroundStuck, nearestWalkabl
 import { debugTuningVersion, exposeDebugTuning, resolveTuning } from '../debugConfig'
 import { adaptiveCameraZoom, type HeistTuning } from '../tuning'
 import type { MessageKey } from '../../i18n/messages'
-import { paintDecor, paintFurniture, type FurnKind } from './furniture'
+import { paintDecor, paintFoliage, paintFurniture, type FurnKind } from './furniture'
 import {
   BANK_CAMS,
   BANK_DECOR,
   BANK_DOORS,
   BANK_EXIT,
-  BANK_FINAL_EXIT,
   BANK_FLOORS,
+  BANK_FOLIAGE,
   BANK_FURNITURE,
   BANK_GUARD_ROUTES,
   BANK_H,
@@ -133,6 +133,8 @@ type LockedDoor = {
   h: number
   opened: boolean
   body: Phaser.GameObjects.Rectangle
+  lock: Phaser.GameObjects.Graphics
+  label: Phaser.GameObjects.Text
 }
 type SecCam = {
   x: number
@@ -187,7 +189,6 @@ export class HeistScene extends Phaser.Scene {
   private exitZone!: Phaser.GameObjects.Rectangle
   private exitZones: Phaser.GameObjects.Rectangle[] = []
   private exitLabels: Phaser.GameObjects.Text[] = []
-  private exitAtFinal = false
   private visionGfx!: Phaser.GameObjects.Graphics
   private worldGfx!: Phaser.GameObjects.Graphics
   private uiGfx!: Phaser.GameObjects.Graphics
@@ -693,12 +694,18 @@ export class HeistScene extends Phaser.Scene {
     }
   }
 
-  private paintLamps(lamps: readonly [number, number][]) {
+  private paintLamps(lamps: readonly ([number, number] | { x: number; y: number; color?: number; alpha?: number })[]) {
     const g = this.add.graphics().setDepth(2)
     const mansion = this.levelId === 'mansion'
-    for (const [lx, ly] of lamps) {
-      g.fillStyle(mansion ? 0xd4a24a : 0xc9a227, 0.08)
-      g.fillCircle(lx, ly, 48)
+    for (const lamp of lamps) {
+      const lx = Array.isArray(lamp) ? lamp[0] : lamp.x
+      const ly = Array.isArray(lamp) ? lamp[1] : lamp.y
+      const color = !Array.isArray(lamp) && lamp.color != null ? lamp.color : mansion ? 0xd4a24a : 0xc9a227
+      const alpha = !Array.isArray(lamp) && lamp.alpha != null ? lamp.alpha : mansion ? 0.08 : 0.08
+      g.fillStyle(color, alpha)
+      g.fillCircle(lx, ly, mansion ? 48 : 72)
+      g.fillStyle(color, alpha * 0.55)
+      g.fillCircle(lx, ly, mansion ? 28 : 40)
       g.fillStyle(mansion ? 0x3a2418 : 0x1a2430)
       g.fillCircle(lx, ly, 7)
       g.lineStyle(1.5, 0xc9a227, 0.55)
@@ -1061,7 +1068,7 @@ export class HeistScene extends Phaser.Scene {
     lock.fillCircle(cx, cy, 6)
     lock.fillStyle(0x1a1410, 1)
     lock.fillCircle(cx, cy, 2.4)
-    this.add
+    const label = this.add
       .text(cx, cy - (spec.h > spec.w ? 0 : 18), heistT('heistLockpick'), {
         fontFamily: 'Unbounded, sans-serif',
         fontSize: '12px',
@@ -1069,7 +1076,13 @@ export class HeistScene extends Phaser.Scene {
       })
       .setOrigin(0.5)
       .setDepth(7)
-    return { id: spec.id, x: spec.x, y: spec.y, w: spec.w, h: spec.h, opened: false, body }
+    return { id: spec.id, x: spec.x, y: spec.y, w: spec.w, h: spec.h, opened: false, body, lock, label }
+  }
+
+  private hideDoorPrompt(door: LockedDoor) {
+    door.lock.setVisible(false)
+    door.label.setVisible(false)
+    door.label.setText('')
   }
 
   private rebuildNav() {
@@ -1111,10 +1124,12 @@ export class HeistScene extends Phaser.Scene {
       if (!this.bankOpenedDoors.has(door.id)) continue
       door.opened = true
       this.openSolid(door.body, door)
+      this.hideDoorPrompt(door)
     }
     for (const f of BANK_FURNITURE) this.addSolid(f.x, f.y, f.w, f.h, f.kind)
     const theme = 'bank' as const
     for (const d of BANK_DECOR) paintDecor(this, d, theme)
+    for (const leaf of BANK_FOLIAGE) paintFoliage(this, leaf)
     for (const h of BANK_HIDES) this.addHide(h.x, h.y, h.w, h.h)
     this.paintHideMats()
     this.paintLamps(BANK_LAMPS)
@@ -1137,7 +1152,6 @@ export class HeistScene extends Phaser.Scene {
     this.exitZones = []
     this.exitLabels = []
     this.placeExit(BANK_EXIT.x, BANK_EXIT.y)
-    this.placeExit(BANK_FINAL_EXIT.x, BANK_FINAL_EXIT.y)
     for (const lab of BANK_LABELS) this.addRoomLabel(lab.x, lab.y, lab.key)
 
     this.spawnDuckAt(BANK_SPAWN.x, BANK_SPAWN.y)
@@ -1261,7 +1275,6 @@ export class HeistScene extends Phaser.Scene {
     }
     g.fillStyle(0xc9a227, 0.05)
     g.fillCircle(BANK_EXIT.x, BANK_EXIT.y, 170)
-    g.fillCircle(BANK_FINAL_EXIT.x, BANK_FINAL_EXIT.y, 170)
     g.fillCircle(BANK_SPAWN.x, BANK_SPAWN.y, 150)
     g.fillStyle(0x000000, 0.18)
     g.fillRect(0, 0, BANK_W, 28)
@@ -1491,20 +1504,13 @@ export class HeistScene extends Phaser.Scene {
     return zones.some((zone) => this.insideExit(zone))
   }
 
-  private inFinalExit() {
-    if (this.levelId !== 'bank') return false
-    return Math.abs(this.player.x - BANK_FINAL_EXIT.x) < 75 && Math.abs(this.player.y - BANK_FINAL_EXIT.y) < 36
-  }
-
   private updateExit(dt: number) {
     if (!this.inExit()) {
       this.exitHold = 0
       this.escaping = false
-      this.exitAtFinal = false
       return
     }
     this.escaping = true
-    this.exitAtFinal = this.inFinalExit()
     this.exitHold += dt
     if (this.exitHold >= EXIT_HOLD) this.finish('escaped')
   }
@@ -1918,6 +1924,7 @@ export class HeistScene extends Phaser.Scene {
     if (!door || door.opened) return
     door.opened = true
     this.openSolid(door.body, door)
+    this.hideDoorPrompt(door)
     this.rebuildNav()
     if (this.levelId === 'bank') {
       this.bankOpenedDoors.add(door.id)
@@ -2024,6 +2031,7 @@ export class HeistScene extends Phaser.Scene {
       if (!door || door.opened) continue
       door.opened = true
       this.openSolid(door.body, door)
+      this.hideDoorPrompt(door)
     }
     for (const plan of MANSION_SIREN.redeploy) {
       const u = this.units[plan.guard]
@@ -2896,7 +2904,7 @@ export class HeistScene extends Phaser.Scene {
     }
     this.physics.pause()
     if (this.levelId === 'bank' && verdict !== 'aborted') {
-      const complete = verdict === 'escaped' && this.exitAtFinal && this.bankReachedFinal
+      const complete = verdict === 'escaped' && this.bankReachedFinal
       persistBankWorld({
         lootTaken: verdict === 'escaped' ? this.runLootIds : [],
         openedDoors: [...this.bankOpenedDoors],
@@ -3075,6 +3083,10 @@ export class HeistScene extends Phaser.Scene {
     this.exitLabel?.setText(heistT('heistExit'))
     for (const label of this.exitLabels) label.setText(heistT('heistExit'))
     for (const lab of this.roomLabels) lab.obj.setText(heistT(lab.key))
+    for (const door of this.doors) {
+      if (door.opened) this.hideDoorPrompt(door)
+      else door.label.setText(heistT('heistLockpick'))
+    }
     this.safeTitle?.setText(heistT('heistSafeName'))
     this.sneakLabel?.setText(heistT('heistSneak'))
     this.dashLabel?.setText(heistT('heistDash'))

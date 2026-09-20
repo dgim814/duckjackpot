@@ -113,15 +113,20 @@ export function paintFurniture(
   }
 
   if (kind === 'plant') {
+    const r = Math.min(w, h) / 2
     g.fillStyle(0x050308, 0.3)
-    g.fillCircle(cx + 2, cy + 4, Math.min(w, h) / 2)
-    g.fillStyle(0x4a2a18)
+    g.fillCircle(cx + 2, cy + 4, r)
+    g.fillStyle(theme === 'bank' ? 0x3a2a18 : 0x4a2a18)
     g.fillRoundedRect(cx - 8, cy + 4, 16, Math.max(10, h * 0.28), 3)
-    g.fillStyle(HOME.plant)
-    g.fillCircle(cx, cy - 4, Math.min(w, h) * 0.38)
-    g.fillStyle(0x4a8a48, 0.8)
+    g.lineStyle(1, pal.brass, theme === 'bank' ? 0.45 : 0.2)
+    g.strokeRoundedRect(cx - 8, cy + 4, 16, Math.max(10, h * 0.28), 3)
+    g.fillStyle(theme === 'bank' ? 0x245a38 : HOME.plant)
+    g.fillCircle(cx, cy - 4, Math.min(w, h) * 0.42)
+    g.fillStyle(theme === 'bank' ? 0x3a7a4a : 0x4a8a48, 0.85)
     g.fillCircle(cx - 6, cy - 8, 7)
     g.fillCircle(cx + 7, cy - 6, 6)
+    g.fillStyle(theme === 'bank' ? 0xc45a6a : 0x6a3a48, 0.45)
+    g.fillCircle(cx + 3, cy - 10, 3)
     return
   }
 
@@ -258,21 +263,35 @@ export function paintFurniture(
   }
 }
 
-export type DecorKind = 'rug' | 'painting' | 'rope'
+export type DecorKind = 'rug' | 'runner' | 'painting' | 'rope'
+export type DecorTone = 'lobby' | 'office' | 'cold' | 'vault' | 'gold'
+
+const RUG_TONE: Record<DecorTone, number> = {
+  lobby: 0x1a3048,
+  office: 0x3a2a1c,
+  cold: 0x142028,
+  vault: 0x2a1810,
+  gold: 0x3a2a14,
+}
+
 export function paintDecor(
   scene: Phaser.Scene,
-  spec: { x: number; y: number; w: number; h: number; kind: DecorKind },
+  spec: { x: number; y: number; w: number; h: number; kind: DecorKind; tone?: DecorTone },
   theme: 'bank' | 'mansion',
 ) {
   const { x, y, w, h, kind } = spec
   const g = scene.add.graphics().setDepth(1)
-  if (kind === 'rug') {
-    g.fillStyle(theme === 'bank' ? 0x1a3048 : 0x5a2420, 0.5)
-    g.fillRoundedRect(x, y, w, h, 8)
-    g.lineStyle(2, 0xc9a227, 0.28)
-    g.strokeRoundedRect(x + 6, y + 6, w - 12, h - 12, 6)
-    g.lineStyle(1, 0xc9a227, 0.12)
-    g.strokeRoundedRect(x + 14, y + 14, w - 28, h - 28, 4)
+  if (kind === 'rug' || kind === 'runner') {
+    const fill = theme === 'bank' ? RUG_TONE[spec.tone ?? 'lobby'] : 0x5a2420
+    const round = kind === 'runner' ? 4 : 8
+    g.fillStyle(fill, kind === 'runner' ? 0.42 : 0.5)
+    g.fillRoundedRect(x, y, w, h, round)
+    g.lineStyle(kind === 'runner' ? 1.25 : 2, 0xc9a227, 0.28)
+    g.strokeRoundedRect(x + 6, y + 6, w - 12, h - 12, Math.max(2, round - 2))
+    if (kind === 'rug') {
+      g.lineStyle(1, 0xc9a227, 0.12)
+      g.strokeRoundedRect(x + 14, y + 14, w - 28, h - 28, 4)
+    }
     return
   }
   if (kind === 'painting') {
@@ -292,4 +311,24 @@ export function paintDecor(
   g.fillCircle(x + w - 6, y + 6, 5)
   g.lineStyle(2, 0xc9a227, 0.55)
   g.lineBetween(x + 6, y + 6, x + w - 6, y + 6)
+}
+
+/** Large bank plants: foliage is visual-only so the pot can stay a small collider. */
+export function paintFoliage(scene: Phaser.Scene, spec: { x: number; y: number; w: number; h: number }) {
+  const { x, y, w, h } = spec
+  const cx = x + w / 2
+  const cy = y + h / 2
+  const g = scene.add.graphics().setDepth(5)
+  g.fillStyle(0x050308, 0.22)
+  g.fillEllipse(cx + 3, cy + 8, w * 0.7, h * 0.28)
+  g.fillStyle(0x1a3a24, 0.95)
+  g.fillCircle(cx, cy - 4, Math.min(w, h) * 0.38)
+  g.fillStyle(0x2f6a3a, 0.9)
+  g.fillCircle(cx - w * 0.16, cy - 8, Math.min(w, h) * 0.22)
+  g.fillCircle(cx + w * 0.18, cy - 6, Math.min(w, h) * 0.2)
+  g.fillStyle(0x4a8a48, 0.7)
+  g.fillCircle(cx, cy - h * 0.22, Math.min(w, h) * 0.16)
+  g.fillStyle(0xc45a6a, 0.4)
+  g.fillCircle(cx + 4, cy - 10, 3)
+  g.fillCircle(cx - 8, cy - 6, 2.4)
 }
