@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ScreenHeader } from '../components/ScreenHeader'
 import { catalogItem } from '../heist/economy/catalog'
@@ -7,7 +7,7 @@ import { LotArt, RARITY_TONE } from '../heist/economy/LotArt'
 import { boardPlace, localLeaderboard } from '../heist/economy/leaderboard'
 import { loadListings, localPlayerId } from '../heist/economy/marketStore'
 import { heistSfx, unlockHeistSfx } from '../heist/heistSfx'
-import { listOwnedItem, loadProgress, recallListing } from '../heist/progress'
+import { listOwnedItem, loadProgress, recallListing, subscribeGameplayReset } from '../heist/progress'
 import { heistRank } from '../heist/rank'
 import { useI18n } from '../i18n/LanguageProvider'
 
@@ -16,6 +16,7 @@ export function CollectionPage() {
   const navigate = useNavigate()
   const locale = lang === 'ru' ? 'ru' : 'en'
   const [progress, setProgress] = useState(loadProgress)
+  useEffect(() => subscribeGameplayReset(() => setProgress(loadProgress())), [])
   const [listings, setListings] = useState(loadListings)
   const you = localPlayerId()
   const rank = heistRank(progress)

@@ -1,11 +1,11 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ScreenHeader } from '../components/ScreenHeader'
 import type { CatalogItem } from '../heist/economy/catalog'
 import { LotArt } from '../heist/economy/LotArt'
 import { featuredLot, raidsHint, stockByCategory, type MarketFilter } from '../heist/economy/stock'
 import { heistSfx, unlockHeistSfx } from '../heist/heistSfx'
-import { buyCatalogItem, loadProgress } from '../heist/progress'
+import { buyCatalogItem, loadProgress, subscribeGameplayReset } from '../heist/progress'
 import { useI18n } from '../i18n/LanguageProvider'
 import type { MessageKey } from '../i18n/messages'
 
@@ -48,6 +48,7 @@ export function BlackMarketPage() {
   const { t, lang } = useI18n()
   const navigate = useNavigate()
   const [progress, setProgress] = useState(loadProgress)
+  useEffect(() => subscribeGameplayReset(() => setProgress(loadProgress())), [])
   const [msg, setMsg] = useState<string | null>(null)
   const [filter, setFilter] = useState<Filter>('ALL')
   const locale = lang === 'ru' ? 'ru' : 'en'

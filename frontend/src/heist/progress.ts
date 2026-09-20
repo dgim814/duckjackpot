@@ -218,6 +218,60 @@ export function isHeistNovice(progress: PlayerProgress) {
   return Math.max(0, Math.floor(progress.bankEscapes ?? 0)) <= 0
 }
 
+/** True when gameplay fields match a brand-new heist player. Wallet/NFT fields are ignored. */
+export function isGameplayFresh(progress: PlayerProgress) {
+  return (
+    Math.max(0, Math.floor(progress.bankedDuckCoin || 0)) === 0 &&
+    clampLevel(progress.bagLevel) === 0 &&
+    clampLevel(progress.disguiseLevel) === 0 &&
+    clampLevel(progress.shoesLevel) === 0 &&
+    clampLevel(progress.nightVisionLevel, 1) === 0 &&
+    clampLevel(progress.dashLevel, 1) === 0 &&
+    clampLevel(progress.magnetLevel, 1) === 0 &&
+    clampLevel(progress.lockpickLevel, 1) === 0 &&
+    !progress.objLoot &&
+    !progress.objStealth &&
+    !progress.objSpeed &&
+    Math.max(0, Math.floor(progress.bankEscapes ?? 0)) === 0 &&
+    readIdList(progress.bankLootTaken).length === 0 &&
+    readIdList(progress.bankOpenedSafes).length === 0 &&
+    migrateBankDoors(readIdList(progress.bankOpenedDoors)).length === 0 &&
+    Math.max(0, Math.floor(progress.bankDepth ?? 0)) === 0 &&
+    !progress.bankReachedFinal &&
+    !progress.bankComplete
+  )
+}
+
+/**
+ * Official gameplay reset for the current device.
+ * Keeps ownedArt / ownedMeta / stars. Never touches playerId, listings, or other keys.
+ */
+export function resetGameplayProgress(): PlayerProgress {
+  const live = loadProgress()
+  const next: PlayerProgress = {
+    ...emptyProgress(),
+    ...keepWallet(live),
+  }
+  saveProgress(next)
+  return next
+}
+
+export const GAMEPLAY_RESET_EVENT = 'duckjackpot:gameplay-reset'
+
+export function notifyGameplayReset() {
+  try {
+    window.dispatchEvent(new Event(GAMEPLAY_RESET_EVENT))
+  } catch {
+    /* ignore */
+  }
+}
+
+export function subscribeGameplayReset(onReset: () => void) {
+  const handler = () => onReset()
+  window.addEventListener(GAMEPLAY_RESET_EVENT, handler)
+  return () => window.removeEventListener(GAMEPLAY_RESET_EVENT, handler)
+}
+
 export function noteBankEscape(progress: PlayerProgress) {
   const live = loadProgress()
   const next: PlayerProgress = {

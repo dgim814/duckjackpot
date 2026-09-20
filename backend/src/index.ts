@@ -13,8 +13,15 @@ import { addBonusUser, isBonusUser, listBonusUsers, syncBonusUsersFromCards } fr
 import { setRafflePhase, setTestSold, startNextRaffleRound } from './raffleStore.js'
 import { RAFFLE_TOTALS } from './prizes.js'
 import { isDataWriteError, WRITE_RETRY_MESSAGE } from './dataQueue.js'
+import { getChat } from './chatStore.js'
 import { getPayment, listPayments, setPaymentNotify, setPaymentStatus, upsertClaim } from './paymentStore.js'
-import { finishHuntAttempt, huntStatus, resetHuntCooldown, startHuntAttempt } from './huntStore.js'
+import { finishHuntAttempt, huntStatus, lastHuntAttempt, resetHuntCooldown, startHuntAttempt } from './huntStore.js'
+import {
+  consumeGameplayReset,
+  hasGameplayResetHistory,
+  hasPendingGameplayReset,
+  queueGameplayReset,
+} from './playerResetStore.js'
 import { verifyInitData } from './verifyInitData.js'
 
 dotenv.config()
@@ -211,6 +218,80 @@ app.post('/api/admin/hunt/reset', (req, res) => {
     return
   }
   res.json(resetHuntCooldown(telegramId))
+})
+
+function playerKnown(telegramId: number) {
+  if (getChat(telegramId)) return true
+  if (getUserCards(telegramId).length > 0) return true
+  if (lastHuntAttempt(telegramId)) return true
+  if (isBonusUser(telegramId)) return true
+  if (hasGameplayResetHistory(telegramId)) return true
+  if (listPayments().some((row) => row.telegramId === telegramId)) return true
+  return false
+}
+
+const GAMEPLAY_RESET_SNAPSHOT = {
+  duckCoin: 0,
+  bag: 'BASIC 100',
+  upgrades: 0,
+  bank: 'ZONE 1',
+  mansion: 'LOCKED',
+  rank: 'ROOKIE',
+  onboarding: 'NEW PLAYER',
+} as const
+
+app.post('/api/admin/player/reset', (req, res) => {
+  if (!requireAdmin(req, res)) return
+  const telegramId = Number(req.body?.telegramId)
+  if (!Number.isFinite(telegramId) || telegramId <= 0) {
+    res.status(400).json({ error: 'invalid_telegram_id' })
+    return
+  }
+  try {
+    const known = playerKnown(telegramId)
+    const queued = queueGameplayReset(telegramId)
+    if (queued.alreadyPending) {
+      res.json({
+        ok: true,
+        already: true,
+        telegramId,
+        known,
+        snapshot: GAMEPLAY_RESET_SNAPSHOT,
+      })
+      return
+    }
+    res.json({
+      ok: true,
+      already: false,
+      telegramId,
+      known,
+      snapshot: GAMEPLAY_RESET_SNAPSHOT,
+    })
+  } catch {
+    res.status(500).json({ error: 'reset_failed' })
+  }
+})
+
+app.post('/api/heist/gameplay-reset/pending', (req, res) => {
+  const { telegramId } = resolveTelegramUser(req.body ?? {})
+  if (!telegramId || !Number.isFinite(telegramId) || telegramId <= 0) {
+    res.status(400).json({ error: 'invalid_telegram_id' })
+    return
+  }
+  res.json({ pending: hasPendingGameplayReset(telegramId), telegramId })
+})
+
+app.post('/api/heist/gameplay-reset/consume', (req, res) => {
+  const { telegramId } = resolveTelegramUser(req.body ?? {})
+  if (!telegramId || !Number.isFinite(telegramId) || telegramId <= 0) {
+    res.status(400).json({ error: 'invalid_telegram_id' })
+    return
+  }
+  try {
+    res.json({ ...consumeGameplayReset(telegramId), telegramId })
+  } catch {
+    res.status(500).json({ error: 'reset_failed' })
+  }
 })
 
 app.post('/api/support-bot/webhook', (req, res) => {

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ScreenHeader } from '../components/ScreenHeader'
 import { HeistDuck } from '../heist/HeistDuck'
@@ -8,7 +8,7 @@ import { EnergyBar } from '../heist/hub/EnergyBar'
 import { NextRaidCard } from '../heist/hub/NextRaidCard'
 import { collectionValue } from '../heist/economy/catalog'
 import { countOwned } from '../heist/economy/collection'
-import { bagCap, loadProgress } from '../heist/progress'
+import { bagCap, loadProgress, subscribeGameplayReset } from '../heist/progress'
 import { heistRank } from '../heist/rank'
 import { heistSfx, unlockHeistSfx } from '../heist/heistSfx'
 import { useI18n } from '../i18n/LanguageProvider'
@@ -16,7 +16,8 @@ import { useI18n } from '../i18n/LanguageProvider'
 export function GameHomePage() {
   const { t } = useI18n()
   const navigate = useNavigate()
-  const [progress] = useState(loadProgress)
+  const [progress, setProgress] = useState(loadProgress)
+  useEffect(() => subscribeGameplayReset(() => setProgress(loadProgress())), [])
   const rank = heistRank(progress)
   const value = collectionValue(progress.ownedArt ?? {})
   const items = countOwned(progress.ownedArt ?? {})

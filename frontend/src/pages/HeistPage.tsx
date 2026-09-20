@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { HeistDuck } from '../heist/HeistDuck'
 import { HeistGame, type HeistEnd } from '../heist/HeistGame'
@@ -15,6 +15,7 @@ import {
   loadProgress,
   noteBankEscape,
   runMods,
+  subscribeGameplayReset,
   type LabStat,
 } from '../heist/progress'
 import { catalogItem } from '../heist/economy/catalog'
@@ -68,6 +69,18 @@ export function HeistPage() {
   const [screen, setScreen] = useState<Screen>(() => (isHeistNovice(loadProgress()) ? 'play' : 'lobby'))
   const mods = useMemo(() => runMods(progress), [progress])
   const novice = isHeistNovice(progress)
+
+  useEffect(
+    () =>
+      subscribeGameplayReset(() => {
+        const live = loadProgress()
+        setProgress(live)
+        setEnd(null)
+        setRunKey((n) => n + 1)
+        setScreen(isHeistNovice(live) ? 'play' : 'lobby')
+      }),
+    [],
+  )
   const firstLot = catalogItem('art_sketch')
   const firstLotPrice = firstLot?.purchasePrice ?? 40
 

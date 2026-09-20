@@ -14,6 +14,7 @@ import { PayoutsPage } from './admin/pages/PayoutsPage'
 import { BonusAdminPage } from './admin/pages/BonusAdminPage'
 import { AdminSettingsPage } from './admin/pages/AdminSettingsPage'
 import { CardsProvider } from './cards/CardsProvider'
+import { consumePendingGameplayReset } from './heist/consumeGameplayReset'
 import { captureTelegramUser } from './telegram/user'
 import { AgreementProvider, RequireAgreement } from './i18n/AgreementProvider'
 import { LanguageProvider } from './i18n/LanguageProvider'
@@ -41,6 +42,7 @@ function TelegramBoot({ children }: { children: ReactNode }) {
     WebApp.setHeaderColor('#09080c')
     WebApp.setBackgroundColor('#09080c')
     captureTelegramUser()
+    void consumePendingGameplayReset()
   }, [])
   return children
 }
