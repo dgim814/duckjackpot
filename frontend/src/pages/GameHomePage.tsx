@@ -8,7 +8,7 @@ import { EnergyBar } from '../heist/hub/EnergyBar'
 import { NextRaidCard } from '../heist/hub/NextRaidCard'
 import { collectionValue } from '../heist/economy/catalog'
 import { countOwned } from '../heist/economy/collection'
-import { bagCap, loadProgress } from '../heist/progress'
+import { bagCap, isHeistNovice, loadProgress } from '../heist/progress'
 import { heistRank } from '../heist/rank'
 import { heistSfx, unlockHeistSfx } from '../heist/heistSfx'
 import { useI18n } from '../i18n/LanguageProvider'
@@ -17,6 +17,7 @@ export function GameHomePage() {
   const { t } = useI18n()
   const navigate = useNavigate()
   const [progress] = useState(loadProgress)
+  const novice = isHeistNovice(progress)
   const rank = heistRank(progress)
   const value = collectionValue(progress.ownedArt ?? {})
   const items = countOwned(progress.ownedArt ?? {})
@@ -59,8 +60,12 @@ export function GameHomePage() {
           onClick={() => tap('/heist')}
           className="buy-btn relative mt-4 min-h-[4.35rem] w-full rounded-2xl px-4 py-3.5 text-zinc-950"
         >
-          <span className="block font-display text-[1.85rem] font-black leading-none tracking-[0.16em]">{t('heistPlay')}</span>
-          <span className="mt-1.5 block text-[11px] font-bold uppercase tracking-[0.12em] opacity-80">{t('hubPlayHint')}</span>
+          <span className="block font-display text-[1.85rem] font-black leading-none tracking-[0.16em]">
+            {novice ? t('hubEnterBank') : t('heistPlay')}
+          </span>
+          <span className="mt-1.5 block text-[11px] font-bold uppercase tracking-[0.12em] opacity-80">
+            {novice ? t('heistMapBank') : t('hubPlayHint')}
+          </span>
         </button>
       </section>
 
@@ -101,7 +106,7 @@ export function GameHomePage() {
       </div>
 
       <DailyHeistCard onOpen={() => tap('/heist')} />
-      <NextRaidCard progress={progress} onPlay={() => tap('/heist')} />
+      {novice ? null : <NextRaidCard progress={progress} onPlay={() => tap('/heist')} />}
     </div>
   )
 }

@@ -10,11 +10,14 @@ import {
   bagCap,
   bankCoins,
   buyLabUpgrade,
+  isHeistNovice,
   labNextPrice,
   loadProgress,
+  noteBankEscape,
   runMods,
   type LabStat,
 } from '../heist/progress'
+import { catalogItem } from '../heist/economy/catalog'
 import { requestStarsPurchase, STAR_PACKS } from '../heist/economy/stars'
 import { heistSfx, unlockHeistSfx } from '../heist/heistSfx'
 import { HEIST_LEVEL_CARDS, heistLevelBrief, type HeistLevelId } from '../heist/heistLevel'
@@ -56,13 +59,16 @@ export function HeistPage() {
   const { t } = useI18n()
   const navigate = useNavigate()
   bindHeistI18n(t)
-  const [screen, setScreen] = useState<Screen>('lobby')
-  const [end, setEnd] = useState<HeistEnd | null>(null)
   const [progress, setProgress] = useState(loadProgress)
+  const [end, setEnd] = useState<HeistEnd | null>(null)
   const [runKey, setRunKey] = useState(0)
   const [levelId, setLevelId] = useState<HeistLevelId>('bank')
   const [shopMsg, setShopMsg] = useState<string | null>(null)
+  const [screen, setScreen] = useState<Screen>(() => (isHeistNovice(loadProgress()) ? 'play' : 'lobby'))
   const mods = useMemo(() => runMods(progress), [progress])
+  const novice = isHeistNovice(progress)
+  const firstLot = catalogItem('art_sketch')
+  const firstLotPrice = firstLot?.purchasePrice ?? 40
 
   const onDone = (next: HeistEnd) => {
     if (next.verdict === 'aborted') {
@@ -73,7 +79,8 @@ export function HeistPage() {
     }
     if (next.verdict === 'escaped') {
       const gained = next.coins + next.bonus + next.objBonus
-      const updated = bankCoins(progress, gained, next.objectives)
+      let updated = bankCoins(progress, gained, next.objectives)
+      if (levelId === 'bank') updated = noteBankEscape(updated)
       setProgress(updated)
       setEnd({ ...next, banked: updated.bankedDuckCoin })
     } else {
@@ -113,7 +120,7 @@ export function HeistPage() {
         className="relative h-[calc(100dvh-4.75rem-env(safe-area-inset-bottom))] overflow-hidden overscroll-none bg-[#120c10]"
         style={{ touchAction: 'none', overscrollBehavior: 'none' }}
       >
-        <HeistGame key={`${levelId}-${runKey}`} running mods={mods} levelId={levelId} onDone={onDone} />
+        <HeistGame key={`${levelId}-${runKey}`} running mods={mods} levelId={levelId} novice={novice} onDone={onDone} />
       </section>
     )
   }
@@ -237,78 +244,130 @@ export function HeistPage() {
 
   if (screen === 'result' && end) {
     const win = end.verdict === 'escaped'
+    const bankRun = levelId === 'bank'
+    const gained = end.coins + end.bonus + end.objBonus
+    const need = Math.max(0, firstLotPrice - end.banked)
     return (
       <section className="relative flex h-[calc(100dvh-4.75rem-env(safe-area-inset-bottom))] items-center justify-center overflow-hidden bg-[#120c10] px-5">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_20%,rgba(255,193,7,0.22),transparent_55%)]" />
         <div className="relative max-h-full w-full max-w-sm overflow-y-auto rounded-3xl border border-amber-400/40 bg-[#101014]/92 p-6 text-center shadow-[0_0_60px_rgba(255,176,40,0.12)]">
-          <p className="font-display text-3xl font-black text-amber-300">{win ? t('heistEscaped') : t('heistCaught')}</p>
-          {win ? (
+          {bankRun && win ? (
             <>
-              <p className="mt-5 font-display text-5xl font-black text-white">+{end.coins + end.bonus + end.objBonus}</p>
-              <p className="text-xs font-extrabold tracking-[0.18em] text-amber-200">{t('heistDuckCoin')}</p>
-              <p className="mt-3 text-sm text-zinc-300">
-                {t('heistBanked')}: {end.banked}
+              <p className="font-display text-3xl font-black text-amber-300">{t('heistBankWin')}</p>
+              <div className="mt-6 flex items-baseline justify-between gap-3 text-left">
+                <span className="text-[11px] font-extrabold tracking-[0.16em] text-zinc-500">{t('heistCarriedOut')}</span>
+                <span className="font-display text-2xl font-black text-white">
+                  {gained} {t('heistDuckCoin')}
+                </span>
+              </div>
+              <div className="mt-3 flex items-baseline justify-between gap-3 text-left">
+                <span className="text-[11px] font-extrabold tracking-[0.16em] text-zinc-500">{t('heistThiefScore')}</span>
+                <span className="font-display text-2xl font-black text-amber-200">{end.banked}</span>
+              </div>
+              {end.banked >= firstLotPrice ? (
+                <>
+                  <p className="mt-5 text-sm font-semibold text-amber-100">{t('heistEnoughRenoir')}</p>
+                  <button
+                    type="button"
+                    className="buy-btn mt-6 w-full rounded-2xl px-4 py-3 text-zinc-950"
+                    onClick={() => navigate('/market')}
+                  >
+                    {t('heistBuyOnMarket')}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <p className="mt-5 text-sm font-semibold text-amber-100">{t('heistNeedFirstLot', { n: need })}</p>
+                  <button type="button" className="buy-btn mt-6 w-full rounded-2xl px-4 py-3 text-zinc-950" onClick={() => playLevel('bank')}>
+                    {t('heistAgainBank')}
+                  </button>
+                </>
+              )}
+            </>
+          ) : bankRun ? (
+            <>
+              <p className="font-display text-3xl font-black text-orange-300">{t('heistCaughtBagLost')}</p>
+              <p className="mt-6 text-sm text-zinc-300">{t('heistBagHad', { n: end.coins })}</p>
+              <p className="mt-2 text-sm text-zinc-300">{t('heistBankPlusZero')}</p>
+              <p className="mt-2 text-sm text-amber-100">
+                {t('heistThiefScore')} {end.banked}
               </p>
-              <div className="mt-4 grid grid-cols-2 gap-2 text-zinc-200">
-                <div>
-                  <p className="text-[10px] font-extrabold tracking-[0.14em] text-zinc-500">{t('heistTime')}</p>
-                  <p className="font-display text-xl font-black">{formatTime(end.timeMs)}</p>
-                </div>
-                <div>
-                  <p className="text-[10px] font-extrabold tracking-[0.14em] text-zinc-500">{t('heistCoinsCollected')}</p>
-                  <p className="font-display text-xl font-black">{end.coins}</p>
-                </div>
-                <div>
-                  <p className="text-[10px] font-extrabold tracking-[0.14em] text-zinc-500">{t('heistAlert')}</p>
-                  <p className="font-display text-xl font-black">{Math.round(end.alert * 100)}%</p>
-                </div>
-                <div>
-                  <p className="text-[10px] font-extrabold tracking-[0.14em] text-zinc-500">{t('heistBonus')}</p>
-                  <p className="font-display text-xl font-black">{end.bonus + end.objBonus}</p>
-                </div>
-              </div>
-              <div className="mt-4 rounded-2xl border border-amber-400/25 bg-[#120c10]/80 p-3 text-left">
-                <p className="text-center text-[10px] font-extrabold tracking-[0.18em] text-amber-200">{t('heistObjectives')}</p>
-                <p className={`mt-2 text-sm ${end.objectives.loot ? 'text-amber-100' : 'text-zinc-500'}`}>
-                  {end.objectives.loot ? '✓' : '□'} {t('heistObjLoot', { n: end.lootGoal })}
-                  {end.objectives.loot ? `  +${RAID_OBJ_REWARD}` : ''}
-                </p>
-                <p className={`mt-1 text-sm ${end.objectives.stealth ? 'text-amber-100' : 'text-zinc-500'}`}>
-                  {end.objectives.stealth ? '✓' : '□'} {t('heistObjStealth')}
-                  {end.objectives.stealth ? `  +${RAID_OBJ_REWARD}` : ''}
-                </p>
-                <p className={`mt-1 text-sm ${end.objectives.speed ? 'text-amber-100' : 'text-zinc-500'}`}>
-                  {end.objectives.speed ? '✓' : '□'} {t('heistObjSpeed', { n: end.speedGoalS })}
-                  {end.objectives.speed ? `  +${RAID_OBJ_REWARD}` : ''}
-                </p>
-                {end.objectives.loot && end.objectives.stealth && end.objectives.speed ? (
-                  <p className="mt-2 text-center text-sm font-bold text-amber-200">{t('heistObjAll', { n: RAID_OBJ_ALL })}</p>
-                ) : null}
-              </div>
+              <button type="button" className="buy-btn mt-6 w-full rounded-2xl px-4 py-3 text-zinc-950" onClick={() => playLevel('bank')}>
+                {t('heistRetryBank')}
+              </button>
             </>
           ) : (
             <>
-              <p className="mt-5 text-xs font-extrabold tracking-[0.2em] text-orange-300/80">{t('heistLostRun')}</p>
-              <p className="font-display text-4xl font-black text-orange-200">{end.coins}</p>
-              <p className="mt-3 text-sm text-zinc-300">
-                {t('heistBanked')}: {end.banked}
-              </p>
+              <p className="font-display text-3xl font-black text-amber-300">{win ? t('heistEscaped') : t('heistCaught')}</p>
+              {win ? (
+                <>
+                  <p className="mt-5 font-display text-5xl font-black text-white">+{gained}</p>
+                  <p className="text-xs font-extrabold tracking-[0.18em] text-amber-200">{t('heistDuckCoin')}</p>
+                  <p className="mt-3 text-sm text-zinc-300">
+                    {t('heistBanked')}: {end.banked}
+                  </p>
+                  <div className="mt-4 grid grid-cols-2 gap-2 text-zinc-200">
+                    <div>
+                      <p className="text-[10px] font-extrabold tracking-[0.14em] text-zinc-500">{t('heistTime')}</p>
+                      <p className="font-display text-xl font-black">{formatTime(end.timeMs)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-extrabold tracking-[0.14em] text-zinc-500">{t('heistCoinsCollected')}</p>
+                      <p className="font-display text-xl font-black">{end.coins}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-extrabold tracking-[0.14em] text-zinc-500">{t('heistAlert')}</p>
+                      <p className="font-display text-xl font-black">{Math.round(end.alert * 100)}%</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-extrabold tracking-[0.14em] text-zinc-500">{t('heistBonus')}</p>
+                      <p className="font-display text-xl font-black">{end.bonus + end.objBonus}</p>
+                    </div>
+                  </div>
+                  <div className="mt-4 rounded-2xl border border-amber-400/25 bg-[#120c10]/80 p-3 text-left">
+                    <p className="text-center text-[10px] font-extrabold tracking-[0.18em] text-amber-200">{t('heistObjectives')}</p>
+                    <p className={`mt-2 text-sm ${end.objectives.loot ? 'text-amber-100' : 'text-zinc-500'}`}>
+                      {end.objectives.loot ? '✓' : '□'} {t('heistObjLoot', { n: end.lootGoal })}
+                      {end.objectives.loot ? `  +${RAID_OBJ_REWARD}` : ''}
+                    </p>
+                    <p className={`mt-1 text-sm ${end.objectives.stealth ? 'text-amber-100' : 'text-zinc-500'}`}>
+                      {end.objectives.stealth ? '✓' : '□'} {t('heistObjStealth')}
+                      {end.objectives.stealth ? `  +${RAID_OBJ_REWARD}` : ''}
+                    </p>
+                    <p className={`mt-1 text-sm ${end.objectives.speed ? 'text-amber-100' : 'text-zinc-500'}`}>
+                      {end.objectives.speed ? '✓' : '□'} {t('heistObjSpeed', { n: end.speedGoalS })}
+                      {end.objectives.speed ? `  +${RAID_OBJ_REWARD}` : ''}
+                    </p>
+                    {end.objectives.loot && end.objectives.stealth && end.objectives.speed ? (
+                      <p className="mt-2 text-center text-sm font-bold text-amber-200">{t('heistObjAll', { n: RAID_OBJ_ALL })}</p>
+                    ) : null}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className="mt-5 text-xs font-extrabold tracking-[0.2em] text-orange-300/80">{t('heistLostRun')}</p>
+                  <p className="font-display text-4xl font-black text-orange-200">{end.coins}</p>
+                  <p className="mt-3 text-sm text-zinc-300">
+                    {t('heistBanked')}: {end.banked}
+                  </p>
+                </>
+              )}
+              <button type="button" className="buy-btn mt-6 w-full rounded-2xl px-4 py-3 text-zinc-950" onClick={() => playLevel(levelId)}>
+                {win ? t('heistAgain') : t('heistTryAgain')}
+              </button>
+              <button
+                type="button"
+                className="mt-3 w-full rounded-2xl border border-amber-400/40 px-4 py-3 text-sm font-bold text-amber-100"
+                onClick={() => {
+                  setEnd(null)
+                  setShopMsg(null)
+                  setScreen('shop')
+                }}
+              >
+                {t('heistUpgrades')}
+              </button>
             </>
           )}
-          <button type="button" className="buy-btn mt-6 w-full rounded-2xl px-4 py-3 text-zinc-950" onClick={() => playLevel(levelId)}>
-            {win ? t('heistAgain') : t('heistTryAgain')}
-          </button>
-          <button
-            type="button"
-            className="mt-3 w-full rounded-2xl border border-amber-400/40 px-4 py-3 text-sm font-bold text-amber-100"
-            onClick={() => {
-              setEnd(null)
-              setShopMsg(null)
-              setScreen('shop')
-            }}
-          >
-            {t('heistUpgrades')}
-          </button>
         </div>
       </section>
     )
@@ -366,7 +425,7 @@ export function HeistPage() {
                         if (card.id) playLevel(card.id)
                       }}
                     >
-                      {t('heistPlay')}
+                      {t(card.id === 'bank' ? 'hubEnterBank' : 'heistPlay')}
                     </button>
                   ) : (
                     <button

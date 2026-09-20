@@ -14,6 +14,7 @@ type HeistGameProps = {
   running: boolean
   mods: HeistRunMods
   levelId?: HeistLevelId
+  novice?: boolean
   onDone: (end: HeistEnd) => void
 }
 
@@ -22,7 +23,7 @@ function telegramApp() {
   return tg ?? WebApp
 }
 
-export function HeistGame({ running, mods, levelId = 'bank', onDone }: HeistGameProps) {
+export function HeistGame({ running, mods, levelId = 'bank', novice = false, onDone }: HeistGameProps) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const onDoneRef = useRef(onDone)
   onDoneRef.current = onDone
@@ -64,7 +65,7 @@ export function HeistGame({ running, mods, levelId = 'bank', onDone }: HeistGame
       /* ignore */
     }
 
-    const game = createHeistGame(wrap, (end) => onDoneRef.current(end), mods, levelId)
+    const game = createHeistGame(wrap, (end) => onDoneRef.current(end), mods, levelId, novice)
 
     return () => {
       haltHeistSfx()
@@ -84,7 +85,7 @@ export function HeistGame({ running, mods, levelId = 'bank', onDone }: HeistGame
         /* ignore */
       }
     }
-  }, [running, mods, levelId])
+  }, [running, mods, levelId, novice])
 
   return (
     <div

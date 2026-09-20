@@ -13,7 +13,7 @@ export type HeistLevelCard = {
 
 export const HEIST_LEVEL_CARDS: readonly HeistLevelCard[] = [
   { n: 1, id: 'bank', nameKey: 'heistMapBank', locked: false, tone: 'bank' },
-  { n: 2, id: 'mansion', nameKey: 'heistMapMansion', locked: false, tone: 'mansion' },
+  { n: 2, id: 'mansion', nameKey: 'heistMapMansion', locked: true, tone: 'mansion' },
   { n: 3, id: null, nameKey: 'heistMapSoon', locked: true, tone: 'locked' },
   { n: 4, id: null, nameKey: 'heistMapSoon', locked: true, tone: 'locked' },
 ]

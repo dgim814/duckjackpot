@@ -22,6 +22,8 @@ export type PlayerProgress = {
   ownedMeta: OwnedMeta
   /** Telegram Stars for gameplay upgrades. Never mixed with DUCK COIN. */
   stars: number
+  /** Successful BANK exits. 0 means first-time onboarding. Never wipe. */
+  bankEscapes: number
 }
 
 export type HeistRunMods = {
@@ -78,6 +80,7 @@ const emptyProgress = (): PlayerProgress => ({
   ownedArt: {},
   ownedMeta: {},
   stars: 0,
+  bankEscapes: 0,
 })
 
 function readOwned(raw: unknown): OwnedCollection {
@@ -152,6 +155,7 @@ export function loadProgress(): PlayerProgress {
       ownedArt,
       ownedMeta: readMeta(parsed.ownedMeta, ownedArt),
       stars: Math.max(0, Math.floor(Number((parsed as { stars?: unknown }).stars) || 0)),
+      bankEscapes: Math.max(0, Math.floor(Number((parsed as { bankEscapes?: unknown }).bankEscapes) || 0)),
     }
     const before = JSON.stringify(readOwned(parsed.ownedArt))
     if (before !== JSON.stringify(ownedArt)) saveProgress(next)
@@ -167,6 +171,20 @@ export function saveProgress(next: PlayerProgress) {
   } catch {
     /* ignore */
   }
+}
+
+export function isHeistNovice(progress: PlayerProgress) {
+  return Math.max(0, Math.floor(progress.bankEscapes ?? 0)) <= 0
+}
+
+export function noteBankEscape(progress: PlayerProgress) {
+  const next: PlayerProgress = {
+    ...progress,
+    ...keepWallet(progress),
+    bankEscapes: Math.max(0, Math.floor(progress.bankEscapes ?? 0)) + 1,
+  }
+  saveProgress(next)
+  return next
 }
 
 export function bagCap(progress: PlayerProgress) {
