@@ -144,6 +144,11 @@ function mergeIds(a: readonly string[] | undefined, b: readonly string[] | undef
   return readIdList([...(a ?? []), ...(b ?? [])])
 }
 
+function migrateBankDoors(ids: string[]) {
+  const mapped = ids.map((id) => (id === 'bankVaultB' ? 'bankStorageB' : id))
+  return readIdList(mapped)
+}
+
 /** ACTIVE lots used to leave the vault. Restore those copies so listings match ownedArt. */
 function restoreListedCopies(owned: OwnedCollection): OwnedCollection {
   try {
@@ -188,7 +193,7 @@ export function loadProgress(): PlayerProgress {
       bankEscapes: Math.max(0, Math.floor(Number((parsed as { bankEscapes?: unknown }).bankEscapes) || 0)),
       bankLootTaken: readIdList((parsed as { bankLootTaken?: unknown }).bankLootTaken),
       bankOpenedSafes: readIdList((parsed as { bankOpenedSafes?: unknown }).bankOpenedSafes),
-      bankOpenedDoors: readIdList((parsed as { bankOpenedDoors?: unknown }).bankOpenedDoors),
+      bankOpenedDoors: migrateBankDoors(readIdList((parsed as { bankOpenedDoors?: unknown }).bankOpenedDoors)),
       bankDepth: Math.max(0, Math.floor(Number((parsed as { bankDepth?: unknown }).bankDepth) || 0)),
       bankReachedFinal: Boolean((parsed as { bankReachedFinal?: unknown }).bankReachedFinal),
       bankComplete: Boolean((parsed as { bankComplete?: unknown }).bankComplete),
@@ -239,7 +244,7 @@ export function persistBankWorld(patch: {
     ...keepWallet(live),
     bankLootTaken: mergeIds(live.bankLootTaken, patch.lootTaken),
     bankOpenedSafes: mergeIds(live.bankOpenedSafes, patch.openedSafes),
-    bankOpenedDoors: mergeIds(live.bankOpenedDoors, patch.openedDoors),
+    bankOpenedDoors: migrateBankDoors(mergeIds(live.bankOpenedDoors, patch.openedDoors)),
     bankDepth: Math.max(live.bankDepth ?? 0, Math.max(0, Math.floor(patch.depth ?? 0))),
     bankReachedFinal: Boolean(live.bankReachedFinal || patch.reachedFinal),
     bankComplete: Boolean(live.bankComplete || patch.complete),

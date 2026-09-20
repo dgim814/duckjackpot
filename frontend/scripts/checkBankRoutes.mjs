@@ -1,4 +1,4 @@
-// Dev-only sanity check: flood fill the bank and validate loot/guard placement.
+// Dev-only sanity check: flood fill the 20-zone bank and validate placement.
 import { readFileSync, writeFileSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -14,6 +14,7 @@ const L = await import(file)
 const T = 40
 const CELL = 24
 const PAD = 22
+const VALUE = { C5: 5, C10: 10, C50: 50, C100: 100 }
 
 function baseWalls() {
   return [
@@ -33,21 +34,27 @@ function walkable(rects, px, py) {
   return true
 }
 
-/** Manhattan grid distance in pixels, -1 when unreachable. */
 function dist(rects, from, to) {
   const cols = Math.ceil(L.BANK_W / CELL)
   const rows = Math.ceil(L.BANK_H / CELL)
   const idx = (c, r) => r * cols + c
-  const seen = new Uint8Array(cols * rows)
   const cell = (p) => [Math.floor(p.x / CELL), Math.floor(p.y / CELL)]
   const [sc, sr] = cell(from)
   const [tc, tr] = cell(to)
+  const seen = new Uint8Array(cols * rows)
   const queue = [[sc, sr, 0]]
   seen[idx(sc, sr)] = 1
-  while (queue.length) {
-    const [c, r, d] = queue.shift()
+  let head = 0
+  while (head < queue.length) {
+    const [c, r, d] = queue[head]
+    head += 1
     if (c === tc && r === tr) return d * CELL
-    for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    for (const [dc, dr] of [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+    ]) {
       const nc = c + dc
       const nr = r + dr
       if (nc < 0 || nr < 0 || nc >= cols || nr >= rows) continue
@@ -63,53 +70,95 @@ function dist(rects, from, to) {
 const locked = baseWalls().concat(L.BANK_DOORS)
 const open = baseWalls()
 const spawn = L.BANK_SPAWN
-const exit = L.BANK_EXIT
-const safe = { x: L.BANK_SAFES[0].x - 110, y: L.BANK_SAFES[0].y }
+const lobbyExit = L.BANK_EXIT
+const finalExit = L.BANK_FINAL_EXIT
+const safeA = { x: L.BANK_SAFES[0].x + 80, y: L.BANK_SAFES[0].y - 80 }
+const safeB = { x: L.BANK_SAFES[1].x - 80, y: L.BANK_SAFES[1].y - 80 }
 
 const cases = [
-  ['vault door locked: spawn -> exit', locked, spawn, exit],
-  ['vault door locked: spawn -> hall centre', locked, spawn, { x: 860, y: 700 }],
-  ['vault door locked: spawn -> vault is sealed', locked, spawn, safe],
-  ['vault door open: spawn -> safe', open, spawn, safe],
-  ['vault door open: safe -> exit (escape run)', open, safe, exit],
-  ['west corridor: spawn -> west corridor loot', locked, spawn, { x: 170, y: 540 }],
-  ['east corridor: spawn -> east corridor loot', locked, spawn, { x: 1560, y: 520 }],
+  ['early extract: spawn -> lobby EXIT', locked, spawn, lobbyExit, true],
+  ['doors locked: spawn -> hall', locked, spawn, { x: 1400, y: 6000 }, true],
+  ['doors locked: spawn -> offices', locked, spawn, { x: 1400, y: 5040 }, true],
+  ['doors locked: spawn -> closed offices is sealed', locked, spawn, { x: 1400, y: 3000 }, false],
+  ['doors locked: spawn -> safe A is sealed', locked, spawn, safeA, false],
+  ['doors locked: spawn -> final EXIT is sealed', locked, spawn, finalExit, false],
+  ['doors open: spawn -> safe A', open, spawn, safeA, true],
+  ['doors open: spawn -> safe B', open, spawn, safeB, true],
+  ['doors open: spawn -> final EXIT', open, spawn, finalExit, true],
+  ['doors open: final EXIT -> lobby EXIT', open, finalExit, lobbyExit, true],
+  ['west corridor: spawn -> west loot', locked, spawn, { x: 360, y: 5520 }, true],
+  ['east corridor: spawn -> east loot', locked, spawn, { x: 2440, y: 5520 }, true],
 ]
 
 let failed = 0
-for (const [name, rects, from, to] of cases) {
+for (const [name, rects, from, to, expectReach] of cases) {
   const d = dist(rects, from, to)
-  const walkS = d < 0 ? '' : `  ~${d}px  ~${Math.round(d / 98)}s at loaded run speed`
-  const sealed = name.includes('vault is sealed')
-  const ok = sealed ? d < 0 : d >= 0
+  const reachable = d >= 0
+  const ok = reachable === expectReach
   if (!ok) failed += 1
-  console.log(`${d >= 0 ? 'REACHABLE ' : 'BLOCKED   '} ${ok ? 'ok ' : 'FAIL '} ${name}${walkS}`)
+  const walkS = reachable ? `  ~${d}px  ~${Math.round(d / 98)}s` : ''
+  console.log(`${reachable ? 'REACHABLE ' : 'BLOCKED   '} ${ok ? 'ok ' : 'FAIL '} ${name}${walkS}`)
+}
+
+if (L.BANK_ZONE_COUNT !== 20 || L.BANK_ZONES.length !== 20) {
+  failed += 1
+  console.log('FAIL  expected 20 real zones, got', L.BANK_ZONE_COUNT, L.BANK_ZONES.length)
+} else {
+  console.log('ok    20 real zones')
+}
+
+const area = L.BANK_W * L.BANK_H
+if (area < 2200 * 3840 * 2) {
+  failed += 1
+  console.log('FAIL  map smaller than 2x previous', L.BANK_W, L.BANK_H)
+} else {
+  console.log(`ok    map ${L.BANK_W}x${L.BANK_H} (${(area / (2200 * 3840)).toFixed(2)}x previous)`)
+}
+
+if (spawn.x === lobbyExit.x && spawn.y === lobbyExit.y) {
+  failed += 1
+  console.log('FAIL  spawn equals lobby EXIT')
 }
 
 for (const [i, route] of L.BANK_GUARD_ROUTES.entries()) {
   const bad = route.filter((p) => !walkable(open, p.x, p.y))
-  if (bad.length) console.log(`guard ${i} waypoints inside geometry:`, bad)
+  if (bad.length) {
+    failed += 1
+    console.log(`FAIL  guard ${i} waypoints inside geometry:`, bad)
+  }
   const unreachable = route.filter((p) => dist(open, route[0], p) < 0)
-  if (unreachable.length) console.log(`guard ${i} waypoints unreachable:`, unreachable)
+  if (unreachable.length) {
+    failed += 1
+    console.log(`FAIL  guard ${i} waypoints unreachable:`, unreachable)
+  }
+}
+
+const ids = new Set(L.BANK_LOOT.map((p) => p.id))
+if (ids.size !== L.BANK_LOOT.length) {
+  failed += 1
+  console.log('FAIL  duplicate loot ids')
 }
 
 const badLoot = L.BANK_LOOT.filter((p) => !walkable(open, p.x, p.y) || dist(open, spawn, p) < 0)
-if (badLoot.length) console.log('loot inside geometry or unreachable:', badLoot)
-const badCams = L.BANK_CAMS.filter((c) => dist(open, spawn, { x: c.x, y: c.y }) < 0 && walkable(open, c.x, c.y))
-if (badCams.length) console.log('cameras in sealed space:', badCams)
+if (badLoot.length) {
+  failed += 1
+  console.log('FAIL  loot inside geometry or unreachable:', badLoot.map((p) => p.id))
+}
 
-const total = L.BANK_LOOT.reduce((sum, p) => sum + Number(p.kind.slice(1)), 0)
-const byKind = {}
-for (const p of L.BANK_LOOT) byKind[p.kind] = (byKind[p.kind] ?? 0) + 1
-console.log('floor loot', total, byKind, '+ safe', L.BANK_SAFES[0].reward)
+const floor = L.BANK_LOOT.reduce((sum, p) => sum + (VALUE[p.kind] ?? 0), 0)
+const safes = L.BANK_SAFES.reduce(
+  (sum, s) => sum + s.reward + (s.extraKind ? VALUE[s.extraKind] ?? 0 : 0),
+  0,
+)
+const total = floor + safes
+console.log('loot total', total, { floor, safes }, 'guards', L.BANK_GUARD_ROUTES.length, 'cams', L.BANK_CAMS.length)
+if (total < 800 || total > 1500) {
+  failed += 1
+  console.log('FAIL  loot total outside 800-1500')
+}
 
-// how much loot sits in each zone (y bands)
-const zone = (p) => (p.y < 380 ? 'vault' : p.y < 900 ? 'hall' : 'lobby')
-const zones = {}
-for (const p of L.BANK_LOOT) zones[zone(p)] = (zones[zone(p)] ?? 0) + Number(p.kind.slice(1))
-console.log('loot by zone', zones)
-
-if (failed || badLoot.length) {
+if (failed) {
   console.error('bank layout check failed')
   process.exit(1)
 }
+console.log('bank layout check passed')
