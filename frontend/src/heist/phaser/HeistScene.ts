@@ -1,7 +1,7 @@
 import Phaser from 'phaser'
 import { cropOpaque, punchBackdrop } from '../sprite'
 import type { HeistEnd } from '../types'
-import { RAID_OBJ_LOOT, RAID_OBJ_TIME_S, raidObjectiveBonus, type HeistRunMods } from '../progress'
+import { persistBankWorld, RAID_OBJ_LOOT, RAID_OBJ_TIME_S, raidObjectiveBonus, loadProgress, type HeistRunMods } from '../progress'
 import { heistLevelObjectives, type HeistLevelId } from '../heistLevel'
 import { applyCoinSpriteSize, coinDef, ensureCoinPlaceholders, loadDuckCoinImages, playCoinIdle, stopCoinIdle, SAFE_REWARD, type DuckCoinKind } from '../coinAssets'
 import { heistT } from '../heistI18n'
@@ -28,6 +28,9 @@ import {
   BANK_SPAWN,
   BANK_W,
   BANK_WALLS,
+  BANK_ZONE_COUNT,
+  bankResumeSpawn,
+  bankZoneAt,
 } from './bankLayout'
 import {
   MANSION_CAMS,
@@ -49,8 +52,6 @@ import {
   MANSION_WALLS,
 } from './mansionLayout'
 
-const W = 1760
-const H = 1280
 const NOISE = { sneak: 10, run: 35, dash: 80 } as const
 const PICKUP_R = 42
 const EXIT_HOLD = 0.62
@@ -114,12 +115,14 @@ type Wall = { x: number; y: number; w: number; h: number }
 type HideZone = Wall
 type SolidKind = 'wall' | FurnKind
 type SafeSpot = {
+  id: string
   x: number
   y: number
   opened: boolean
   extraX: number
   extraY: number
   extraKind?: LootKind
+  extraId?: string
   reward?: number
 }
 type LockedDoor = {
@@ -177,8 +180,8 @@ export class HeistScene extends Phaser.Scene {
   private wallRects: Wall[] = []
   private hideZones: HideZone[] = []
   private doors: LockedDoor[] = []
-  private mapW = W
-  private mapH = H
+  private mapW = BANK_W
+  private mapH = BANK_H
   private lootGroup!: Phaser.Physics.Arcade.Group
   private lootSpawn = 0
   private exitZone!: Phaser.GameObjects.Rectangle
@@ -314,6 +317,12 @@ export class HeistScene extends Phaser.Scene {
   private firstLootAt = 0
   private lootIdleS = 0
   private onboardUntil = 0
+  private runLootIds: string[] = []
+  private bankDepth = 0
+  private bankReachedFinal = false
+  private bankTaken = new Set<string>()
+  private bankOpenedSafes = new Set<string>()
+  private bankOpenedDoors = new Set<string>()
   private raidPhase: RaidPhase = 'SAFE'
   private phaseChangedAt = -9999
   private phaseRising = false
@@ -355,6 +364,14 @@ export class HeistScene extends Phaser.Scene {
     this.novice = novice
     this.cfg = resolveTuning(levelId)
     this.cfgV = debugTuningVersion()
+    if (levelId === 'bank') {
+      const world = loadProgress()
+      this.bankTaken = new Set(world.bankLootTaken ?? [])
+      this.bankOpenedSafes = new Set(world.bankOpenedSafes ?? [])
+      this.bankOpenedDoors = new Set(world.bankOpenedDoors ?? [])
+      this.bankDepth = Math.max(0, Math.floor(world.bankDepth ?? 0))
+      this.bankReachedFinal = Boolean(world.bankReachedFinal)
+    }
     const obj = heistLevelObjectives(levelId)
     // A goal above the bag capacity can never be met, so a small bag lowers it.
     this.objLoot = Math.min(obj.loot, mods.bagCap)
@@ -406,6 +423,7 @@ export class HeistScene extends Phaser.Scene {
     const uiSet = new Set(uiList)
 
     this.cameras.main.setZoom(adaptiveCameraZoom(this.scale.width, this.scale.height, this.cfg.camera.zoom))
+    this.cameras.main.setBounds(0, 0, this.mapW, this.mapH)
     this.cameras.main.ignore(uiList)
 
     this.uiCam = this.cameras.add(0, 0, this.scale.width, this.scale.height)
@@ -429,6 +447,17 @@ export class HeistScene extends Phaser.Scene {
   private onScaleResize = (size: Phaser.Structs.Size) => {
     this.uiCam?.setSize(size.width, size.height)
     this.cameras.main.setZoom(adaptiveCameraZoom(size.width, size.height, this.cfg.camera.zoom))
+    this.cameras.main.setBounds(0, 0, this.mapW, this.mapH)
+    this.applyCameraFollow()
+  }
+
+  /** Keep the duck in the lower-centre of the canvas, below the Mini App HUD. */
+  private applyCameraFollow() {
+    if (!this.player) return
+    this.cameras.main.startFollow(this.player, true, 0.22, 0.22)
+    this.cameras.main.setDeadzone(36, 52)
+    this.cameras.main.setFollowOffset(0, 88)
+    this.cameras.main.setBounds(0, 0, this.mapW, this.mapH)
   }
 
   preload() {
@@ -741,8 +770,8 @@ export class HeistScene extends Phaser.Scene {
 
   private buildWorld() {
     this.cameras.main.setBackgroundColor(this.levelId === 'mansion' ? 0x140e0c : 0x0c0a10)
-    this.mapW = this.levelId === 'mansion' ? MANSION_W : W
-    this.mapH = this.levelId === 'mansion' ? MANSION_H : H
+    this.mapW = this.levelId === 'mansion' ? MANSION_W : BANK_W
+    this.mapH = this.levelId === 'mansion' ? MANSION_H : BANK_H
     this.physics.world.setBounds(0, 0, this.mapW, this.mapH)
     if (this.levelId === 'mansion') {
       this.buildMansionWorld()
@@ -859,9 +888,8 @@ export class HeistScene extends Phaser.Scene {
       console.error(err)
     }
 
-    this.cameras.main.startFollow(this.player, true, 0.14, 0.14)
-    this.cameras.main.setBounds(0, 0, this.mapW, this.mapH)
-    this.cameras.main.setDeadzone(28, 28)
+    this.cameras.main.startFollow(this.player, true, 0.22, 0.22)
+    this.applyCameraFollow()
 
     this.input.addPointer(3)
     this.input.setTopOnly(false)
@@ -1050,9 +1078,8 @@ export class HeistScene extends Phaser.Scene {
   }
 
   /**
-   * LEVEL 1 BANK: lobby (safe start) -> hall (guards and cameras) -> vault
-   * (locked door, C100, safe). EXIT sits on the far side of the lobby, so a
-   * deep run always pays for itself with a long way back.
+   * LEVEL 1 BANK: long south-to-north heist. Lobby EXIT is always open so a
+   * first raid can leave with pocket change; later raids keep going deeper.
    */
   private buildBankWorld() {
     this.drawFloor()
@@ -1069,6 +1096,11 @@ export class HeistScene extends Phaser.Scene {
     this.addSolid(BANK_W - T, 0, T, BANK_H, 'wall')
     for (const w of BANK_WALLS) this.addSolid(w.x, w.y, w.w, w.h, 'wall')
     this.doors = BANK_DOORS.map((d) => this.addLockedDoor(d))
+    for (const door of this.doors) {
+      if (!this.bankOpenedDoors.has(door.id)) continue
+      door.opened = true
+      this.openSolid(door.body, door)
+    }
     for (const f of BANK_FURNITURE) this.addSolid(f.x, f.y, f.w, f.h, f.kind)
     const theme = 'bank' as const
     for (const d of BANK_DECOR) paintDecor(this, d, theme)
@@ -1078,12 +1110,14 @@ export class HeistScene extends Phaser.Scene {
     this.rebuildNav()
 
     this.safes = BANK_SAFES.map((s) => ({
+      id: s.id,
       x: s.x,
       y: s.y,
-      opened: false,
+      opened: this.bankOpenedSafes.has(s.id),
       extraX: s.extraX,
       extraY: s.extraY,
       extraKind: s.extraKind,
+      extraId: s.extraId,
       reward: s.reward,
     }))
     this.safePos.set(this.safes[0].x, this.safes[0].y)
@@ -1092,7 +1126,8 @@ export class HeistScene extends Phaser.Scene {
     this.placeExit(BANK_EXIT.x, BANK_EXIT.y)
     for (const lab of BANK_LABELS) this.addRoomLabel(lab.x, lab.y, lab.key)
 
-    this.spawnDuckAt(BANK_SPAWN.x, BANK_SPAWN.y)
+    const spawn = this.novice ? BANK_SPAWN : bankResumeSpawn(this.bankDepth)
+    this.spawnDuckAt(spawn.x, spawn.y)
 
     const guardKey = this.tryCreateGuardAnims() ? 'guard_sheet' : 'guard'
     this.units = this.limitCount(BANK_GUARD_ROUTES, this.cfg.counts.guards).map((route) =>
@@ -1108,7 +1143,15 @@ export class HeistScene extends Phaser.Scene {
     )
 
     this.lootGroup = this.physics.add.group()
-    BANK_LOOT.forEach((slot, i) => this.spawnLoot(slot.x, slot.y, slot.kind, i))
+    BANK_LOOT.forEach((slot, i) => {
+      if (this.bankTaken.has(slot.id)) return
+      this.spawnLoot(slot.x, slot.y, slot.kind, i, { id: slot.id })
+    })
+    for (const safe of BANK_SAFES) {
+      if (!this.bankOpenedSafes.has(safe.id) || !safe.extraKind) continue
+      if (this.bankTaken.has(safe.extraId)) continue
+      this.spawnLoot(safe.extraX, safe.extraY, safe.extraKind, 30, { id: safe.extraId })
+    }
 
     this.physics.add.collider(this.player, this.walls)
     for (const u of this.units) this.physics.add.collider(u.sprite, this.walls)
@@ -1154,6 +1197,7 @@ export class HeistScene extends Phaser.Scene {
     this.rebuildNav()
 
     this.safes = MANSION_SAFES.map((s) => ({
+      id: `mansion-${s.x}-${s.y}`,
       x: s.x,
       y: s.y,
       opened: false,
@@ -1194,25 +1238,25 @@ export class HeistScene extends Phaser.Scene {
   }
 
   private drawFloor() {
-    this.add.tileSprite(W / 2, H / 2, W, H, 'floor_tile').setDepth(0)
+    this.add.tileSprite(BANK_W / 2, BANK_H / 2, BANK_W, BANK_H, 'floor_tile').setDepth(0)
     const g = this.add.graphics().setDepth(1)
     for (const f of BANK_FLOORS) {
       g.fillStyle(f.color, f.alpha)
       g.fillRect(f.x, f.y, f.w, f.h)
     }
-    // golden threshold marks the lockpick door into the vault
     g.fillStyle(0xc9a227, 0.1)
-    g.fillRoundedRect(800, 368, 140, 28, 4)
+    g.fillRoundedRect(1030, 1628, 140, 28, 4)
+    g.fillRoundedRect(1030, 508, 140, 28, 4)
     g.fillStyle(0xc9a227, 0.05)
-    g.fillCircle(1520, 150, 150)
-    g.fillCircle(860, 620, 200)
-    g.fillCircle(148, 1188, 170)
+    g.fillCircle(BANK_EXIT.x, BANK_EXIT.y, 170)
     g.fillCircle(BANK_SPAWN.x, BANK_SPAWN.y, 150)
+    g.fillCircle(280, 1500, 140)
+    g.fillCircle(1860, 320, 150)
     g.fillStyle(0x000000, 0.18)
-    g.fillRect(0, 0, W, 28)
-    g.fillRect(0, H - 28, W, 28)
-    g.fillRect(0, 0, 28, H)
-    g.fillRect(W - 28, 0, 28, H)
+    g.fillRect(0, 0, BANK_W, 28)
+    g.fillRect(0, BANK_H - 28, BANK_W, 28)
+    g.fillRect(0, 0, 28, BANK_H)
+    g.fillRect(BANK_W - 28, 0, 28, BANK_H)
   }
 
   private makeCam(x: number, y: number, base: number, sweep: number, speed: number): SecCam {
@@ -1331,6 +1375,11 @@ export class HeistScene extends Phaser.Scene {
     const kind = (item.getData('kind') as LootKind) ?? 'C5'
     const weight = Number(item.getData('weight') ?? this.lootWeight(kind))
     if (gained > 0) this.carried.push({ kind, value: gained, weight })
+    const lootId = String(item.getData('lootId') || '')
+    if (this.levelId === 'bank' && lootId && !lootId.startsWith('loot-')) {
+      this.runLootIds.push(lootId)
+      this.bankTaken.add(lootId)
+    }
     if (this.novice && this.levelId === 'bank' && this.carried.length === 1) {
       this.firstLootAt = this.gameNow()
       this.lootIdleS = 0
@@ -1467,6 +1516,19 @@ export class HeistScene extends Phaser.Scene {
     }
   }
 
+  private updateBankProgress() {
+    if (this.levelId !== 'bank' || this.ended || !this.player) return
+    const zone = bankZoneAt(this.player.x, this.player.y)
+    if (zone.i > this.bankDepth) {
+      this.bankDepth = zone.i
+      persistBankWorld({ depth: this.bankDepth, reachedFinal: this.bankReachedFinal || zone.i >= BANK_ZONE_COUNT - 1 })
+    }
+    if (zone.i >= BANK_ZONE_COUNT - 1 && !this.bankReachedFinal) {
+      this.bankReachedFinal = true
+      persistBankWorld({ depth: this.bankDepth, reachedFinal: true })
+    }
+  }
+
   update(_t: number, dtMs: number) {
     if (this.ended || !this.player) return
     if (this.paused) {
@@ -1497,6 +1559,7 @@ export class HeistScene extends Phaser.Scene {
       this.collectNearbyLoot()
       this.updateExit(dt)
       this.updateNoviceExitHint(dt)
+      this.updateBankProgress()
     }
     this.updateSafePrompt()
     this.updateCams(dt)
@@ -1824,6 +1887,10 @@ export class HeistScene extends Phaser.Scene {
     door.opened = true
     this.openSolid(door.body, door)
     this.rebuildNav()
+    if (this.levelId === 'bank') {
+      this.bankOpenedDoors.add(door.id)
+      persistBankWorld({ openedDoors: [door.id], depth: this.bankDepth, reachedFinal: this.bankReachedFinal })
+    }
   }
 
   /** Turns a solid rectangle into a passage: body off, nav rebuilt by the caller. */
@@ -1843,6 +1910,10 @@ export class HeistScene extends Phaser.Scene {
     if (spot) spot.opened = true
     this.safeOpened = true
     this.safeOpenedAt = this.gameNow()
+    if (this.levelId === 'bank' && spot?.id) {
+      this.bankOpenedSafes.add(spot.id)
+      persistBankWorld({ openedSafes: [spot.id], depth: this.bankDepth, reachedFinal: this.bankReachedFinal })
+    }
     const room = Math.max(0, this.mods.bagCap - this.currentLoot)
     const gained = Math.min(spot?.reward ?? SAFE_REWARD, room)
     this.hitHeld = false
@@ -1853,7 +1924,7 @@ export class HeistScene extends Phaser.Scene {
     const sx = spot?.x ?? this.safePos.x
     const sy = spot?.y ?? this.safePos.y
     this.fx?.explode(18, sx, sy)
-    if (spot?.extraKind) this.spawnLoot(spot.extraX, spot.extraY, spot.extraKind, 20 + this.crackI)
+    if (spot?.extraKind) this.spawnLoot(spot.extraX, spot.extraY, spot.extraKind, 20 + this.crackI, { id: spot.extraId })
     this.triggerSiren()
   }
 
@@ -1928,7 +1999,7 @@ export class HeistScene extends Phaser.Scene {
     y: number,
     kind: LootKind,
     seed: number,
-    opts?: { value?: number; weight?: number; lockMs?: number },
+    opts?: { value?: number; weight?: number; lockMs?: number; id?: string },
   ) {
     const def = coinDef(kind)
     const glow = this.add.circle(x, y, def.size * 0.72, kind === 'C100' ? 0xffe08a : 0xc9a227, kind === 'C100' ? 0.28 : 0.16)
@@ -1938,7 +2009,7 @@ export class HeistScene extends Phaser.Scene {
     s.setDepth(6)
     s.setData('glow', glow)
     this.lootSpawn += 1
-    s.setData('lootId', `loot-${this.lootSpawn}`)
+    s.setData('lootId', opts?.id ?? `loot-${this.lootSpawn}`)
     s.setData('value', opts?.value ?? def.value)
     s.setData('kind', kind)
     s.setData('weight', opts?.weight ?? this.lootWeight(kind))
@@ -2753,6 +2824,20 @@ export class HeistScene extends Phaser.Scene {
       gb.setAcceleration(0, 0)
     }
     this.physics.pause()
+    if (this.levelId === 'bank' && verdict !== 'aborted') {
+      const complete =
+        verdict === 'escaped' &&
+        (this.bankReachedFinal || this.bankDepth >= BANK_ZONE_COUNT - 1) &&
+        this.bankOpenedSafes.has('bankSafeB')
+      persistBankWorld({
+        lootTaken: verdict === 'escaped' ? this.runLootIds : [],
+        openedDoors: [...this.bankOpenedDoors],
+        openedSafes: [...this.bankOpenedSafes],
+        depth: this.bankDepth,
+        reachedFinal: this.bankReachedFinal,
+        complete,
+      })
+    }
     const coins = verdict === 'aborted' ? 0 : this.currentLoot
     const timeMs = this.gameNow() - this.startedAt
     const bonus =
@@ -2962,6 +3047,21 @@ export class HeistScene extends Phaser.Scene {
       this.objHud.setPosition(12, top + 6)
       this.objHud.setWordWrapWidth(w - 12, true)
       this.objHud.setText(heistT('heistObjEscape'))
+      return
+    }
+    if (this.levelId === 'bank') {
+      const zone = Math.min(BANK_ZONE_COUNT, Math.max(1, this.bankDepth + 1))
+      this.uiGfx.fillRoundedRect(6, top, w, 42, 8)
+      const barX = 14
+      const barY = top + 26
+      const barW = w - 16
+      this.uiGfx.fillStyle(0x000000, 0.45)
+      this.uiGfx.fillRoundedRect(barX, barY, barW, 6, 3)
+      this.uiGfx.fillStyle(0xc9a227, 0.95)
+      this.uiGfx.fillRoundedRect(barX, barY, Math.max(4, (barW * zone) / BANK_ZONE_COUNT), 6, 3)
+      this.objHud.setPosition(12, top + 6)
+      this.objHud.setWordWrapWidth(w - 12, true)
+      this.objHud.setText(heistT('heistBankZone', { n: zone, max: BANK_ZONE_COUNT }))
       return
     }
     const loot = this.currentLoot >= this.objLoot

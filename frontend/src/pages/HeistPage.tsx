@@ -20,7 +20,8 @@ import {
 import { catalogItem } from '../heist/economy/catalog'
 import { requestStarsPurchase, STAR_PACKS } from '../heist/economy/stars'
 import { heistSfx, unlockHeistSfx } from '../heist/heistSfx'
-import { HEIST_LEVEL_CARDS, heistLevelBrief, type HeistLevelId } from '../heist/heistLevel'
+import { BANK_ZONE_COUNT, bankCollectedPotential, bankTotalPotential } from '../heist/phaser/bankLayout'
+import { heistLevelBrief, heistLevelCards, type HeistLevelId } from '../heist/heistLevel'
 import { useI18n } from '../i18n/LanguageProvider'
 
 /** Goal, guards and cameras of a level, so the player picks the risk knowingly. */
@@ -81,10 +82,13 @@ export function HeistPage() {
       const gained = next.coins + next.bonus + next.objBonus
       let updated = bankCoins(progress, gained, next.objectives)
       if (levelId === 'bank') updated = noteBankEscape(updated)
+      updated = loadProgress()
       setProgress(updated)
       setEnd({ ...next, banked: updated.bankedDuckCoin })
     } else {
-      setEnd({ ...next, banked: progress.bankedDuckCoin })
+      const live = loadProgress()
+      setProgress(live)
+      setEnd({ ...next, banked: live.bankedDuckCoin })
     }
     setScreen('result')
   }
@@ -264,7 +268,20 @@ export function HeistPage() {
                 <span className="text-[11px] font-extrabold tracking-[0.16em] text-zinc-500">{t('heistThiefScore')}</span>
                 <span className="font-display text-2xl font-black text-amber-200">{end.banked}</span>
               </div>
-              {end.banked >= firstLotPrice ? (
+              {progress.bankComplete ? (
+                <p className="mt-5 text-sm font-semibold text-amber-100">
+                  {t('heistBankCompleteTitle')} · {t('heistMansionUnlocked')}
+                </p>
+              ) : (
+                <p className="mt-5 text-sm font-semibold text-zinc-300">
+                  {t('heistBankContinue')} · {t('heistBankZone', { n: Math.min(BANK_ZONE_COUNT, Math.max(1, (progress.bankDepth ?? 0) + 1)), max: BANK_ZONE_COUNT })}
+                </p>
+              )}
+              {progress.bankComplete ? (
+                <button type="button" className="buy-btn mt-6 w-full rounded-2xl px-4 py-3 text-zinc-950" onClick={() => playLevel('mansion')}>
+                  {t('heistPlayMansion')}
+                </button>
+              ) : end.banked >= firstLotPrice ? (
                 <>
                   <p className="mt-5 text-sm font-semibold text-amber-100">{t('heistEnoughRenoir')}</p>
                   <button
@@ -273,6 +290,13 @@ export function HeistPage() {
                     onClick={() => navigate('/market')}
                   >
                     {t('heistBuyOnMarket')}
+                  </button>
+                  <button
+                    type="button"
+                    className="mt-3 w-full rounded-2xl border border-amber-400/40 px-4 py-3 text-sm font-bold text-amber-100"
+                    onClick={() => playLevel('bank')}
+                  >
+                    {t('heistAgainBank')}
                   </button>
                 </>
               ) : (
@@ -392,8 +416,19 @@ export function HeistPage() {
             <span>{t('heistBag')}</span>
             <span className="font-mono font-bold text-amber-200">{bagCap(progress)}</span>
           </div>
+          <p className="mt-3 text-center text-[11px] font-extrabold tracking-[0.14em] text-amber-200">
+            {progress.bankComplete
+              ? t('heistBankCompleteTitle')
+              : t('heistBankZone', { n: Math.min(BANK_ZONE_COUNT, Math.max(1, (progress.bankDepth ?? 0) + 1)), max: BANK_ZONE_COUNT })}
+          </p>
+          <p className="mt-1 text-center text-[11px] text-zinc-400">
+            {t('heistBankCollected', {
+              n: bankCollectedPotential(progress.bankLootTaken ?? [], progress.bankOpenedSafes ?? []),
+              total: bankTotalPotential(),
+            })}
+          </p>
           <div className="mt-4 space-y-3">
-            {HEIST_LEVEL_CARDS.map((card) => {
+            {heistLevelCards(progress).map((card) => {
               const open = !card.locked && card.id
               const tone =
                 card.tone === 'bank'

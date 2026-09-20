@@ -24,6 +24,13 @@ export type PlayerProgress = {
   stars: number
   /** Successful BANK exits. 0 means first-time onboarding. Never wipe. */
   bankEscapes: number
+  /** Persistent BANK heist. Missing fields migrate empty; never wipe the wallet. */
+  bankLootTaken: string[]
+  bankOpenedSafes: string[]
+  bankOpenedDoors: string[]
+  bankDepth: number
+  bankReachedFinal: boolean
+  bankComplete: boolean
 }
 
 export type HeistRunMods = {
@@ -81,6 +88,12 @@ const emptyProgress = (): PlayerProgress => ({
   ownedMeta: {},
   stars: 0,
   bankEscapes: 0,
+  bankLootTaken: [],
+  bankOpenedSafes: [],
+  bankOpenedDoors: [],
+  bankDepth: 0,
+  bankReachedFinal: false,
+  bankComplete: false,
 })
 
 function readOwned(raw: unknown): OwnedCollection {
@@ -112,6 +125,23 @@ function clampLevel(n: unknown, max = LAB_MAX) {
   const v = Math.floor(Number(n) || 0)
   if (!Number.isFinite(v)) return 0
   return Math.max(0, Math.min(max, v))
+}
+
+function readIdList(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return []
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const item of raw) {
+    const id = String(item ?? '').trim()
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    out.push(id)
+  }
+  return out
+}
+
+function mergeIds(a: readonly string[] | undefined, b: readonly string[] | undefined) {
+  return readIdList([...(a ?? []), ...(b ?? [])])
 }
 
 /** ACTIVE lots used to leave the vault. Restore those copies so listings match ownedArt. */
@@ -156,6 +186,12 @@ export function loadProgress(): PlayerProgress {
       ownedMeta: readMeta(parsed.ownedMeta, ownedArt),
       stars: Math.max(0, Math.floor(Number((parsed as { stars?: unknown }).stars) || 0)),
       bankEscapes: Math.max(0, Math.floor(Number((parsed as { bankEscapes?: unknown }).bankEscapes) || 0)),
+      bankLootTaken: readIdList((parsed as { bankLootTaken?: unknown }).bankLootTaken),
+      bankOpenedSafes: readIdList((parsed as { bankOpenedSafes?: unknown }).bankOpenedSafes),
+      bankOpenedDoors: readIdList((parsed as { bankOpenedDoors?: unknown }).bankOpenedDoors),
+      bankDepth: Math.max(0, Math.floor(Number((parsed as { bankDepth?: unknown }).bankDepth) || 0)),
+      bankReachedFinal: Boolean((parsed as { bankReachedFinal?: unknown }).bankReachedFinal),
+      bankComplete: Boolean((parsed as { bankComplete?: unknown }).bankComplete),
     }
     const before = JSON.stringify(readOwned(parsed.ownedArt))
     if (before !== JSON.stringify(ownedArt)) saveProgress(next)
@@ -178,13 +214,42 @@ export function isHeistNovice(progress: PlayerProgress) {
 }
 
 export function noteBankEscape(progress: PlayerProgress) {
+  const live = loadProgress()
   const next: PlayerProgress = {
-    ...progress,
-    ...keepWallet(progress),
-    bankEscapes: Math.max(0, Math.floor(progress.bankEscapes ?? 0)) + 1,
+    ...live,
+    ...keepWallet(live),
+    bankEscapes: Math.max(0, Math.floor(live.bankEscapes ?? 0)) + 1,
+    bankedDuckCoin: Math.max(live.bankedDuckCoin, progress.bankedDuckCoin),
   }
   saveProgress(next)
   return next
+}
+
+export function persistBankWorld(patch: {
+  lootTaken?: readonly string[]
+  openedSafes?: readonly string[]
+  openedDoors?: readonly string[]
+  depth?: number
+  reachedFinal?: boolean
+  complete?: boolean
+}) {
+  const live = loadProgress()
+  const next: PlayerProgress = {
+    ...live,
+    ...keepWallet(live),
+    bankLootTaken: mergeIds(live.bankLootTaken, patch.lootTaken),
+    bankOpenedSafes: mergeIds(live.bankOpenedSafes, patch.openedSafes),
+    bankOpenedDoors: mergeIds(live.bankOpenedDoors, patch.openedDoors),
+    bankDepth: Math.max(live.bankDepth ?? 0, Math.max(0, Math.floor(patch.depth ?? 0))),
+    bankReachedFinal: Boolean(live.bankReachedFinal || patch.reachedFinal),
+    bankComplete: Boolean(live.bankComplete || patch.complete),
+  }
+  saveProgress(next)
+  return next
+}
+
+export function isMansionUnlocked(progress: PlayerProgress) {
+  return Boolean(progress.bankComplete)
 }
 
 export function bagCap(progress: PlayerProgress) {
@@ -248,13 +313,14 @@ function keepWallet(progress: PlayerProgress): Pick<PlayerProgress, 'ownedArt' |
 }
 
 export function bankCoins(progress: PlayerProgress, gained: number, objectives?: { loot: boolean; stealth: boolean; speed: boolean }) {
+  const live = loadProgress()
   const next: PlayerProgress = {
-    ...progress,
-    ...keepWallet(progress),
-    bankedDuckCoin: progress.bankedDuckCoin + Math.max(0, Math.floor(gained)),
-    objLoot: progress.objLoot || Boolean(objectives?.loot),
-    objStealth: progress.objStealth || Boolean(objectives?.stealth),
-    objSpeed: progress.objSpeed || Boolean(objectives?.speed),
+    ...live,
+    ...keepWallet(live),
+    bankedDuckCoin: live.bankedDuckCoin + Math.max(0, Math.floor(gained)),
+    objLoot: live.objLoot || progress.objLoot || Boolean(objectives?.loot),
+    objStealth: live.objStealth || progress.objStealth || Boolean(objectives?.stealth),
+    objSpeed: live.objSpeed || progress.objSpeed || Boolean(objectives?.speed),
   }
   saveProgress(next)
   return next
