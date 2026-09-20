@@ -91,8 +91,8 @@ export const BANK_WALLS: BankRect[] = [
   ...divider(6320, OPEN3),
   ...divider(5720, OPEN3),
   ...divider(5280, [GAP_DOOR]),
-  ...divider(4840, OPEN3),
-  ...divider(4440, [GAP_W, GAP_C, GAP_E]),
+  ...divider(4840, [GAP_DOOR]),
+  ...divider(4440, [GAP_DOOR]),
   ...divider(4000, [GAP_DOOR]),
   ...divider(3640, [GAP_DOOR]),
   ...divider(3240, [GAP_DOOR]),
@@ -101,7 +101,7 @@ export const BANK_WALLS: BankRect[] = [
   ...divider(1920, [GAP_DOOR]),
   ...divider(1480, [GAP_DOOR]),
   ...divider(1040, [GAP_DOOR]),
-  ...divider(560, OPEN3),
+  ...divider(560, [GAP_DOOR]),
 
   ...vSplit(900, 5280, 5720),
   ...vSplit(1900, 5280, 5720),
@@ -137,6 +137,8 @@ function doorAt(id: string, y: number): BankDoor {
 
 export const BANK_DOORS: BankDoor[] = [
   doorAt('bankOffices', 5280),
+  doorAt('bankAnnex', 4840),
+  doorAt('bankWatch', 4440),
   doorAt('bankSecurity', 4000),
   doorAt('bankServer', 3640),
   doorAt('bankClosed', 3240),
@@ -145,6 +147,7 @@ export const BANK_DOORS: BankDoor[] = [
   doorAt('bankWing', 1920),
   doorAt('bankStorageB', 1480),
   doorAt('bankFinal', 1040),
+  doorAt('bankVault', 560),
 ]
 
 export const BANK_FURNITURE: BankFurn[] = [
@@ -289,6 +292,17 @@ export const BANK_FURNITURE: BankFurn[] = [
   { x: 2260, y: 320, w: 160, h: 46, kind: 'desk' },
   { x: 980, y: 720, w: 50, h: 50, kind: 'column' },
   { x: 1770, y: 720, w: 50, h: 50, kind: 'column' },
+  { x: 1104, y: 720, w: 28, h: 22, kind: 'plant' },
+  { x: 1620, y: 720, w: 28, h: 22, kind: 'plant' },
+  { x: 2480, y: 2880, w: 72, h: 100, kind: 'shelf' },
+  { x: 400, y: 2200, w: 72, h: 80, kind: 'cabinet' },
+  { x: 80, y: 3480, w: 72, h: 90, kind: 'cabinet' },
+  { x: 2480, y: 3360, w: 72, h: 90, kind: 'shelf' },
+  { x: 280, y: 3200, w: 28, h: 40, kind: 'lamp' },
+  { x: 880, y: 2080, w: 160, h: 46, kind: 'desk' },
+  { x: 2480, y: 1760, w: 72, h: 90, kind: 'cabinet' },
+  { x: 1680, y: 1160, w: 80, h: 140, kind: 'shelf' },
+  { x: 1680, y: 320, w: 72, h: 90, kind: 'cabinet' },
 ]
 
 export const BANK_DECOR: BankDecor[] = [
@@ -300,13 +314,15 @@ export const BANK_DECOR: BankDecor[] = [
   { x: 1320, y: 4880, w: 160, h: 380, kind: 'runner', tone: 'office' },
   { x: 1260, y: 5000, w: 240, h: 140, kind: 'rug', tone: 'office' },
   { x: 80, y: 4480, w: 200, h: 120, kind: 'rug', tone: 'cold' },
-  { x: 1320, y: 4080, w: 160, h: 340, kind: 'runner', tone: 'cold' },
-  { x: 1260, y: 4160, w: 240, h: 140, kind: 'rug', tone: 'cold' },
-  { x: 1320, y: 3320, w: 160, h: 280, kind: 'runner', tone: 'cold' },
+  { x: 180, y: 5000, w: 180, h: 110, kind: 'rug', tone: 'office' },
+  { x: 2260, y: 2960, w: 180, h: 110, kind: 'rug', tone: 'office' },
+  { x: 1320, y: 3320, w: 160, h: 280, kind: 'runner', tone: 'office' },
   { x: 200, y: 3360, w: 220, h: 120, kind: 'rug', tone: 'office' },
+  { x: 80, y: 2480, w: 200, h: 140, kind: 'rug', tone: 'vault' },
   { x: 1260, y: 2480, w: 240, h: 160, kind: 'rug', tone: 'vault' },
   { x: 1320, y: 1960, w: 160, h: 360, kind: 'runner', tone: 'vault' },
   { x: 1260, y: 1640, w: 240, h: 140, kind: 'rug', tone: 'gold' },
+  { x: 2160, y: 1120, w: 240, h: 160, kind: 'rug', tone: 'gold' },
   { x: 1320, y: 1080, w: 160, h: 360, kind: 'runner', tone: 'gold' },
   { x: 1260, y: 200, w: 280, h: 180, kind: 'rug', tone: 'gold' },
   { x: 200, y: 200, w: 240, h: 140, kind: 'rug', tone: 'gold' },
@@ -314,7 +330,9 @@ export const BANK_DECOR: BankDecor[] = [
   { x: 2640, y: 6788, w: 70, h: 46, kind: 'painting' },
   { x: 90, y: 5080, w: 70, h: 46, kind: 'painting' },
   { x: 2640, y: 3000, w: 70, h: 46, kind: 'painting' },
+  { x: 1330, y: 4812, w: 160, h: 18, kind: 'rope' },
   { x: 1330, y: 5252, w: 160, h: 18, kind: 'rope' },
+  { x: 1330, y: 4412, w: 160, h: 18, kind: 'rope' },
   { x: 1330, y: 3972, w: 160, h: 18, kind: 'rope' },
   { x: 1330, y: 3612, w: 160, h: 18, kind: 'rope' },
   { x: 1330, y: 3212, w: 160, h: 18, kind: 'rope' },
@@ -323,6 +341,7 @@ export const BANK_DECOR: BankDecor[] = [
   { x: 1330, y: 1892, w: 160, h: 18, kind: 'rope' },
   { x: 1330, y: 1452, w: 160, h: 18, kind: 'rope' },
   { x: 1330, y: 1012, w: 160, h: 18, kind: 'rope' },
+  { x: 1330, y: 532, w: 160, h: 18, kind: 'rope' },
 ]
 
 export const BANK_FOLIAGE: BankFoliage[] = [
@@ -352,8 +371,18 @@ export const BANK_FOLIAGE: BankFoliage[] = [
   { x: 1604, y: 1608, w: 56, h: 52 },
   { x: 1088, y: 1148, w: 56, h: 52 },
   { x: 1604, y: 1148, w: 56, h: 52 },
-  { x: 1088, y: 448, w: 56, h: 52 },
-  { x: 1604, y: 448, w: 56, h: 52 },
+  { x: 1088, y: 688, w: 56, h: 52 },
+  { x: 1604, y: 688, w: 56, h: 52 },
+  { x: 80, y: 3920, w: 72, h: 68 },
+  { x: 2648, y: 3920, w: 72, h: 68 },
+  { x: 80, y: 2860, w: 72, h: 68 },
+  { x: 2648, y: 2860, w: 72, h: 68 },
+  { x: 80, y: 2200, w: 72, h: 68 },
+  { x: 2648, y: 2200, w: 72, h: 68 },
+  { x: 80, y: 800, w: 72, h: 68 },
+  { x: 2648, y: 800, w: 72, h: 68 },
+  { x: 80, y: 6080, w: 36, h: 78 },
+  { x: 2684, y: 1640, w: 36, h: 78 },
 ]
 
 export const BANK_HIDES: BankRect[] = [
@@ -382,6 +411,10 @@ export const BANK_HIDES: BankRect[] = [
   { x: 1758, y: 1988, w: 74, h: 44 },
   { x: 968, y: 708, w: 74, h: 44 },
   { x: 1758, y: 708, w: 74, h: 44 },
+  { x: 2480, y: 3360, w: 72, h: 90 },
+  { x: 880, y: 2080, w: 160, h: 46 },
+  { x: 2480, y: 1760, w: 72, h: 90 },
+  { x: 1680, y: 1160, w: 80, h: 140 },
   ...BANK_FOLIAGE.map((leaf) => ({ x: leaf.x, y: leaf.y + 8, w: leaf.w, h: leaf.h - 6 })),
 ]
 
@@ -403,7 +436,7 @@ export const BANK_LOOT: BankLoot[] = [
   { id: 'bl-12', x: 360, y: 5520, kind: 'C10' },
   { id: 'bl-13', x: 2440, y: 5520, kind: 'C10' },
   // 6 offices ~50
-  { id: 'bl-14', x: 320, y: 5080, kind: 'C50' },
+  { id: 'bl-14', x: 320, y: 5080, kind: 'C10' },
   { id: 'bl-15', x: 1240, y: 4920, kind: 'C10' },
   // 7-9 side rooms ~40
   { id: 'bl-16', x: 280, y: 4640, kind: 'C10' },
@@ -434,11 +467,17 @@ export const BANK_LOOT: BankLoot[] = [
   // 19-20 deep / final ~150 floor
   { id: 'bl-33', x: 400, y: 720, kind: 'C50' },
   { id: 'bl-34', x: 1400, y: 520, kind: 'C100' },
-  { id: 'bl-35', x: 1400, y: 3480, kind: 'C50' },
   { id: 'bl-36', x: 2100, y: 3080, kind: 'C50' },
   { id: 'bl-37', x: 600, y: 2080, kind: 'C50' },
   { id: 'bl-38', x: 900, y: 4640, kind: 'C10' },
   { id: 'bl-39', x: 720, y: 3800, kind: 'C10' },
+  { id: 'bl-40', x: 2480, y: 1280, kind: 'C50' },
+  { id: 'bl-41', x: 720, y: 3480, kind: 'C10' },
+  { id: 'bl-42', x: 1400, y: 3520, kind: 'C10' },
+  { id: 'bl-45', x: 1400, y: 1560, kind: 'C10' },
+  { id: 'bl-46', x: 800, y: 1280, kind: 'C10' },
+  { id: 'bl-47', x: 2400, y: 400, kind: 'C10' },
+  { id: 'bl-48', x: 2000, y: 6600, kind: 'C10' },
 ]
 
 export const BANK_SAFES: BankSafe[] = [
@@ -472,12 +511,15 @@ export const BANK_CAMS: { x: number; y: number; base: number; sweep: number; spe
   { x: 1400, y: 4040, base: Math.PI / 2, sweep: 0.6, speed: 0.48 },
   { x: 1400, y: 3680, base: Math.PI / 2, sweep: 0.55, speed: 0.48 },
   { x: 1400, y: 3280, base: Math.PI / 2, sweep: 0.5, speed: 0.5 },
+  { x: 1400, y: 3000, base: Math.PI / 2, sweep: 0.55, speed: 0.46 },
   { x: 2520, y: 2480, base: Math.PI, sweep: 0.7, speed: 0.44 },
   { x: 220, y: 2140, base: 0, sweep: 0.7, speed: 0.42 },
   { x: 1400, y: 1960, base: Math.PI / 2, sweep: 0.6, speed: 0.44 },
   { x: 1400, y: 1520, base: Math.PI / 2, sweep: 0.65, speed: 0.46 },
   { x: 1400, y: 1080, base: Math.PI / 2, sweep: 0.55, speed: 0.46 },
+  { x: 1400, y: 800, base: Math.PI / 2, sweep: 0.6, speed: 0.44 },
   { x: 1400, y: 600, base: Math.PI / 2, sweep: 0.7, speed: 0.42 },
+  { x: 1400, y: 4480, base: Math.PI / 2, sweep: 0.55, speed: 0.44 },
 ]
 
 export const BANK_GUARD_ROUTES: { x: number; y: number }[][] = [
@@ -490,8 +532,14 @@ export const BANK_GUARD_ROUTES: { x: number; y: number }[][] = [
   [
     { x: 400, y: 5080 },
     { x: 1400, y: 5080 },
-    { x: 1400, y: 4720 },
-    { x: 500, y: 4720 },
+    { x: 2260, y: 5080 },
+    { x: 1400, y: 4960 },
+  ],
+  [
+    { x: 500, y: 4200 },
+    { x: 1400, y: 4120 },
+    { x: 2400, y: 4320 },
+    { x: 700, y: 4320 },
   ],
   [
     { x: 400, y: 3440 },
@@ -506,22 +554,64 @@ export const BANK_GUARD_ROUTES: { x: number; y: number }[][] = [
     { x: 1500, y: 2520 },
   ],
   [
+    { x: 600, y: 2240 },
+    { x: 1400, y: 2240 },
+    { x: 2480, y: 2240 },
+    { x: 1400, y: 2280 },
+  ],
+  [
     { x: 400, y: 1200 },
     { x: 1400, y: 1200 },
     { x: 1800, y: 1200 },
     { x: 1400, y: 1120 },
   ],
+  [
+    { x: 400, y: 280 },
+    { x: 1400, y: 280 },
+    { x: 2260, y: 280 },
+    { x: 1400, y: 160 },
+  ],
+  [
+    { x: 400, y: 4680 },
+    { x: 1400, y: 4680 },
+    { x: 2400, y: 4760 },
+    { x: 900, y: 4680 },
+  ],
+  [
+    { x: 500, y: 3840 },
+    { x: 1400, y: 3920 },
+    { x: 2200, y: 3840 },
+    { x: 1400, y: 3720 },
+  ],
+  [
+    { x: 400, y: 3120 },
+    { x: 1400, y: 3120 },
+    { x: 2400, y: 3120 },
+    { x: 1400, y: 3040 },
+  ],
+  [
+    { x: 400, y: 1760 },
+    { x: 1400, y: 1760 },
+    { x: 2400, y: 1760 },
+    { x: 1400, y: 1840 },
+  ],
+  [
+    { x: 400, y: 800 },
+    { x: 1400, y: 800 },
+    { x: 2400, y: 800 },
+    { x: 1400, y: 880 },
+  ],
 ]
 
 export const BANK_ZONES: BankZone[] = [
-  { i: 0, id: 'start', key: 'heistRoomStart', x: 40, y: 6760, w: 2720, h: 400 },
+  { i: 0, id: 'start', key: 'heistRoomStart', x: 40, y: 6760, w: 2720, h: 440 },
   { i: 1, id: 'lobby', key: 'heistRoomLobby', x: 40, y: 6320, w: 2720, h: 440 },
   { i: 2, id: 'hall', key: 'heistRoomHall', x: 40, y: 5280, w: 2720, h: 1040 },
   { i: 3, id: 'west', key: 'heistRoomWest', x: 40, y: 5280, w: 860, h: 440 },
   { i: 4, id: 'east', key: 'heistRoomEast', x: 1900, y: 5280, w: 860, h: 440 },
-  { i: 5, id: 'offices', key: 'heistRoomOffices', x: 40, y: 4440, w: 2720, h: 840 },
+  { i: 5, id: 'offices', key: 'heistRoomOffices', x: 40, y: 4840, w: 2720, h: 440 },
   { i: 6, id: 'toilet', key: 'heistRoomToilet', x: 40, y: 4440, w: 580, h: 400 },
-  { i: 7, id: 'utility', key: 'heistRoomUtility', x: 620, y: 4440, w: 560, h: 400 },
+  { i: 7, id: 'utility', key: 'heistRoomUtility', x: 620, y: 4440, w: 1480, h: 400 },
   { i: 8, id: 'archive', key: 'heistRoomArchive', x: 2100, y: 4440, w: 660, h: 400 },
   { i: 9, id: 'security', key: 'heistRoomSecurity', x: 40, y: 4000, w: 2720, h: 440 },
   { i: 10, id: 'server', key: 'heistRoomServer', x: 40, y: 3640, w: 2720, h: 360 },
@@ -571,15 +661,17 @@ export const BANK_LAMPS: BankLamp[] = [
   { x: 880, y: 4560, color: 0x8aa0b4, alpha: 0.06 },
   { x: 1400, y: 4200, color: 0x6ec8ff, alpha: 0.07 },
   { x: 1400, y: 3760, color: 0x6ec8ff, alpha: 0.08 },
-  { x: 1400, y: 3400, color: 0x8aa0b4, alpha: 0.07 },
+  { x: 1400, y: 3400, color: 0xe0c48a, alpha: 0.08 },
   { x: 1400, y: 3000, color: 0xc9a227, alpha: 0.07 },
   { x: 1400, y: 2560, color: 0xe0a24a, alpha: 0.08 },
+  { x: 220, y: 2560, color: 0xffe08a, alpha: 0.12 },
   { x: 220, y: 2080, color: 0x8aa0b4, alpha: 0.06 },
   { x: 2580, y: 2080, color: 0x8aa0b4, alpha: 0.06 },
   { x: 1400, y: 1680, color: 0xe0c48a, alpha: 0.09 },
   { x: 2360, y: 1200, color: 0xffe08a, alpha: 0.12 },
+  { x: 800, y: 1200, color: 0x8aa0b4, alpha: 0.06 },
   { x: 1400, y: 800, color: 0xe0a24a, alpha: 0.1 },
-  { x: 1400, y: 280, color: 0xffe08a, alpha: 0.14 },
+  { x: 1400, y: 280, color: 0xffe08a, alpha: 0.16 },
 ]
 
 export const BANK_FLOORS: { x: number; y: number; w: number; h: number; color: number; alpha: number }[] = [
@@ -626,5 +718,20 @@ export function bankZoneAt(x: number, y: number) {
     const z = BANK_ZONES[i]
     if (x >= z.x && x <= z.x + z.w && y >= z.y && y <= z.y + z.h) return z
   }
-  return BANK_ZONES[0]
+  let best = BANK_ZONES[0]
+  let bestD = Number.POSITIVE_INFINITY
+  for (const z of BANK_ZONES) {
+    const cx = Math.max(z.x, Math.min(z.x + z.w, x))
+    const cy = Math.max(z.y, Math.min(z.y + z.h, y))
+    const d = (cx - x) * (cx - x) + (cy - y) * (cy - y)
+    if (d < bestD) {
+      bestD = d
+      best = z
+    }
+  }
+  return best
+}
+
+export function bankFinalLootIds() {
+  return BANK_LOOT.filter((slot) => bankZoneAt(slot.x, slot.y).i >= BANK_ZONE_COUNT - 1).map((slot) => slot.id)
 }

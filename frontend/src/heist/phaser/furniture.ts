@@ -267,11 +267,11 @@ export type DecorKind = 'rug' | 'runner' | 'painting' | 'rope'
 export type DecorTone = 'lobby' | 'office' | 'cold' | 'vault' | 'gold'
 
 const RUG_TONE: Record<DecorTone, number> = {
-  lobby: 0x1a3048,
-  office: 0x3a2a1c,
-  cold: 0x142028,
-  vault: 0x2a1810,
-  gold: 0x3a2a14,
+  lobby: 0x4a1c28,
+  office: 0x3a2418,
+  cold: 0x1a2838,
+  vault: 0x1c1814,
+  gold: 0x3a2410,
 }
 
 export function paintDecor(
@@ -283,14 +283,29 @@ export function paintDecor(
   const g = scene.add.graphics().setDepth(1)
   if (kind === 'rug' || kind === 'runner') {
     const fill = theme === 'bank' ? RUG_TONE[spec.tone ?? 'lobby'] : 0x5a2420
-    const round = kind === 'runner' ? 4 : 8
-    g.fillStyle(fill, kind === 'runner' ? 0.42 : 0.5)
+    const round = kind === 'runner' ? 6 : 10
+    const inset = kind === 'runner' ? 8 : 12
+    g.fillStyle(0x050308, 0.35)
+    g.fillRoundedRect(x + 3, y + 4, w, h, round)
+    g.fillStyle(fill, kind === 'runner' ? 0.72 : 0.78)
     g.fillRoundedRect(x, y, w, h, round)
-    g.lineStyle(kind === 'runner' ? 1.25 : 2, 0xc9a227, 0.28)
-    g.strokeRoundedRect(x + 6, y + 6, w - 12, h - 12, Math.max(2, round - 2))
+    g.lineStyle(2, 0xc9a227, kind === 'runner' ? 0.22 : 0.32)
+    g.strokeRoundedRect(x + 4, y + 4, w - 8, h - 8, Math.max(3, round - 2))
+    g.fillStyle(0xc9a227, 0.08)
+    g.fillRoundedRect(x + inset, y + inset, w - inset * 2, h - inset * 2, Math.max(2, round - 4))
     if (kind === 'rug') {
-      g.lineStyle(1, 0xc9a227, 0.12)
-      g.strokeRoundedRect(x + 14, y + 14, w - 28, h - 28, 4)
+      g.lineStyle(1.25, 0xc9a227, 0.18)
+      g.strokeRoundedRect(x + 18, y + 18, w - 36, h - 36, 4)
+    } else if (h > w) {
+      for (let yy = y + 22; yy < y + h - 18; yy += 36) {
+        g.lineStyle(1, 0xc9a227, 0.1)
+        g.lineBetween(x + 10, yy, x + w - 10, yy)
+      }
+    } else {
+      for (let xx = x + 22; xx < x + w - 18; xx += 36) {
+        g.lineStyle(1, 0xc9a227, 0.1)
+        g.lineBetween(xx, y + 10, xx, y + h - 10)
+      }
     }
     return
   }
@@ -319,16 +334,32 @@ export function paintFoliage(scene: Phaser.Scene, spec: { x: number; y: number; 
   const cx = x + w / 2
   const cy = y + h / 2
   const g = scene.add.graphics().setDepth(5)
+  const tall = h >= 70
+  const urn = w >= 68
   g.fillStyle(0x050308, 0.22)
-  g.fillEllipse(cx + 3, cy + 8, w * 0.7, h * 0.28)
+  g.fillEllipse(cx + 3, cy + h * 0.18, w * 0.7, h * 0.22)
+  g.fillStyle(urn ? 0x3a2418 : 0x2a1c14, 1)
+  g.fillRoundedRect(cx - w * 0.22, cy + h * 0.12, w * 0.44, h * 0.28, 4)
+  g.fillStyle(0xc9a227, 0.35)
+  g.fillRect(cx - w * 0.18, cy + h * 0.14, w * 0.36, 3)
   g.fillStyle(0x1a3a24, 0.95)
+  if (tall) {
+    g.fillEllipse(cx, cy - h * 0.16, w * 0.42, h * 0.7)
+    g.fillStyle(0x2f6a3a, 0.88)
+    g.fillEllipse(cx - w * 0.08, cy - h * 0.28, w * 0.28, h * 0.42)
+    g.fillStyle(0x4a8a48, 0.7)
+    g.fillEllipse(cx + w * 0.1, cy - h * 0.34, w * 0.22, h * 0.3)
+    return
+  }
   g.fillCircle(cx, cy - 4, Math.min(w, h) * 0.38)
   g.fillStyle(0x2f6a3a, 0.9)
   g.fillCircle(cx - w * 0.16, cy - 8, Math.min(w, h) * 0.22)
   g.fillCircle(cx + w * 0.18, cy - 6, Math.min(w, h) * 0.2)
   g.fillStyle(0x4a8a48, 0.7)
   g.fillCircle(cx, cy - h * 0.22, Math.min(w, h) * 0.16)
-  g.fillStyle(0xc45a6a, 0.4)
-  g.fillCircle(cx + 4, cy - 10, 3)
-  g.fillCircle(cx - 8, cy - 6, 2.4)
+  if (urn) {
+    g.fillStyle(0xc45a6a, 0.45)
+    g.fillCircle(cx + 6, cy - 12, 3.4)
+    g.fillCircle(cx - 10, cy - 8, 2.6)
+  }
 }

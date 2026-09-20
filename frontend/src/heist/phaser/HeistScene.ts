@@ -30,6 +30,7 @@ import {
   BANK_W,
   BANK_WALLS,
   BANK_ZONE_COUNT,
+  bankFinalLootIds,
   bankZoneAt,
 } from './bankLayout'
 import {
@@ -325,6 +326,7 @@ export class HeistScene extends Phaser.Scene {
   private runDropSprites: Phaser.Physics.Arcade.Sprite[] = []
   private bankDepth = 0
   private bankZoneNow = 0
+  private raidZoneMax = 0
   private bankReachedFinal = false
   private bankTaken = new Set<string>()
   private bankOpenedSafes = new Set<string>()
@@ -1059,17 +1061,21 @@ export class HeistScene extends Phaser.Scene {
   }
 
   private addLockedDoor(spec: { id: string; x: number; y: number; w: number; h: number }): LockedDoor {
-    const body = this.addSolid(spec.x, spec.y, spec.w, spec.h, 'wall')
-    body.setFillStyle(0x3a2414)
     const cx = spec.x + spec.w / 2
     const cy = spec.y + spec.h / 2
+    const body = this.add.rectangle(cx, cy, spec.w, spec.h, 0x3a2414, 1)
+    body.setStrokeStyle(2, 0xc9a227, 0.75)
+    body.setDepth(5)
+    this.physics.add.existing(body, true)
+    this.walls.add(body)
+    this.wallRects.push({ x: spec.x, y: spec.y, w: spec.w, h: spec.h })
     const lock = this.add.graphics().setDepth(6)
-    lock.fillStyle(0xc9a227, 0.85)
-    lock.fillCircle(cx, cy, 6)
+    lock.fillStyle(0xc9a227, 0.9)
+    lock.fillRoundedRect(cx - 10, cy - 10, 20, 20, 3)
     lock.fillStyle(0x1a1410, 1)
-    lock.fillCircle(cx, cy, 2.4)
+    lock.fillCircle(cx, cy, 3.2)
     const label = this.add
-      .text(cx, cy - (spec.h > spec.w ? 0 : 18), heistT('heistLockpick'), {
+      .text(cx, cy - (spec.h > spec.w ? 0 : 22), heistT('heistLockpick'), {
         fontFamily: 'Unbounded, sans-serif',
         fontSize: '12px',
         color: '#ffe08a',
@@ -1082,6 +1088,45 @@ export class HeistScene extends Phaser.Scene {
   private hideDoorPrompt(door: LockedDoor) {
     door.lock.setVisible(false)
     door.label.setVisible(false)
+    door.label.setText('')
+    door.label.setAlpha(0)
+  }
+
+  /** CLOSED blocks and shows ВЗЛОМ nearby. OPEN is a clear passage with no prompt. */
+  private applyDoorState(door: LockedDoor, opened: boolean) {
+    door.opened = opened
+    const phys = door.body.body as Phaser.Physics.Arcade.StaticBody | null
+    if (opened) {
+      door.body.setFillStyle(0x1c2430, 0)
+      door.body.setStrokeStyle(0, 0, 0)
+      door.body.setAlpha(0)
+      door.body.setVisible(false)
+      door.body.setActive(false)
+      if (phys) {
+        phys.enable = false
+        phys.updateFromGameObject()
+      }
+      this.walls.remove(door.body)
+      this.wallRects = this.wallRects.filter((r) => !(r.x === door.x && r.y === door.y && r.w === door.w && r.h === door.h))
+      this.hideDoorPrompt(door)
+      return
+    }
+    door.body.setFillStyle(0x3a2414, 1)
+    door.body.setStrokeStyle(2, 0xc9a227, 0.75)
+    door.body.setAlpha(1)
+    door.body.setVisible(true)
+    door.body.setActive(true)
+    if (phys) {
+      phys.enable = true
+      phys.updateFromGameObject()
+    }
+    if (!this.walls.contains(door.body)) this.walls.add(door.body)
+    if (!this.wallRects.some((r) => r.x === door.x && r.y === door.y && r.w === door.w && r.h === door.h)) {
+      this.wallRects.push({ x: door.x, y: door.y, w: door.w, h: door.h })
+    }
+    door.lock.setVisible(true)
+    door.label.setVisible(false)
+    door.label.setAlpha(0)
     door.label.setText('')
   }
 
@@ -1121,10 +1166,7 @@ export class HeistScene extends Phaser.Scene {
     for (const w of BANK_WALLS) this.addSolid(w.x, w.y, w.w, w.h, 'wall')
     this.doors = BANK_DOORS.map((d) => this.addLockedDoor(d))
     for (const door of this.doors) {
-      if (!this.bankOpenedDoors.has(door.id)) continue
-      door.opened = true
-      this.openSolid(door.body, door)
-      this.hideDoorPrompt(door)
+      this.applyDoorState(door, this.bankOpenedDoors.has(door.id))
     }
     for (const f of BANK_FURNITURE) this.addSolid(f.x, f.y, f.w, f.h, f.kind)
     const theme = 'bank' as const
@@ -1557,6 +1599,7 @@ export class HeistScene extends Phaser.Scene {
     if (this.levelId !== 'bank' || this.ended || !this.player) return
     const zone = bankZoneAt(this.player.x, this.player.y)
     this.bankZoneNow = zone.i
+    this.raidZoneMax = Math.max(this.raidZoneMax, zone.i)
     if (zone.i > this.bankDepth) {
       this.bankDepth = zone.i
       persistBankWorld({ depth: this.bankDepth, reachedFinal: this.bankReachedFinal || zone.i >= BANK_ZONE_COUNT - 1 })
@@ -1922,9 +1965,7 @@ export class HeistScene extends Phaser.Scene {
     this.hitHeld = false
     this.doorOpenedAt = this.gameNow()
     if (!door || door.opened) return
-    door.opened = true
-    this.openSolid(door.body, door)
-    this.hideDoorPrompt(door)
+    this.applyDoorState(door, true)
     this.rebuildNav()
     if (this.levelId === 'bank') {
       this.bankOpenedDoors.add(door.id)
@@ -2029,9 +2070,7 @@ export class HeistScene extends Phaser.Scene {
     for (const id of MANSION_SIREN.unlockDoors) {
       const door = this.doors.find((d) => d.id === id)
       if (!door || door.opened) continue
-      door.opened = true
-      this.openSolid(door.body, door)
-      this.hideDoorPrompt(door)
+      this.applyDoorState(door, true)
     }
     for (const plan of MANSION_SIREN.redeploy) {
       const u = this.units[plan.guard]
@@ -2503,6 +2542,8 @@ export class HeistScene extends Phaser.Scene {
     this.snapGuardWalkable(u)
     u.path = []
     u.repathAt = 0
+    u.stuckT = 0
+    u.stuckTries = 0
   }
 
   private followTo(u: GuardUnit, tx: number, ty: number, speed: number, dt: number) {
@@ -2529,7 +2570,8 @@ export class HeistScene extends Phaser.Scene {
       u.path = raw ? raw.map((p) => new Phaser.Math.Vector2(p.x, p.y)) : []
       u.pathDest.set(tx, ty)
       u.repathAt = now + (chase ? 280 : 1e9)
-      if (u.stuckT > 0.7) {
+      if (!raw) u.stuckTries += 2
+      else if (u.stuckT > 0.7) {
         u.stuckT = 0
         u.stuckTries += 1
       }
@@ -2607,21 +2649,21 @@ export class HeistScene extends Phaser.Scene {
     if (u.state === 'PATROL') {
       const wp = u.waypoints[u.wi]
       const d = this.followTo(u, wp.x, wp.y, gc.patrol * pm, dt)
-      if (d < 18 || u.stuckTries >= 5) {
-        if (u.stuckTries >= 5) this.skipUnreachable(u)
+      if (d < 18 || u.stuckTries >= 3) {
+        if (u.stuckTries >= 3) this.skipUnreachable(u)
         u.wi = (u.wi + 1) % u.waypoints.length
         u.path = []
       }
     } else if (u.state === 'INVESTIGATE') {
-      if (this.followTo(u, u.lastSeen.x, u.lastSeen.y, gc.investigate * pm, dt) < 18 || u.stuckTries >= 5) {
-        if (u.stuckTries >= 5) this.skipUnreachable(u)
+      if (this.followTo(u, u.lastSeen.x, u.lastSeen.y, gc.investigate * pm, dt) < 18 || u.stuckTries >= 3) {
+        if (u.stuckTries >= 3) this.skipUnreachable(u)
         this.setG(u, 'SEARCH')
       }
     } else if (u.state === 'CHASE') {
       const targetX = seen ? this.player.x : u.lastSeen.x
       const targetY = seen ? this.player.y : u.lastSeen.y
       this.followTo(u, targetX, targetY, gc.chase, dt)
-      if (u.stuckTries >= 5) this.skipUnreachable(u)
+      if (u.stuckTries >= 3) this.skipUnreachable(u)
       if (Phaser.Math.Distance.Between(u.sprite.x, u.sprite.y, this.player.x, this.player.y) < gc.catchDist) {
         this.finish('caught')
       } else if (!seen && Phaser.Math.Distance.Between(u.sprite.x, u.sprite.y, u.lastSeen.x, u.lastSeen.y) < 22) {
@@ -2630,16 +2672,16 @@ export class HeistScene extends Phaser.Scene {
     } else if (u.state === 'SEARCH') {
       u.searchT -= dt
       const pt = u.searchPts[u.searchI] ?? u.lastSeen
-      if (this.followTo(u, pt.x, pt.y, gc.search * pm, dt) < 18 || u.stuckTries >= 5) {
-        if (u.stuckTries >= 5) this.skipUnreachable(u)
+      if (this.followTo(u, pt.x, pt.y, gc.search * pm, dt) < 18 || u.stuckTries >= 3) {
+        if (u.stuckTries >= 3) this.skipUnreachable(u)
         u.searchI = (u.searchI + 1) % Math.max(1, u.searchPts.length)
         u.path = []
       }
       if (u.searchT <= 0) this.resumePatrol(u)
     } else if (u.state === 'RETURN') {
       const wp = u.waypoints[u.wi]
-      if (this.followTo(u, wp.x, wp.y, gc.returning * pm, dt) < 18 || u.stuckTries >= 5) {
-        if (u.stuckTries >= 5) this.skipUnreachable(u)
+      if (this.followTo(u, wp.x, wp.y, gc.returning * pm, dt) < 18 || u.stuckTries >= 3) {
+        if (u.stuckTries >= 3) this.skipUnreachable(u)
         u.wi = (u.wi + 1) % u.waypoints.length
         this.setG(u, 'PATROL')
       }
@@ -2904,7 +2946,11 @@ export class HeistScene extends Phaser.Scene {
     }
     this.physics.pause()
     if (this.levelId === 'bank' && verdict !== 'aborted') {
-      const complete = verdict === 'escaped' && this.bankReachedFinal
+      const finalIds = bankFinalLootIds()
+      const tookFinal =
+        finalIds.some((id) => this.runLootIds.includes(id)) ||
+        finalIds.every((id) => this.bankTaken.has(id) || this.runLootIds.includes(id))
+      const complete = verdict === 'escaped' && this.bankReachedFinal && tookFinal
       persistBankWorld({
         lootTaken: verdict === 'escaped' ? this.runLootIds : [],
         openedDoors: [...this.bankOpenedDoors],
@@ -3084,8 +3130,15 @@ export class HeistScene extends Phaser.Scene {
     for (const label of this.exitLabels) label.setText(heistT('heistExit'))
     for (const lab of this.roomLabels) lab.obj.setText(heistT(lab.key))
     for (const door of this.doors) {
-      if (door.opened) this.hideDoorPrompt(door)
-      else door.label.setText(heistT('heistLockpick'))
+      if (door.opened) {
+        this.hideDoorPrompt(door)
+        continue
+      }
+      const near = this.nearestLockedDoor() === door
+      door.lock.setVisible(true)
+      door.label.setVisible(near)
+      door.label.setAlpha(near ? 1 : 0)
+      door.label.setText(near ? heistT('heistLockpick') : '')
     }
     this.safeTitle?.setText(heistT('heistSafeName'))
     this.sneakLabel?.setText(heistT('heistSneak'))
@@ -3124,7 +3177,7 @@ export class HeistScene extends Phaser.Scene {
     const top = this.hudPanelH() + 8
     this.uiGfx.fillStyle(0x080604, 0.5)
     if (this.levelId === 'bank') {
-      const zone = Math.min(BANK_ZONE_COUNT, Math.max(1, this.bankZoneNow + 1))
+      const zone = Math.min(BANK_ZONE_COUNT, Math.max(1, Math.max(this.raidZoneMax, this.bankZoneNow) + 1))
       this.uiGfx.fillRoundedRect(6, top, w, 42, 8)
       const barX = 14
       const barY = top + 26
