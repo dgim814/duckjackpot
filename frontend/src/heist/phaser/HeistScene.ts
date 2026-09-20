@@ -3,7 +3,7 @@ import { cropOpaque, punchBackdrop } from '../sprite'
 import type { HeistEnd } from '../types'
 import { persistBankWorld, RAID_OBJ_LOOT, RAID_OBJ_TIME_S, raidObjectiveBonus, loadProgress, type HeistRunMods } from '../progress'
 import { heistLevelObjectives, type HeistLevelId } from '../heistLevel'
-import { applyCoinSpriteSize, coinDef, ensureCoinPlaceholders, loadDuckCoinImages, playCoinIdle, stopCoinIdle, SAFE_REWARD, type DuckCoinKind } from '../coinAssets'
+import { applyCoinSpriteSize, coinDef, ensureCoinPlaceholders, loadDuckCoinImages, stopCoinIdle, SAFE_REWARD, type DuckCoinKind } from '../coinAssets'
 import { heistT } from '../heistI18n'
 import { heistSfx, unlockHeistSfx } from '../heistSfx'
 import { buildNavGrid, cellCenter, findPath, findPathAroundStuck, nearestWalkable, type NavGrid } from '../guardPath'
@@ -126,16 +126,18 @@ type SafeSpot = {
   extraId?: string
   reward?: number
 }
+type DoorState = 'CLOSED' | 'HACKING' | 'OPEN'
 type LockedDoor = {
   id: string
   x: number
   y: number
   w: number
   h: number
+  state: DoorState
   opened: boolean
   body: Phaser.GameObjects.Rectangle
-  lock: Phaser.GameObjects.Graphics
-  label: Phaser.GameObjects.Text
+  leaf: Phaser.GameObjects.Rectangle
+  lock: Phaser.GameObjects.Arc
 }
 type SecCam = {
   x: number
@@ -327,6 +329,15 @@ export class HeistScene extends Phaser.Scene {
   private bankDepth = 0
   private bankZoneNow = 0
   private raidZoneMax = 0
+  private nearbyDoor: LockedDoor | null = null
+  private doorScanAt = { x: -9999, y: -9999, t: 0 }
+  private lastHudLine = ''
+  private lastBagLine = ''
+  private lastObjLine = ''
+  private lootSprites: Phaser.Physics.Arcade.Sprite[] = []
+  private cullAt = 0
+  private pendingWalls: Wall[] = []
+  private pendingFurn: { x: number; y: number; w: number; h: number; kind: FurnKind }[] = []
   private bankReachedFinal = false
   private bankTaken = new Set<string>()
   private bankOpenedSafes = new Set<string>()
@@ -652,36 +663,30 @@ export class HeistScene extends Phaser.Scene {
   }
 
   private addSolid(x: number, y: number, w: number, h: number, kind: SolidKind) {
-    const cx = x + w / 2
-    const cy = y + h / 2
-    if (kind !== 'wall') {
-      paintFurniture(this, { x, y, w, h, kind }, this.levelId === 'mansion' ? 'mansion' : 'bank')
-      const r = this.add.rectangle(cx, cy, w, h, 0x000000, 0).setDepth(4)
-      this.physics.add.existing(r, true)
-      this.walls.add(r)
-      this.wallRects.push({ x, y, w, h })
-      return r
-    }
-    const mansion = this.levelId === 'mansion'
-    const fill = mansion ? 0x2a1c14 : 0x1c2430
-    this.add.rectangle(cx + 5, cy + 8, w + 2, h + 2, 0x050308, 0.48).setDepth(3)
-    const r = this.add.rectangle(cx, cy, w, h, fill).setDepth(4)
-    r.setStrokeStyle(1, 0x0a080c, 1)
-    const trim = this.add.graphics().setDepth(5)
-    trim.lineStyle(1.25, mansion ? 0xb8894a : 0x8aa0b4, mansion ? 0.28 : 0.2)
-    trim.strokeRect(x + 2, y + 2, w - 4, h - 4)
-    trim.fillStyle(mansion ? 0xe8d7a0 : 0xc5d4e0, 0.12)
-    trim.fillRect(x + 2, y + 1, w - 4, 3)
-    trim.fillStyle(mansion ? 0x1a100c : 0x101820, 0.35)
-    if (w >= h && w > 64) {
-      for (let px = x + 28; px < x + w - 12; px += 36) trim.fillRect(px, y + 5, 1, h - 10)
-    } else if (h > 64) {
-      for (let py = y + 28; py < y + h - 12; py += 36) trim.fillRect(x + 5, py, w - 10, 1)
-    }
+    const r = this.add.rectangle(x + w / 2, y + h / 2, w, h, 0x000000, 0).setVisible(false)
     this.physics.add.existing(r, true)
     this.walls.add(r)
     this.wallRects.push({ x, y, w, h })
+    if (kind === 'wall') this.pendingWalls.push({ x, y, w, h })
+    else this.pendingFurn.push({ x, y, w, h, kind })
     return r
+  }
+
+  private flushStaticPaint(theme: 'bank' | 'mansion') {
+    const mansion = theme === 'mansion'
+    const walls = this.add.graphics().setDepth(4)
+    for (const w of this.pendingWalls) {
+      walls.fillStyle(0x050308, 0.4)
+      walls.fillRect(w.x + 4, w.y + 6, w.w, w.h)
+      walls.fillStyle(mansion ? 0x2a1c14 : 0x1c2430, 1)
+      walls.fillRect(w.x, w.y, w.w, w.h)
+      walls.lineStyle(1, 0x0a080c, 0.8)
+      walls.strokeRect(w.x, w.y, w.w, w.h)
+    }
+    this.pendingWalls = []
+    const furn = this.add.graphics().setDepth(5)
+    for (const f of this.pendingFurn) paintFurniture(this, f, theme, furn)
+    this.pendingFurn = []
   }
 
   private addHide(x: number, y: number, w: number, h: number) {
@@ -689,9 +694,10 @@ export class HeistScene extends Phaser.Scene {
   }
 
   private paintHideMats() {
+    if (this.hideZones.length === 0) return
     const g = this.add.graphics().setDepth(1)
     for (const z of this.hideZones) {
-      g.fillStyle(0x0a080c, 0.5)
+      g.fillStyle(0x0a080c, 0.28)
       g.fillRoundedRect(z.x + 2, z.y + 2, z.w - 4, z.h - 4, 6)
     }
   }
@@ -771,6 +777,7 @@ export class HeistScene extends Phaser.Scene {
       })
       .setOrigin(0.5)
       .setDepth(8)
+    this.safeTitle.setVisible(true)
     this.safePrompt = this.add
       .text(x, y + 62, '', {
         fontFamily: 'Unbounded, sans-serif',
@@ -1063,71 +1070,84 @@ export class HeistScene extends Phaser.Scene {
   private addLockedDoor(spec: { id: string; x: number; y: number; w: number; h: number }): LockedDoor {
     const cx = spec.x + spec.w / 2
     const cy = spec.y + spec.h / 2
-    const body = this.add.rectangle(cx, cy, spec.w, spec.h, 0x3a2414, 1)
-    body.setStrokeStyle(2, 0xc9a227, 0.75)
-    body.setDepth(5)
+    const frame = this.add.graphics().setDepth(5)
+    const jamb = 10
+    frame.fillStyle(0x1a1410, 1)
+    frame.fillRect(spec.x - 6, spec.y - 6, spec.w + 12, spec.h + 12)
+    frame.fillStyle(0xc9a227, 0.55)
+    frame.fillRect(spec.x - 4, spec.y - 4, spec.w + 8, spec.h + 8)
+    frame.fillStyle(0x1c2430, 1)
+    frame.fillRect(spec.x, spec.y, spec.w, spec.h)
+    if (spec.w >= spec.h) {
+      frame.fillStyle(0x2a2018, 1)
+      frame.fillRect(spec.x - jamb, spec.y - 4, jamb, spec.h + 8)
+      frame.fillRect(spec.x + spec.w, spec.y - 4, jamb, spec.h + 8)
+    } else {
+      frame.fillStyle(0x2a2018, 1)
+      frame.fillRect(spec.x - 4, spec.y - jamb, spec.w + 8, jamb)
+      frame.fillRect(spec.x - 4, spec.y + spec.h, spec.w + 8, jamb)
+    }
+    const leaf = this.add.rectangle(cx, cy, spec.w, spec.h, 0x4a2c18, 1).setDepth(6)
+    leaf.setStrokeStyle(2, 0xc9a227, 0.8)
+    const lock = this.add.circle(cx + (spec.w >= spec.h ? spec.w * 0.28 : 0), cy, 5, 0xc9a227, 1).setDepth(7)
+    const body = this.add.rectangle(cx, cy, spec.w, spec.h, 0x000000, 0).setVisible(false)
     this.physics.add.existing(body, true)
     this.walls.add(body)
     this.wallRects.push({ x: spec.x, y: spec.y, w: spec.w, h: spec.h })
-    const lock = this.add.graphics().setDepth(6)
-    lock.fillStyle(0xc9a227, 0.9)
-    lock.fillRoundedRect(cx - 10, cy - 10, 20, 20, 3)
-    lock.fillStyle(0x1a1410, 1)
-    lock.fillCircle(cx, cy, 3.2)
-    const label = this.add
-      .text(cx, cy - (spec.h > spec.w ? 0 : 22), heistT('heistLockpick'), {
-        fontFamily: 'Unbounded, sans-serif',
-        fontSize: '12px',
-        color: '#ffe08a',
-      })
-      .setOrigin(0.5)
-      .setDepth(7)
-    return { id: spec.id, x: spec.x, y: spec.y, w: spec.w, h: spec.h, opened: false, body, lock, label }
+    return {
+      id: spec.id,
+      x: spec.x,
+      y: spec.y,
+      w: spec.w,
+      h: spec.h,
+      state: 'CLOSED',
+      opened: false,
+      body,
+      leaf,
+      lock,
+    }
   }
 
   private hideDoorPrompt(door: LockedDoor) {
-    door.lock.setVisible(false)
-    door.label.setVisible(false)
-    door.label.setText('')
-    door.label.setAlpha(0)
+    door.lock.setVisible(door.state !== 'OPEN')
   }
 
-  /** CLOSED blocks and shows ВЗЛОМ nearby. OPEN is a clear passage with no prompt. */
-  private applyDoorState(door: LockedDoor, opened: boolean) {
+  private doorLeafOpenPos(door: LockedDoor) {
+    if (door.w >= door.h) return { x: door.x - door.w / 2, y: door.y + door.h / 2 }
+    return { x: door.x + door.w / 2, y: door.y - door.h / 2 }
+  }
+
+  /** One source of truth: CLOSED blocks + prompt, OPEN is a clear passage. */
+  private applyDoorState(door: LockedDoor, opened: boolean, animate = false) {
+    door.state = opened ? 'OPEN' : 'CLOSED'
     door.opened = opened
     const phys = door.body.body as Phaser.Physics.Arcade.StaticBody | null
+    const rest = { x: door.x + door.w / 2, y: door.y + door.h / 2 }
+    const openAt = this.doorLeafOpenPos(door)
+    this.tweens.killTweensOf(door.leaf)
+    this.tweens.killTweensOf(door.lock)
     if (opened) {
-      door.body.setFillStyle(0x1c2430, 0)
-      door.body.setStrokeStyle(0, 0, 0)
-      door.body.setAlpha(0)
-      door.body.setVisible(false)
-      door.body.setActive(false)
-      if (phys) {
-        phys.enable = false
-        phys.updateFromGameObject()
-      }
+      if (phys) phys.enable = false
       this.walls.remove(door.body)
       this.wallRects = this.wallRects.filter((r) => !(r.x === door.x && r.y === door.y && r.w === door.w && r.h === door.h))
       this.hideDoorPrompt(door)
+      if (this.nearbyDoor === door) this.nearbyDoor = null
+      if (animate) {
+        this.tweens.add({ targets: door.leaf, x: openAt.x, y: openAt.y, alpha: 0.92, duration: 200, ease: 'Cubic.easeOut' })
+      } else {
+        door.leaf.setPosition(openAt.x, openAt.y)
+      }
       return
     }
-    door.body.setFillStyle(0x3a2414, 1)
-    door.body.setStrokeStyle(2, 0xc9a227, 0.75)
-    door.body.setAlpha(1)
-    door.body.setVisible(true)
-    door.body.setActive(true)
-    if (phys) {
-      phys.enable = true
-      phys.updateFromGameObject()
-    }
+    door.leaf.setPosition(rest.x, rest.y)
+    door.leaf.setAlpha(1)
+    door.lock.setPosition(rest.x + (door.w >= door.h ? door.w * 0.28 : 0), rest.y)
+    door.lock.setVisible(true)
+    if (phys) phys.enable = true
     if (!this.walls.contains(door.body)) this.walls.add(door.body)
     if (!this.wallRects.some((r) => r.x === door.x && r.y === door.y && r.w === door.w && r.h === door.h)) {
       this.wallRects.push({ x: door.x, y: door.y, w: door.w, h: door.h })
     }
-    door.lock.setVisible(true)
-    door.label.setVisible(false)
-    door.label.setAlpha(0)
-    door.label.setText('')
   }
 
   private rebuildNav() {
@@ -1166,12 +1186,14 @@ export class HeistScene extends Phaser.Scene {
     for (const w of BANK_WALLS) this.addSolid(w.x, w.y, w.w, w.h, 'wall')
     this.doors = BANK_DOORS.map((d) => this.addLockedDoor(d))
     for (const door of this.doors) {
-      this.applyDoorState(door, this.bankOpenedDoors.has(door.id))
+      this.applyDoorState(door, this.bankOpenedDoors.has(door.id), false)
     }
     for (const f of BANK_FURNITURE) this.addSolid(f.x, f.y, f.w, f.h, f.kind)
-    const theme = 'bank' as const
-    for (const d of BANK_DECOR) paintDecor(this, d, theme)
-    for (const leaf of BANK_FOLIAGE) paintFoliage(this, leaf)
+    this.flushStaticPaint('bank')
+    const decorG = this.add.graphics().setDepth(1)
+    for (const d of BANK_DECOR) paintDecor(this, d, 'bank', decorG)
+    const leafG = this.add.graphics().setDepth(5)
+    for (const leaf of BANK_FOLIAGE) paintFoliage(this, leaf, leafG)
     for (const h of BANK_HIDES) this.addHide(h.x, h.y, h.w, h.h)
     this.paintHideMats()
     this.paintLamps(BANK_LAMPS)
@@ -1212,6 +1234,7 @@ export class HeistScene extends Phaser.Scene {
     )
 
     this.lootGroup = this.physics.add.group()
+    this.lootSprites = []
     BANK_LOOT.forEach((slot, i) => {
       if (this.bankTaken.has(slot.id)) return
       this.spawnLoot(slot.x, slot.y, slot.kind, i, { id: slot.id })
@@ -1258,10 +1281,11 @@ export class HeistScene extends Phaser.Scene {
     })
     this.doors = MANSION_DOORS.map((d) => this.addLockedDoor(d))
     for (const f of MANSION_FURNITURE) this.addSolid(f.x, f.y, f.w, f.h, f.kind)
-    for (const d of MANSION_DECOR) paintDecor(this, d, 'mansion')
+    this.flushStaticPaint('mansion')
+    const decorG = this.add.graphics().setDepth(1)
+    for (const d of MANSION_DECOR) paintDecor(this, d, 'mansion', decorG)
     for (const h of MANSION_HIDES) this.addHide(h.x, h.y, h.w, h.h)
     this.paintHideMats()
-
     this.paintLamps(MANSION_LAMPS)
     this.rebuildNav()
 
@@ -1452,7 +1476,9 @@ export class HeistScene extends Phaser.Scene {
     if (persistId) {
       if (!this.runLootIds.includes(persistId)) this.runLootIds.push(persistId)
       this.bankTaken.add(persistId)
+      persistBankWorld({ lootTaken: [persistId], depth: this.bankDepth, reachedFinal: this.bankReachedFinal })
     }
+    this.lootSprites = this.lootSprites.filter((sprite) => sprite !== item)
     this.runDropSprites = this.runDropSprites.filter((sprite) => sprite !== item)
     if (this.novice && this.levelId === 'bank' && this.carried.length === 1) {
       this.firstLootAt = this.gameNow()
@@ -1526,14 +1552,14 @@ export class HeistScene extends Phaser.Scene {
   }
 
   private collectNearbyLoot() {
-    const items = this.lootGroup.getChildren() as Phaser.Physics.Arcade.Sprite[]
     const now = this.gameNow()
-    for (const item of items) {
+    const px = this.player.x
+    const py = this.player.y
+    for (const item of this.lootSprites) {
       if (!item.active || item.getData('collected')) continue
+      if (Math.abs(item.x - px) > PICKUP_R || Math.abs(item.y - py) > PICKUP_R) continue
       if (now < Number(item.getData('pickupAt') || 0)) continue
-      if (Phaser.Math.Distance.Between(this.player.x, this.player.y, item.x, item.y) <= PICKUP_R) {
-        this.takeLoot(item)
-      }
+      if (Phaser.Math.Distance.Between(px, py, item.x, item.y) <= PICKUP_R) this.takeLoot(item)
     }
   }
 
@@ -1595,9 +1621,31 @@ export class HeistScene extends Phaser.Scene {
     }
   }
 
+  private refreshNearbyDoor() {
+    if (!this.player) return
+    const dx = this.player.x - this.doorScanAt.x
+    const dy = this.player.y - this.doorScanAt.y
+    if (dx * dx + dy * dy < 400) return
+    this.doorScanAt = { x: this.player.x, y: this.player.y, t: this.gameNow() }
+    let best: LockedDoor | null = null
+    let bestD = DOOR_RANGE
+    for (const d of this.doors) {
+      if (d.state !== 'CLOSED') continue
+      const qx = Phaser.Math.Clamp(this.player.x, d.x, d.x + d.w)
+      const qy = Phaser.Math.Clamp(this.player.y, d.y, d.y + d.h)
+      const dist = Phaser.Math.Distance.Between(this.player.x, this.player.y, qx, qy)
+      if (dist <= bestD) {
+        bestD = dist
+        best = d
+      }
+    }
+    this.nearbyDoor = best
+  }
+
   private updateBankProgress() {
     if (this.levelId !== 'bank' || this.ended || !this.player) return
     const zone = bankZoneAt(this.player.x, this.player.y)
+    if (zone.i === this.bankZoneNow && zone.i <= this.raidZoneMax) return
     this.bankZoneNow = zone.i
     this.raidZoneMax = Math.max(this.raidZoneMax, zone.i)
     if (zone.i > this.bankDepth) {
@@ -1629,6 +1677,11 @@ export class HeistScene extends Phaser.Scene {
       return
     }
     this.updateHidden()
+    this.refreshNearbyDoor()
+    if (this.gameNow() >= this.cullAt) {
+      this.cullAt = this.gameNow() + 180
+      this.cullLoot()
+    }
     if (this.safeCrack) {
       const body = this.player.body as Phaser.Physics.Arcade.Body
       body.setVelocity(0, 0)
@@ -1810,19 +1863,25 @@ export class HeistScene extends Phaser.Scene {
   }
 
   private nearestLockedDoor() {
-    let best: LockedDoor | null = null
-    let bestD = DOOR_RANGE
-    for (const d of this.doors) {
-      if (d.opened) continue
-      const qx = Phaser.Math.Clamp(this.player.x, d.x, d.x + d.w)
-      const qy = Phaser.Math.Clamp(this.player.y, d.y, d.y + d.h)
-      const dist = Phaser.Math.Distance.Between(this.player.x, this.player.y, qx, qy)
-      if (dist <= bestD) {
-        bestD = dist
-        best = d
+    return this.nearbyDoor && this.nearbyDoor.state === 'CLOSED' ? this.nearbyDoor : null
+  }
+
+  private cullLoot() {
+    const view = this.cameras.main.worldView
+    const pad = 220
+    const left = view.x - pad
+    const right = view.x + view.width + pad
+    const top = view.y - pad
+    const bottom = view.y + view.height + pad
+    for (const item of this.lootSprites) {
+      if (!item.active || item.getData('collected')) continue
+      const vis = item.x > left && item.x < right && item.y > top && item.y < bottom
+      if (item.visible !== vis) {
+        item.setVisible(vis)
+        const glow = item.getData('glow') as Phaser.GameObjects.Arc | undefined
+        glow?.setVisible(vis)
       }
     }
-    return best
   }
 
   private nearestUnopenedSafe() {
@@ -1896,6 +1955,7 @@ export class HeistScene extends Phaser.Scene {
     if (door) {
       this.crackKind = 'door'
       this.crackDoor = door
+      door.state = 'HACKING'
       this.safeCrack = true
       heistSfx.doorHack()
       this.safeHits = 0
@@ -1964,8 +2024,8 @@ export class HeistScene extends Phaser.Scene {
     this.crackDoor = null
     this.hitHeld = false
     this.doorOpenedAt = this.gameNow()
-    if (!door || door.opened) return
-    this.applyDoorState(door, true)
+    if (!door || door.state === 'OPEN') return
+    this.applyDoorState(door, true, true)
     this.rebuildNav()
     if (this.levelId === 'bank') {
       this.bankOpenedDoors.add(door.id)
@@ -2059,7 +2119,8 @@ export class HeistScene extends Phaser.Scene {
   private applySirenPlan() {
     for (const r of MANSION_SIREN.close) {
       const shutter = this.addSolid(r.x, r.y, r.w, r.h, 'wall')
-      shutter.setFillStyle(0x3a1a14)
+      shutter.setVisible(true)
+      shutter.setFillStyle(0x3a1a14, 1)
       this.fx?.explode(10, r.x + r.w / 2, r.y + r.h / 2)
     }
     for (const panel of this.sirenPanels) {
@@ -2088,16 +2149,17 @@ export class HeistScene extends Phaser.Scene {
     x: number,
     y: number,
     kind: LootKind,
-    seed: number,
+    _seed: number,
     opts?: { value?: number; weight?: number; lockMs?: number; id?: string; runDrop?: boolean },
   ) {
     const def = coinDef(kind)
-    const glow = this.add.circle(x, y, def.size * 0.72, kind === 'C100' ? 0xffe08a : 0xc9a227, kind === 'C100' ? 0.28 : 0.16)
-    glow.setDepth(5)
     const s = this.physics.add.sprite(x, y, def.key)
     applyCoinSpriteSize(s, def)
     s.setDepth(6)
-    s.setData('glow', glow)
+    if (kind === 'C100') {
+      const glow = this.add.circle(x, y, def.size * 0.7, 0xffe08a, 0.22).setDepth(5)
+      s.setData('glow', glow)
+    }
     this.lootSpawn += 1
     s.setData('lootId', opts?.id ?? `loot-${this.lootSpawn}`)
     s.setData('value', opts?.value ?? def.value)
@@ -2109,9 +2171,9 @@ export class HeistScene extends Phaser.Scene {
     const b = s.body as Phaser.Physics.Arcade.Body
     b.setAllowGravity(false)
     b.setImmovable(true)
-    b.setCircle(20)
+    b.enable = false
     this.lootGroup.add(s)
-    playCoinIdle(this, s, seed)
+    this.lootSprites.push(s)
     return s
   }
 
@@ -2600,7 +2662,14 @@ export class HeistScene extends Phaser.Scene {
     // Phase-driven sweeps run on their own clock so a speed change does not snap the beam.
     this.camClock += dt * this.phaseCamMul()
     const t = this.cfg.alert.phasesEnabled ? this.camClock : this.gameNow() / 1000
+    const px = this.player?.x ?? 0
+    const py = this.player?.y ?? 0
+    const reach = this.cfg.vision.camDist + 80
     for (const cam of this.cams) {
+      if (Math.abs(cam.x - px) > reach || Math.abs(cam.y - py) > reach) {
+        cam.hot = false
+        continue
+      }
       cam.facing = cam.base + Math.sin(t * cam.speed) * cam.sweep
       cam.sprite.setRotation(cam.facing)
       cam.beam.setRotation(cam.facing)
@@ -3003,7 +3072,11 @@ export class HeistScene extends Phaser.Scene {
 
   private drawWorldFx() {
     this.visionGfx.clear()
+    const px = this.player.x
+    const py = this.player.y
+    const vis = 720
     for (const u of this.units) {
+      if (Math.abs(u.sprite.x - px) > vis || Math.abs(u.sprite.y - py) > vis) continue
       const hot = u.state === 'CHASE' || u.detect > 0.5
       this.drawCone(
         u.sprite.x,
@@ -3018,8 +3091,11 @@ export class HeistScene extends Phaser.Scene {
     }
     this.worldGfx.clear()
     this.worldGfx.fillStyle(0x000000, 0.32)
-    this.worldGfx.fillEllipse(this.player.x, this.player.y + 16, 30, 12)
-    for (const u of this.units) this.worldGfx.fillEllipse(u.sprite.x, u.sprite.y + 12, 20, 10)
+    this.worldGfx.fillEllipse(px, py + 16, 30, 12)
+    for (const u of this.units) {
+      if (Math.abs(u.sprite.x - px) > vis || Math.abs(u.sprite.y - py) > vis) continue
+      this.worldGfx.fillEllipse(u.sprite.x, u.sprite.y + 12, 20, 10)
+    }
   }
 
   private drawUi() {
@@ -3109,9 +3185,11 @@ export class HeistScene extends Phaser.Scene {
     const full = this.currentLoot >= this.mods.bagCap || this.gameNow() < this.bagFullFlash
     this.hud.setColor(full ? '#ffb070' : '#ffe08a')
     const escape = this.escaping ? `   ${heistT('heistEscape')}` : ''
-    this.hud.setText(
-      `${heistT('heistDuckCoin')} ${this.currentLoot}   ${formatClock(now - this.startedAt)}   ${band}${escape}`,
-    )
+    const hudLine = `${heistT('heistDuckCoin')} ${this.currentLoot}   ${formatClock(now - this.startedAt)}   ${band}${escape}`
+    if (hudLine !== this.lastHudLine) {
+      this.lastHudLine = hudLine
+      this.hud.setText(hudLine)
+    }
     const heavy = this.weightOver() > 0
     this.bagHud.setColor(heavy ? '#ff8a4a' : color)
     const police =
@@ -3121,29 +3199,14 @@ export class HeistScene extends Phaser.Scene {
     const load = this.showWeightHud()
       ? `${heistT('heistLoad')} ${Math.round(this.carriedWeight())}/${this.weightCap()}${heavy ? ` ${heistT('heistHeavy')}` : ''}   `
       : ''
-    this.bagHud.setText(
-      `${load}${heistT('heistBag')} ${this.currentLoot}/${this.mods.bagCap}${full ? ` ${heistT('heistBagFull')}` : ''}${police}`,
-    )
+    const bagLine = `${load}${heistT('heistBag')} ${this.currentLoot}/${this.mods.bagCap}${full ? ` ${heistT('heistBagFull')}` : ''}${police}`
+    if (bagLine !== this.lastBagLine) {
+      this.lastBagLine = bagLine
+      this.bagHud.setText(bagLine)
+    }
     this.drawHudBars()
     this.drawObjectives(now - this.startedAt)
-    this.exitLabel?.setText(heistT('heistExit'))
-    for (const label of this.exitLabels) label.setText(heistT('heistExit'))
-    for (const lab of this.roomLabels) lab.obj.setText(heistT(lab.key))
-    for (const door of this.doors) {
-      if (door.opened) {
-        this.hideDoorPrompt(door)
-        continue
-      }
-      const near = this.nearestLockedDoor() === door
-      door.lock.setVisible(true)
-      door.label.setVisible(near)
-      door.label.setAlpha(near ? 1 : 0)
-      door.label.setText(near ? heistT('heistLockpick') : '')
-    }
-    this.safeTitle?.setText(heistT('heistSafeName'))
-    this.sneakLabel?.setText(heistT('heistSneak'))
-    this.dashLabel?.setText(heistT('heistDash'))
-    if (!this.canDrop()) this.dropLabel?.setText(heistT('heistDrop'))
+    if (this.nearbyDoor && this.nearbyDoor.state === 'OPEN') this.nearbyDoor = null
     if (this.safeCrack) {
       this.crackHud.setVisible(true)
       const hits = this.crackKind === 'door' ? DOOR_HITS : SAFE_HITS
@@ -3188,7 +3251,11 @@ export class HeistScene extends Phaser.Scene {
       this.uiGfx.fillRoundedRect(barX, barY, Math.max(4, (barW * zone) / BANK_ZONE_COUNT), 6, 3)
       this.objHud.setPosition(12, top + 6)
       this.objHud.setWordWrapWidth(w - 12, true)
-      this.objHud.setText(heistT('heistBankZone', { n: zone, max: BANK_ZONE_COUNT }))
+      const line = heistT('heistBankZone', { n: zone, max: BANK_ZONE_COUNT })
+      if (line !== this.lastObjLine) {
+        this.lastObjLine = line
+        this.objHud.setText(line)
+      }
       return
     }
     const loot = this.currentLoot >= this.objLoot

@@ -82,18 +82,19 @@ if (L.BANK_FINAL_EXIT) {
 
 const cases = [
   ['one EXIT: spawn -> lobby EXIT', locked, spawn, lobbyExit, true],
-  ['doors locked: spawn -> hall', locked, spawn, { x: 1400, y: 6000 }, true],
+  ['doors locked: spawn -> hall is sealed', locked, spawn, { x: 1400, y: 6000 }, false],
   ['doors locked: spawn -> offices is sealed', locked, spawn, { x: 1400, y: 5040 }, false],
   ['doors locked: spawn -> security is sealed', locked, spawn, { x: 1400, y: 4160 }, false],
   ['doors locked: spawn -> final is sealed', locked, spawn, final, false],
   ['doors locked: spawn -> safe A is sealed', locked, spawn, safeA, false],
+  ['doors open: spawn -> hall', open, spawn, { x: 1400, y: 6000 }, true],
   ['doors open: spawn -> offices', open, spawn, { x: 1400, y: 5040 }, true],
   ['doors open: spawn -> safe A', open, spawn, safeA, true],
   ['doors open: spawn -> safe B', open, spawn, safeB, true],
   ['doors open: spawn -> zone 20', open, spawn, final, true],
   ['long walk back: zone 20 -> lobby EXIT', open, final, lobbyExit, true],
-  ['west corridor: spawn -> west loot', locked, spawn, { x: 360, y: 5520 }, true],
-  ['east corridor: spawn -> east loot', locked, spawn, { x: 2440, y: 5520 }, true],
+  ['doors locked: spawn -> west is sealed', locked, spawn, { x: 360, y: 5520 }, false],
+  ['doors open: spawn -> west loot', open, spawn, { x: 360, y: 5520 }, true],
 ]
 
 let failed = 0
@@ -111,7 +112,7 @@ if (L.BANK_ZONE_COUNT !== 20 || L.BANK_ZONES.length !== 20) {
   console.log('FAIL  expected 20 real zones, got', L.BANK_ZONE_COUNT, L.BANK_ZONES.length)
 } else console.log('ok    20 real zones')
 
-if (L.BANK_DOORS.length < 12) {
+if (L.BANK_DOORS.length < 15) {
   failed += 1
   console.log('FAIL  expected several zone doors, got', L.BANK_DOORS.length)
 } else console.log('ok   ', L.BANK_DOORS.length, 'lockpick doors')
@@ -160,11 +161,11 @@ for (const p of L.BANK_LOOT) {
 }
 console.log('loot total', total, { floor, safes, deepLoot }, 'doors', L.BANK_DOORS.length, 'cams', L.BANK_CAMS.length, 'guards', L.BANK_GUARD_ROUTES.length)
 console.log('loot by zone', byZone.map((n, i) => `${i + 1}:${n}`).join(' '))
-if (total < 800 || total > 1550) {
+if (total < 2500 || total > 9000) {
   failed += 1
-  console.log('FAIL  loot total outside 800-1550')
+  console.log('FAIL  loot total outside 2500-9000')
 }
-if (deepLoot < 500) {
+if (deepLoot < 1400) {
   failed += 1
   console.log('FAIL  not enough loot after zone 10', deepLoot)
 }

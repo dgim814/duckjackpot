@@ -87,9 +87,9 @@ const GAP_DOOR: readonly [number, number] = [1310, 1490]
 const OPEN3 = [GAP_W, GAP_C, GAP_E] as const
 
 export const BANK_WALLS: BankRect[] = [
-  ...divider(6760, OPEN3),
+  ...divider(6760, [GAP_DOOR]),
   ...divider(6320, OPEN3),
-  ...divider(5720, OPEN3),
+  ...divider(5720, [GAP_DOOR]),
   ...divider(5280, [GAP_DOOR]),
   ...divider(4840, [GAP_DOOR]),
   ...divider(4440, [GAP_DOOR]),
@@ -135,7 +135,21 @@ function doorAt(id: string, y: number): BankDoor {
   return { id, x: GAP_DOOR[0], y, w: GAP_DOOR[1] - GAP_DOOR[0], h: WH }
 }
 
+function vGapY(y0: number, y1: number, gap = 180) {
+  const top = y0 + WH
+  const inner = y1 - top
+  return top + Math.floor((inner - gap) / 2)
+}
+
+function vDoor(id: string, x: number, y0: number, y1: number): BankDoor {
+  return { id, x, y: vGapY(y0, y1), w: WH, h: 180 }
+}
+
 export const BANK_DOORS: BankDoor[] = [
+  doorAt('bankLobby', 6760),
+  doorAt('bankApproach', 5720),
+  vDoor('bankWest', 900, 5280, 5720),
+  vDoor('bankEast', 1900, 5280, 5720),
   doorAt('bankOffices', 5280),
   doorAt('bankAnnex', 4840),
   doorAt('bankWatch', 4440),
@@ -306,26 +320,18 @@ export const BANK_FURNITURE: BankFurn[] = [
 ]
 
 export const BANK_DECOR: BankDecor[] = [
-  { x: 620, y: 6880, w: 280, h: 160, kind: 'rug', tone: 'lobby' },
-  { x: 1320, y: 5760, w: 160, h: 520, kind: 'runner', tone: 'lobby' },
-  { x: 1260, y: 5960, w: 280, h: 180, kind: 'rug', tone: 'lobby' },
-  { x: 180, y: 5360, w: 200, h: 120, kind: 'rug', tone: 'office' },
-  { x: 2420, y: 5360, w: 200, h: 120, kind: 'rug', tone: 'office' },
-  { x: 1320, y: 4880, w: 160, h: 380, kind: 'runner', tone: 'office' },
-  { x: 1260, y: 5000, w: 240, h: 140, kind: 'rug', tone: 'office' },
+  { x: 200, y: 6880, w: 320, h: 180, kind: 'rug', tone: 'lobby' },
+  { x: 1180, y: 6480, w: 440, h: 220, kind: 'rug', tone: 'lobby' },
+  { x: 180, y: 5360, w: 220, h: 140, kind: 'rug', tone: 'office' },
+  { x: 2400, y: 5360, w: 220, h: 140, kind: 'rug', tone: 'office' },
+  { x: 160, y: 4980, w: 240, h: 140, kind: 'rug', tone: 'office' },
   { x: 80, y: 4480, w: 200, h: 120, kind: 'rug', tone: 'cold' },
-  { x: 180, y: 5000, w: 180, h: 110, kind: 'rug', tone: 'office' },
-  { x: 2260, y: 2960, w: 180, h: 110, kind: 'rug', tone: 'office' },
-  { x: 1320, y: 3320, w: 160, h: 280, kind: 'runner', tone: 'office' },
-  { x: 200, y: 3360, w: 220, h: 120, kind: 'rug', tone: 'office' },
-  { x: 80, y: 2480, w: 200, h: 140, kind: 'rug', tone: 'vault' },
-  { x: 1260, y: 2480, w: 240, h: 160, kind: 'rug', tone: 'vault' },
-  { x: 1320, y: 1960, w: 160, h: 360, kind: 'runner', tone: 'vault' },
-  { x: 1260, y: 1640, w: 240, h: 140, kind: 'rug', tone: 'gold' },
-  { x: 2160, y: 1120, w: 240, h: 160, kind: 'rug', tone: 'gold' },
-  { x: 1320, y: 1080, w: 160, h: 360, kind: 'runner', tone: 'gold' },
-  { x: 1260, y: 200, w: 280, h: 180, kind: 'rug', tone: 'gold' },
-  { x: 200, y: 200, w: 240, h: 140, kind: 'rug', tone: 'gold' },
+  { x: 180, y: 3340, w: 240, h: 140, kind: 'rug', tone: 'office' },
+  { x: 2240, y: 2940, w: 240, h: 140, kind: 'rug', tone: 'office' },
+  { x: 80, y: 2480, w: 240, h: 160, kind: 'rug', tone: 'vault' },
+  { x: 2140, y: 1100, w: 280, h: 180, kind: 'rug', tone: 'gold' },
+  { x: 1180, y: 180, w: 440, h: 220, kind: 'rug', tone: 'gold' },
+  { x: 180, y: 180, w: 260, h: 160, kind: 'rug', tone: 'gold' },
   { x: 90, y: 6788, w: 70, h: 46, kind: 'painting' },
   { x: 2640, y: 6788, w: 70, h: 46, kind: 'painting' },
   { x: 90, y: 5080, w: 70, h: 46, kind: 'painting' },
@@ -418,67 +424,7 @@ export const BANK_HIDES: BankRect[] = [
   ...BANK_FOLIAGE.map((leaf) => ({ x: leaf.x, y: leaf.y + 8, w: leaf.w, h: leaf.h - 6 })),
 ]
 
-export const BANK_LOOT: BankLoot[] = [
-  // 1-2 start/lobby ~40
-  { id: 'bl-01', x: 2380, y: 6960, kind: 'C5' },
-  { id: 'bl-02', x: 2140, y: 6840, kind: 'C5' },
-  { id: 'bl-03', x: 1800, y: 7000, kind: 'C5' },
-  { id: 'bl-04', x: 1400, y: 6680, kind: 'C5' },
-  { id: 'bl-05', x: 900, y: 6960, kind: 'C5' },
-  { id: 'bl-06', x: 520, y: 7040, kind: 'C10' },
-  { id: 'bl-07', x: 380, y: 7040, kind: 'C5' },
-  // 3 hall ~40
-  { id: 'bl-08', x: 240, y: 6120, kind: 'C10' },
-  { id: 'bl-09', x: 700, y: 5920, kind: 'C10' },
-  { id: 'bl-10', x: 1400, y: 6040, kind: 'C10' },
-  { id: 'bl-11', x: 2260, y: 6120, kind: 'C10' },
-  // 4-5 corridors ~20
-  { id: 'bl-12', x: 360, y: 5520, kind: 'C10' },
-  { id: 'bl-13', x: 2440, y: 5520, kind: 'C10' },
-  // 6 offices ~50
-  { id: 'bl-14', x: 320, y: 5080, kind: 'C10' },
-  { id: 'bl-15', x: 1240, y: 4920, kind: 'C10' },
-  // 7-9 side rooms ~40
-  { id: 'bl-16', x: 280, y: 4640, kind: 'C10' },
-  { id: 'bl-17', x: 1400, y: 4680, kind: 'C10' },
-  { id: 'bl-18', x: 2400, y: 4720, kind: 'C10' },
-  { id: 'bl-19', x: 2680, y: 4680, kind: 'C10' },
-  // 10 security ~50
-  { id: 'bl-20', x: 1400, y: 4160, kind: 'C50' },
-  { id: 'bl-21', x: 400, y: 4240, kind: 'C10' },
-  // 11 server ~50
-  { id: 'bl-22', x: 1400, y: 3760, kind: 'C50' },
-  // 12 central ~20
-  { id: 'bl-23', x: 400, y: 3400, kind: 'C10' },
-  { id: 'bl-24', x: 2480, y: 3480, kind: 'C10' },
-  // 13 closed offices ~50
-  { id: 'bl-25', x: 400, y: 3000, kind: 'C50' },
-  // 14-15 storage A ~100
-  { id: 'bl-26', x: 400, y: 2560, kind: 'C50' },
-  { id: 'bl-27', x: 1100, y: 2480, kind: 'C50' },
-  // 16 deep ~50
-  { id: 'bl-28', x: 2480, y: 2160, kind: 'C50' },
-  // 17 wing ~100
-  { id: 'bl-29', x: 480, y: 1760, kind: 'C50' },
-  { id: 'bl-30', x: 2480, y: 1680, kind: 'C50' },
-  // 18 storage B ~150
-  { id: 'bl-31', x: 400, y: 1200, kind: 'C50' },
-  { id: 'bl-32', x: 1400, y: 1160, kind: 'C100' },
-  // 19-20 deep / final ~150 floor
-  { id: 'bl-33', x: 400, y: 720, kind: 'C50' },
-  { id: 'bl-34', x: 1400, y: 520, kind: 'C100' },
-  { id: 'bl-36', x: 2100, y: 3080, kind: 'C50' },
-  { id: 'bl-37', x: 600, y: 2080, kind: 'C50' },
-  { id: 'bl-38', x: 900, y: 4640, kind: 'C10' },
-  { id: 'bl-39', x: 720, y: 3800, kind: 'C10' },
-  { id: 'bl-40', x: 2480, y: 1280, kind: 'C50' },
-  { id: 'bl-41', x: 720, y: 3480, kind: 'C10' },
-  { id: 'bl-42', x: 1400, y: 3520, kind: 'C10' },
-  { id: 'bl-45', x: 1400, y: 1560, kind: 'C10' },
-  { id: 'bl-46', x: 800, y: 1280, kind: 'C10' },
-  { id: 'bl-47', x: 2400, y: 400, kind: 'C10' },
-  { id: 'bl-48', x: 2000, y: 6600, kind: 'C10' },
-]
+export const BANK_LOOT: BankLoot[] = []
 
 export const BANK_SAFES: BankSafe[] = [
   {
@@ -735,3 +681,78 @@ export function bankZoneAt(x: number, y: number) {
 export function bankFinalLootIds() {
   return BANK_LOOT.filter((slot) => bankZoneAt(slot.x, slot.y).i >= BANK_ZONE_COUNT - 1).map((slot) => slot.id)
 }
+
+const LOOT_MIX: { c5: number; c10: number; c50: number; c100: number }[] = [
+  { c5: 8, c10: 4, c50: 1, c100: 0 },
+  { c5: 6, c10: 4, c50: 1, c100: 0 },
+  { c5: 8, c10: 5, c50: 1, c100: 0 },
+  { c5: 6, c10: 3, c50: 1, c100: 0 },
+  { c5: 6, c10: 3, c50: 1, c100: 0 },
+  { c5: 8, c10: 5, c50: 2, c100: 0 },
+  { c5: 6, c10: 3, c50: 1, c100: 0 },
+  { c5: 6, c10: 4, c50: 2, c100: 0 },
+  { c5: 8, c10: 5, c50: 2, c100: 1 },
+  { c5: 8, c10: 6, c50: 3, c100: 1 },
+  { c5: 8, c10: 6, c50: 3, c100: 1 },
+  { c5: 8, c10: 6, c50: 3, c100: 1 },
+  { c5: 8, c10: 6, c50: 4, c100: 1 },
+  { c5: 6, c10: 4, c50: 3, c100: 1 },
+  { c5: 8, c10: 6, c50: 4, c100: 2 },
+  { c5: 8, c10: 6, c50: 4, c100: 2 },
+  { c5: 8, c10: 8, c50: 4, c100: 2 },
+  { c5: 6, c10: 4, c50: 3, c100: 2 },
+  { c5: 8, c10: 6, c50: 4, c100: 2 },
+  { c5: 10, c10: 8, c50: 5, c100: 3 },
+]
+
+function lootBlocked() {
+  return [
+    { x: 0, y: 0, w: BANK_W, h: 40 },
+    { x: 0, y: BANK_H - 40, w: BANK_W, h: 40 },
+    { x: 0, y: 0, w: 40, h: BANK_H },
+    { x: BANK_W - 40, y: 0, w: 40, h: BANK_H },
+    ...BANK_WALLS,
+    ...BANK_FURNITURE,
+    ...BANK_DOORS,
+  ]
+}
+
+function lootWalkable(rects: BankRect[], x: number, y: number, pad = 26) {
+  for (const r of rects) {
+    if (x > r.x - pad && x < r.x + r.w + pad && y > r.y - pad && y < r.y + r.h + pad) return false
+  }
+  return true
+}
+
+function fillBankLoot() {
+  const blocked = lootBlocked()
+  const out: BankLoot[] = []
+  for (const zone of BANK_ZONES) {
+    const mix = LOOT_MIX[zone.i] ?? { c5: 4, c10: 2, c50: 1, c100: 0 }
+    const kinds: DuckCoinKind[] = [
+      ...Array.from({ length: mix.c5 }, () => 'C5' as const),
+      ...Array.from({ length: mix.c10 }, () => 'C10' as const),
+      ...Array.from({ length: mix.c50 }, () => 'C50' as const),
+      ...Array.from({ length: mix.c100 }, () => 'C100' as const),
+    ]
+    const spots: { x: number; y: number }[] = []
+    const step = zone.w * zone.h > 900000 ? 72 : 56
+    for (let x = zone.x + 56; x < zone.x + zone.w - 56; x += step) {
+      for (let y = zone.y + 48; y < zone.y + zone.h - 48; y += step) {
+        if (!lootWalkable(blocked, x, y, 34)) continue
+        if (bankZoneAt(x, y).i !== zone.i) continue
+        if (spots.some((p) => Math.abs(p.x - x) < 44 && Math.abs(p.y - y) < 44)) continue
+        spots.push({ x, y })
+      }
+    }
+    const seed = (zone.i + 1) * 17
+    spots.sort((a, b) => ((a.x * 13 + a.y * 7 + seed) % 97) - ((b.x * 13 + b.y * 7 + seed) % 97))
+    const take = Math.min(kinds.length, spots.length)
+    for (let i = 0; i < take; i += 1) {
+      out.push({ id: `bl-z${zone.i}-${i}`, x: spots[i].x, y: spots[i].y, kind: kinds[i] })
+    }
+  }
+  BANK_LOOT.push(...out)
+}
+
+fillBankLoot()

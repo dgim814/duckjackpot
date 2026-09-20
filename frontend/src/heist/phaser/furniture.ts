@@ -39,12 +39,13 @@ export function paintFurniture(
   scene: Phaser.Scene,
   spec: { x: number; y: number; w: number; h: number; kind: FurnKind },
   theme: 'bank' | 'mansion',
+  batch?: Phaser.GameObjects.Graphics,
 ) {
   const { x, y, w, h, kind } = spec
   const cx = x + w / 2
   const cy = y + h / 2
   const pal = theme === 'bank' ? BANK : HOME
-  const g = scene.add.graphics().setDepth(5)
+  const g = batch ?? scene.add.graphics().setDepth(5)
 
   if (kind === 'column') {
     const r = Math.min(w, h) / 2
@@ -278,9 +279,10 @@ export function paintDecor(
   scene: Phaser.Scene,
   spec: { x: number; y: number; w: number; h: number; kind: DecorKind; tone?: DecorTone },
   theme: 'bank' | 'mansion',
+  batch?: Phaser.GameObjects.Graphics,
 ) {
   const { x, y, w, h, kind } = spec
-  const g = scene.add.graphics().setDepth(1)
+  const g = batch ?? scene.add.graphics().setDepth(1)
   if (kind === 'rug' || kind === 'runner') {
     const fill = theme === 'bank' ? RUG_TONE[spec.tone ?? 'lobby'] : 0x5a2420
     const round = kind === 'runner' ? 6 : 10
@@ -329,11 +331,15 @@ export function paintDecor(
 }
 
 /** Large bank plants: foliage is visual-only so the pot can stay a small collider. */
-export function paintFoliage(scene: Phaser.Scene, spec: { x: number; y: number; w: number; h: number }) {
+export function paintFoliage(
+  scene: Phaser.Scene,
+  spec: { x: number; y: number; w: number; h: number },
+  batch?: Phaser.GameObjects.Graphics,
+) {
   const { x, y, w, h } = spec
   const cx = x + w / 2
   const cy = y + h / 2
-  const g = scene.add.graphics().setDepth(5)
+  const g = batch ?? scene.add.graphics().setDepth(5)
   const tall = h >= 70
   const urn = w >= 68
   g.fillStyle(0x050308, 0.22)
