@@ -164,6 +164,25 @@ const DUCK_BODY_W = 20
 const DUCK_BODY_H = 22
 /** Previous visual size; keep world hitbox identical when display scale changes. */
 const DUCK_HITBOX_FROM = 44
+/**
+ * Sheet is 4×4. Idle 0–3 stand in place. 4–11 is the only cycle where the
+ * legs actually change pose. 12–15 are four near-identical run stills — on
+ * a 0.5 zoom iPhone they read as one frozen frame, so movement uses 4–11.
+ */
+const PLAYER_ANIM_FRAMES: Record<MoveAnim, readonly number[]> = {
+  idle: [0, 1, 2, 3],
+  walk: [4, 5, 6, 7, 8, 9, 10, 11],
+  sneak: [4, 5, 6, 7, 8, 9, 10, 11],
+  run: [4, 5, 6, 7, 8, 9, 10, 11],
+  dash: [4, 5, 6, 7, 8, 9, 10, 11],
+}
+const PLAYER_ANIM_MS: Record<MoveAnim, number> = {
+  idle: 300,
+  walk: 110,
+  sneak: 165,
+  run: 80,
+  dash: 70,
+}
 /** Screen-space stick. Knob travel is the analog radius; the ring is only a well. */
 const STICK_RING = 54
 const STICK_KNOB = 36
@@ -270,6 +289,14 @@ export class HeistScene extends Phaser.Scene {
       this.startMoveTest()
       return
     }
+    if (DEBUG) {
+      const hold: Record<string, number> = { Digit1: 12, Digit2: 13, Digit3: 14, Digit4: 15 }
+      if (e.code in hold) {
+        e.preventDefault()
+        this.playerAnimHold = down ? hold[e.code] : null
+        return
+      }
+    }
     if (!slot) return
     e.preventDefault()
     this.winKeys[slot] = down
@@ -334,9 +361,11 @@ export class HeistScene extends Phaser.Scene {
   private moveProbeX = 0
   private moveProbeY = 0
   private moveGait: MoveAnim = 'idle'
-  private movePose: MoveAnim = 'idle'
-  private moveDesiredAnim = 'duck-idle'
-  private stillFrames = 0
+  private playerAnimMode: MoveAnim = 'idle'
+  private playerAnimFrameIndex = 0
+  private playerAnimElapsed = 0
+  private playerAnimLastFrame = -1
+  private playerAnimHold: number | null = null
   private moveMag = 0
   private moveJx = 0
   private moveJy = 0
@@ -1119,7 +1148,8 @@ export class HeistScene extends Phaser.Scene {
 
   private spawnDuckAt(x: number, y: number) {
     this.makeDuckTexture()
-    const duckKey = this.tryCreateDuckAnims() ? 'duck_sheet' : this.makeDuckTexture()
+    this.duckAnimsReady = this.duckSheetReady()
+    const duckKey = this.duckAnimsReady ? 'duck_sheet' : this.makeDuckTexture()
     try {
       this.player = this.physics.add.sprite(x, y, duckKey, duckKey === 'duck_sheet' ? 0 : undefined)
     } catch (err) {
@@ -1127,6 +1157,7 @@ export class HeistScene extends Phaser.Scene {
       this.duckAnimsReady = false
       this.player = this.physics.add.sprite(x, y, this.makeDuckTexture())
     }
+    this.player.anims.stop()
     this.player.setOrigin(0.5, 0.5)
     this.pinDuckVisual()
     this.player.setDepth(12)
@@ -1137,7 +1168,7 @@ export class HeistScene extends Phaser.Scene {
     pb.setDrag(0, 0)
     pb.setAcceleration(0, 0)
     pb.setMaxVelocity(this.cfg.player.dash, this.cfg.player.dash)
-    this.setMoveAnim('idle')
+    this.resetPlayerAnimator('idle')
   }
 
   private placeExit(x: number, y: number) {
@@ -2420,41 +2451,50 @@ export class HeistScene extends Phaser.Scene {
     return { x: 0, y: 0 }
   }
 
-  private setMoveAnim(next: MoveAnim) {
-    this.updatePlayerAnimation(next)
+  private resetPlayerAnimator(mode: MoveAnim) {
+    this.playerAnimMode = mode
+    this.playerAnimFrameIndex = 0
+    this.playerAnimElapsed = 0
+    this.applyPlayerFrame(PLAYER_ANIM_FRAMES[mode][0])
   }
 
-  private animKeyFor(next: MoveAnim) {
-    if (next === 'dash' || next === 'run') return 'duck-run'
-    if (next === 'sneak') return 'duck-sneak'
-    if (next === 'walk') return 'duck-walk'
-    return 'duck-idle'
+  private applyPlayerFrame(frame: number) {
+    if (!this.duckAnimsReady || !this.player) return
+    if (this.playerAnimLastFrame === frame) return
+    this.player.setFrame(frame, false, false)
+    this.playerAnimLastFrame = frame
   }
 
-  /** Plays a clip only when the key changes. Never restarts duck-run every frame. */
-  private updatePlayerAnimation(next: MoveAnim) {
-    this.player.setData('moveState', next)
-    this.movePose = next
-    const key = this.animKeyFor(next)
-    this.moveDesiredAnim = key
-    if (!this.duckAnimsReady) return
-    if (!this.anims.exists(key)) return
-    const anims = this.player.anims
-    anims.timeScale = 1
-    if (anims.currentAnim?.key === key) {
-      if (anims.isPaused) anims.resume()
-      else if (!anims.isPlaying) anims.play(key)
+  /** Sole owner of the player texture frame. Phaser AnimationState is not used. */
+  private tickPlayerAnimator(dt: number, speed: number, sneaking: boolean, dashing: boolean) {
+    if (this.playerAnimHold !== null) {
+      this.playerAnimElapsed = 0
+      this.applyPlayerFrame(this.playerAnimHold)
       return
     }
-    try {
-      anims.play(key)
-    } catch (err) {
-      console.error(err)
-      this.duckAnimsReady = false
+    let mode: MoveAnim = 'idle'
+    if (dashing && speed >= 5) mode = 'dash'
+    else if (speed < 5) mode = 'idle'
+    else if (sneaking) mode = 'sneak'
+    else if (speed < 110) mode = 'walk'
+    else mode = 'run'
+    const frames = PLAYER_ANIM_FRAMES[mode]
+    const duration = PLAYER_ANIM_MS[mode]
+    if (mode !== this.playerAnimMode) {
+      this.playerAnimMode = mode
+      this.playerAnimFrameIndex = 0
+      this.playerAnimElapsed = 0
+      this.applyPlayerFrame(frames[0])
+      return
     }
+    this.playerAnimElapsed += dt * 1000
+    if (this.playerAnimElapsed < duration) return
+    this.playerAnimElapsed %= duration
+    this.playerAnimFrameIndex = (this.playerAnimFrameIndex + 1) % frames.length
+    this.applyPlayerFrame(frames[this.playerAnimFrameIndex])
   }
 
-  /** Size and hitbox at spawn only. Must never setFrame or stop the clip. */
+  /** Size and hitbox at spawn only. Never setFrame. */
   private pinDuckVisual() {
     const fw = this.player.frame.width || DUCK_DISPLAY
     const fh = this.player.frame.height || DUCK_DISPLAY
@@ -2541,34 +2581,20 @@ export class HeistScene extends Phaser.Scene {
     spd *= weightMul
     this.noiseR = this.noise * 2.15
     const body = this.player.body as Phaser.Physics.Arcade.Body
-    const vx = body.velocity.x
-    const vy = body.velocity.y
-    const speed = Math.hypot(vx, vy)
-    let pose: MoveAnim = 'idle'
-    if (gait !== 'idle') {
-      if (speed > 5 || dashing) {
-        pose = gait
-        this.stillFrames = 0
-      } else if (this.movePose === 'idle') {
-        pose = gait
-        this.stillFrames = 0
-      } else {
-        this.stillFrames += 1
-        pose = this.stillFrames < 4 ? gait : 'idle'
-      }
-    } else {
-      this.stillFrames = 0
-    }
-    this.updatePlayerAnimation(pose)
     if (dashing || moving) {
       this.facing.set(nx, ny)
       body.setMaxVelocity(pc.dash, pc.dash)
       body.setVelocity(nx * spd, ny * spd)
       if (!dashing) heistSfx.step(sneaking)
-      if (Math.abs(nx) > 0.25) this.player.setFlipX(nx < 0)
     } else {
       body.setVelocity(0, 0)
     }
+    const vx = body.velocity.x
+    const vy = body.velocity.y
+    const speed = Math.hypot(vx, vy)
+    if (Math.abs(vx) > 0.25) this.player.setFlipX(vx < 0)
+    this.tickPlayerAnimator(dt, speed, sneaking, dashing)
+    this.player.setData('moveState', this.playerAnimMode)
     this.moveGait = gait
     this.moveMag = mag
     this.moveJx = jx
@@ -2576,7 +2602,6 @@ export class HeistScene extends Phaser.Scene {
     this.moveBase = gait === 'dash' ? pc.dash : gait === 'sneak' ? pc.sneak : gait === 'walk' ? pc.run * pc.walkMul : gait === 'run' ? pc.run : 0
     this.moveFinal = spd
     if (DEBUG) this.logMoveProbe(gait, mag, spd, weightMul)
-    void dt
   }
 
   private logMoveProbe(gait: string, mag: number, spd: number, weightMul: number) {
@@ -2633,12 +2658,10 @@ export class HeistScene extends Phaser.Scene {
     const vel = Math.hypot(body.velocity.x, body.velocity.y)
     const zoom = this.cameras.main.zoom
     const screenSpeed = this.actualSpeed * zoom
-    const walkAnim = this.anims.get('duck-walk')
-    const runAnim = this.anims.get('duck-run')
-    const anims = this.player.anims
-    const texFrame = anims.currentFrame?.frame
-    const texName = texFrame?.name ?? this.player.frame.name
-    const progress = typeof anims.getProgress === 'function' ? anims.getProgress() : 0
+    const frames = PLAYER_ANIM_FRAMES[this.playerAnimMode]
+    const duration = PLAYER_ANIM_MS[this.playerAnimMode]
+    const frame = this.playerAnimHold ?? this.playerAnimLastFrame
+    const next = frames[(this.playerAnimFrameIndex + 1) % frames.length]
     hud.setText(
       [
         `INPUT  x ${this.moveJx.toFixed(2)}  y ${this.moveJy.toFixed(2)}  mag ${this.moveMag.toFixed(2)}`,
@@ -2652,9 +2675,9 @@ export class HeistScene extends Phaser.Scene {
         `CAM    zoom ${zoom.toFixed(2)}  lerp ${this.cameras.main.lerp.x},${this.cameras.main.lerp.y}  round ${Number(this.cameras.main.roundPixels)}  dead ${this.cameras.main.deadzone ? `${Math.round(this.cameras.main.deadzone.width)}x${Math.round(this.cameras.main.deadzone.height)}` : 'off'}  ${this.cameras.main.scrollX.toFixed(1)},${this.cameras.main.scrollY.toFixed(1)}`,
         `WEIGHT loot ${this.currentLoot}/${this.mods.bagCap}  mul ${this.weightSpeedMul().toFixed(2)}`,
         `UPG    bag ${this.mods.bagLevel}  disg ${this.mods.disguiseMul}  shoes ${Number(this.mods.silentShoes)} spd ${this.mods.speedMul}`,
-        `MODE   ${this.movePose}  want ${this.moveDesiredAnim}  have ${anims.currentAnim?.key ?? '-'}`,
-        `ANIM   tex ${this.player.texture.key}  frame ${String(texName)}  idx ${anims.currentFrame?.index ?? 0}  prog ${progress.toFixed(2)}`,
-        `ANIM   play ${Number(anims.isPlaying)}  pause ${Number(anims.isPaused)}  ts ${anims.timeScale}  walk ${walkAnim?.frameRate ?? 0}  run ${runAnim?.frameRate ?? 0}`,
+        `DUCK ANIM  mode ${this.playerAnimMode.toUpperCase()}  tex ${this.player.texture.key}`,
+        `DUCK ANIM  frame ${frame}  next ${next}  elapsed ${Math.round(this.playerAnimElapsed)}/${duration}`,
+        `DUCK ANIM  speed ${Math.round(vel)}  flipX ${this.player.flipX}  play ${Number(this.player.anims.isPlaying)}`,
       ].join('\n'),
     )
   }
@@ -2995,54 +3018,6 @@ export class HeistScene extends Phaser.Scene {
 
   private duckSheetReady() {
     return this.sheetReady('duck_sheet')
-  }
-
-  private tryCreateDuckAnims() {
-    if (!this.duckSheetReady()) {
-      this.duckAnimsReady = false
-      return false
-    }
-    try {
-      this.createDuckAnims()
-      this.duckAnimsReady = this.anims.exists('duck-idle')
-      return this.duckAnimsReady
-    } catch (err) {
-      console.error(err)
-      this.duckAnimsReady = false
-      return false
-    }
-  }
-
-  private createDuckAnims() {
-    const run = this.anims.get('duck-run')
-    if (run && run.frames.length === 4) return
-    for (const key of ['duck-idle', 'duck-walk', 'duck-sneak', 'duck-run'] as const) {
-      if (this.anims.exists(key)) this.anims.remove(key)
-    }
-    this.anims.create({
-      key: 'duck-idle',
-      frames: this.anims.generateFrameNumbers('duck_sheet', { start: 0, end: 3 }),
-      frameRate: 4,
-      repeat: -1,
-    })
-    this.anims.create({
-      key: 'duck-walk',
-      frames: this.anims.generateFrameNumbers('duck_sheet', { start: 4, end: 11 }),
-      frameRate: 9,
-      repeat: -1,
-    })
-    this.anims.create({
-      key: 'duck-sneak',
-      frames: this.anims.generateFrameNumbers('duck_sheet', { start: 4, end: 11 }),
-      frameRate: 5,
-      repeat: -1,
-    })
-    this.anims.create({
-      key: 'duck-run',
-      frames: this.anims.generateFrameNumbers('duck_sheet', { start: 12, end: 15 }),
-      frameRate: 16,
-      repeat: -1,
-    })
   }
 
   private sheetReady(key: string) {
