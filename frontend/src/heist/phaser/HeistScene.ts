@@ -164,6 +164,9 @@ const DUCK_BODY_W = 20
 const DUCK_BODY_H = 22
 /** Previous visual size; keep world hitbox identical when display scale changes. */
 const DUCK_HITBOX_FROM = 44
+/** Screen-space stick. Knob travel is the analog radius; the ring is only a well. */
+const STICK_RING = 54
+const STICK_KNOB = 36
 
 function formatClock(ms: number) {
   const s = Math.max(0, Math.floor(ms / 1000))
@@ -321,6 +324,9 @@ export class HeistScene extends Phaser.Scene {
   private dropReadyAt = 0
   private dropLabel!: Phaser.GameObjects.Text
   private stickRunHeld = false
+  private moveProbeAt = 0
+  private moveProbeX = 0
+  private moveProbeY = 0
   private firstLootAt = 0
   private lootIdleS = 0
   private onboardUntil = 0
@@ -1028,9 +1034,11 @@ export class HeistScene extends Phaser.Scene {
     this.player.setDepth(12)
     this.player.setCollideWorldBounds(true)
     const pb = this.player.body as Phaser.Physics.Arcade.Body
-    pb.setMaxVelocity(this.cfg.player.run, this.cfg.player.run)
-    pb.setDamping(true)
-    pb.setDrag(0.0008, 0.0008)
+    pb.setAllowDrag(false)
+    pb.setDamping(false)
+    pb.setDrag(0, 0)
+    pb.setAcceleration(0, 0)
+    pb.setMaxVelocity(this.cfg.player.dash, this.cfg.player.dash)
     this.setMoveAnim('idle')
   }
 
@@ -1385,16 +1393,19 @@ export class HeistScene extends Phaser.Scene {
     return this.cfg.weight.item[kind] ?? 1
   }
 
-  /** 0 below the penalty threshold, 1 at full load; never grows past the cap. */
+  /** 0 below the penalty threshold, 1 at full load; never grows past the cap. Empty bag is always 0. */
   private weightOver() {
     if (!this.weightOn()) return 0
     const cap = this.weightCap()
     if (cap <= 0) return 0
-    const load = Phaser.Math.Clamp(this.carriedWeight() / cap, 0, 1)
+    const carried = this.carriedWeight()
+    if (carried <= 0) return 0
+    const load = Phaser.Math.Clamp(carried / cap, 0, 1)
     const start = Phaser.Math.Clamp(this.cfg.weight.penaltyStart, 0, 0.99)
     return Phaser.Math.Clamp((load - start) / (1 - start), 0, 1)
   }
 
+  /** Empty bag and first coins below penaltyStart stay at 1. Never uses bag capacity as speed. */
   private weightSpeedMul() {
     return 1 - this.cfg.weight.maxSpeedPenalty * this.weightOver()
   }
@@ -2293,8 +2304,7 @@ export class HeistScene extends Phaser.Scene {
     const dx = px - this.stick.ox
     const dy = py - this.stick.oy
     const len = Math.hypot(dx, dy) || 1
-    const max = 48
-    const k = Math.min(1, len / max)
+    const k = Math.min(1, len / STICK_KNOB)
     this.stick.x = (dx / len) * k
     this.stick.y = (dy / len) * k
   }
@@ -2382,26 +2392,35 @@ export class HeistScene extends Phaser.Scene {
     const sneaking = this.sneakHeld || this.keys.shift.isDown || this.winKeys.shift || this.hidden
     const dashing = now < this.dashUntil
     let spd = 0
-    let vx = jx
-    let vy = jy
+    let nx = 0
+    let ny = 0
+    if (moving) {
+      nx = jx / mag
+      ny = jy / mag
+    }
     const pc = this.cfg.player
+    let gait: 'idle' | 'walk' | 'run' | 'sneak' | 'dash' = 'idle'
     if (dashing) {
+      gait = 'dash'
       this.setMoveAnim('dash')
       spd = pc.dash
       this.noise = this.noiseOf('dash')
       if (!moving) {
-        vx = this.facing.x
-        vy = this.facing.y
+        nx = this.facing.x
+        ny = this.facing.y
       }
     } else if ((moving || sneaking) && sneaking && moving) {
+      gait = 'sneak'
       this.setMoveAnim('sneak')
       spd = this.hidden ? pc.sneak * pc.hiddenSneakMul : pc.sneak
       this.noise = this.noiseOf('sneak')
     } else if (moving && mag < walkCut && !this.stickRunHeld) {
+      gait = 'walk'
       this.setMoveAnim('walk')
       spd = pc.run * pc.walkMul * this.mods.speedMul
       this.noise = this.noiseOf('walk')
     } else if (moving) {
+      gait = 'run'
       this.setMoveAnim('run')
       spd = pc.run * this.mods.speedMul
       this.noise = this.noiseOf('run')
@@ -2409,19 +2428,53 @@ export class HeistScene extends Phaser.Scene {
       this.setMoveAnim('idle')
       this.noise = 0
     }
-    spd *= this.weightSpeedMul()
+    const weightMul = this.weightSpeedMul()
+    spd *= weightMul
     this.noiseR = this.noise * 2.15
     const body = this.player.body as Phaser.Physics.Arcade.Body
     if (dashing || moving) {
-      this.facing.set(vx, vy).normalize()
-      body.setMaxVelocity(spd, spd)
-      body.setVelocity(vx * spd, vy * spd)
+      this.facing.set(nx, ny)
+      body.setMaxVelocity(pc.dash, pc.dash)
+      body.setVelocity(nx * spd, ny * spd)
       if (!dashing) heistSfx.step(sneaking)
     } else {
       body.setVelocity(0, 0)
     }
     this.player.setFlipX(this.facing.x < 0)
+    if (DEBUG) this.logMoveProbe(gait, mag, spd, weightMul)
     void dt
+  }
+
+  private logMoveProbe(gait: string, mag: number, spd: number, weightMul: number) {
+    if (gait === 'idle') {
+      this.moveProbeAt = 0
+      return
+    }
+    const now = this.gameNow()
+    if (this.moveProbeAt <= 0) {
+      this.moveProbeAt = now
+      this.moveProbeX = this.player.x
+      this.moveProbeY = this.player.y
+      return
+    }
+    if (now - this.moveProbeAt < 1000) return
+    const dist = Math.hypot(this.player.x - this.moveProbeX, this.player.y - this.moveProbeY)
+    console.info('[heist-speed]', {
+      gait,
+      stickMag: Number(mag.toFixed(2)),
+      bagCap: this.mods.bagCap,
+      bagLevel: this.mods.bagLevel,
+      currentLoot: this.currentLoot,
+      speedMul: this.mods.speedMul,
+      weightMul: Number(weightMul.toFixed(3)),
+      target: Math.round(spd),
+      travelled: Math.round(dist),
+      disguiseMul: this.mods.disguiseMul,
+      silentShoes: this.mods.silentShoes,
+    })
+    this.moveProbeAt = now
+    this.moveProbeX = this.player.x
+    this.moveProbeY = this.player.y
   }
 
   private noiseOf(mode: 'sneak' | 'run' | 'dash' | 'walk') {
@@ -3109,11 +3162,11 @@ export class HeistScene extends Phaser.Scene {
     const sx = this.stick.active ? this.stick.ox : 72
     const sy = this.stick.active ? this.stick.oy : h - 86
     this.uiGfx.fillStyle(0x000000, 0.32)
-    this.uiGfx.fillCircle(sx, sy, 54)
+    this.uiGfx.fillCircle(sx, sy, STICK_RING)
     this.uiGfx.lineStyle(2, 0xc9a227, 0.55)
-    this.uiGfx.strokeCircle(sx, sy, 54)
+    this.uiGfx.strokeCircle(sx, sy, STICK_RING)
     this.uiGfx.fillStyle(0xffe08a, 0.95)
-    this.uiGfx.fillCircle(sx + this.stick.x * 36, sy + this.stick.y * 36, 18)
+    this.uiGfx.fillCircle(sx + this.stick.x * STICK_KNOB, sy + this.stick.y * STICK_KNOB, 18)
 
     const sneak = this.btnSneak()
     const dash = this.btnDash()
