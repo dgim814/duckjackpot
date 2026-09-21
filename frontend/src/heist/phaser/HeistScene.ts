@@ -334,6 +334,9 @@ export class HeistScene extends Phaser.Scene {
   private moveProbeX = 0
   private moveProbeY = 0
   private moveGait: MoveAnim = 'idle'
+  private movePose: MoveAnim = 'idle'
+  private moveDesiredAnim = 'duck-idle'
+  private stillFrames = 0
   private moveMag = 0
   private moveJx = 0
   private moveJy = 0
@@ -2421,17 +2424,28 @@ export class HeistScene extends Phaser.Scene {
     this.updatePlayerAnimation(next)
   }
 
-  /** Plays a clip only when the key changes or the current clip stopped. Never restarts every frame. */
+  private animKeyFor(next: MoveAnim) {
+    if (next === 'dash' || next === 'run') return 'duck-run'
+    if (next === 'sneak') return 'duck-sneak'
+    if (next === 'walk') return 'duck-walk'
+    return 'duck-idle'
+  }
+
+  /** Plays a clip only when the key changes. Never restarts duck-run every frame. */
   private updatePlayerAnimation(next: MoveAnim) {
     this.player.setData('moveState', next)
+    this.movePose = next
+    const key = this.animKeyFor(next)
+    this.moveDesiredAnim = key
     if (!this.duckAnimsReady) return
-    let key = 'duck-idle'
-    if (next === 'dash' || next === 'run') key = 'duck-run'
-    else if (next === 'sneak') key = 'duck-sneak'
-    else if (next === 'walk') key = 'duck-walk'
     if (!this.anims.exists(key)) return
     const anims = this.player.anims
-    if (anims.currentAnim?.key === key && anims.isPlaying) return
+    anims.timeScale = 1
+    if (anims.currentAnim?.key === key) {
+      if (anims.isPaused) anims.resume()
+      else if (!anims.isPlaying) anims.play(key)
+      return
+    }
     try {
       anims.play(key)
     } catch (err) {
@@ -2440,6 +2454,7 @@ export class HeistScene extends Phaser.Scene {
     }
   }
 
+  /** Size and hitbox at spawn only. Must never setFrame or stop the clip. */
   private pinDuckVisual() {
     const fw = this.player.frame.width || DUCK_DISPLAY
     const fh = this.player.frame.height || DUCK_DISPLAY
@@ -2529,15 +2544,20 @@ export class HeistScene extends Phaser.Scene {
     const vx = body.velocity.x
     const vy = body.velocity.y
     const speed = Math.hypot(vx, vy)
-    const actuallyMoving = speed > 8
-    const blockedAhead =
-      (nx > 0.5 && body.blocked.right) ||
-      (nx < -0.5 && body.blocked.left) ||
-      (ny > 0.5 && body.blocked.down) ||
-      (ny < -0.5 && body.blocked.up)
     let pose: MoveAnim = 'idle'
     if (gait !== 'idle') {
-      if (actuallyMoving || dashing || (moving && !blockedAhead)) pose = gait
+      if (speed > 5 || dashing) {
+        pose = gait
+        this.stillFrames = 0
+      } else if (this.movePose === 'idle') {
+        pose = gait
+        this.stillFrames = 0
+      } else {
+        this.stillFrames += 1
+        pose = this.stillFrames < 4 ? gait : 'idle'
+      }
+    } else {
+      this.stillFrames = 0
     }
     this.updatePlayerAnimation(pose)
     if (dashing || moving) {
@@ -2545,8 +2565,7 @@ export class HeistScene extends Phaser.Scene {
       body.setMaxVelocity(pc.dash, pc.dash)
       body.setVelocity(nx * spd, ny * spd)
       if (!dashing) heistSfx.step(sneaking)
-      if (nx > 0.25) this.player.setFlipX(false)
-      else if (nx < -0.25) this.player.setFlipX(true)
+      if (Math.abs(nx) > 0.25) this.player.setFlipX(nx < 0)
     } else {
       body.setVelocity(0, 0)
     }
@@ -2616,6 +2635,10 @@ export class HeistScene extends Phaser.Scene {
     const screenSpeed = this.actualSpeed * zoom
     const walkAnim = this.anims.get('duck-walk')
     const runAnim = this.anims.get('duck-run')
+    const anims = this.player.anims
+    const texFrame = anims.currentFrame?.frame
+    const texName = texFrame?.name ?? this.player.frame.name
+    const progress = typeof anims.getProgress === 'function' ? anims.getProgress() : 0
     hud.setText(
       [
         `INPUT  x ${this.moveJx.toFixed(2)}  y ${this.moveJy.toFixed(2)}  mag ${this.moveMag.toFixed(2)}`,
@@ -2629,7 +2652,9 @@ export class HeistScene extends Phaser.Scene {
         `CAM    zoom ${zoom.toFixed(2)}  lerp ${this.cameras.main.lerp.x},${this.cameras.main.lerp.y}  round ${Number(this.cameras.main.roundPixels)}  dead ${this.cameras.main.deadzone ? `${Math.round(this.cameras.main.deadzone.width)}x${Math.round(this.cameras.main.deadzone.height)}` : 'off'}  ${this.cameras.main.scrollX.toFixed(1)},${this.cameras.main.scrollY.toFixed(1)}`,
         `WEIGHT loot ${this.currentLoot}/${this.mods.bagCap}  mul ${this.weightSpeedMul().toFixed(2)}`,
         `UPG    bag ${this.mods.bagLevel}  disg ${this.mods.disguiseMul}  shoes ${Number(this.mods.silentShoes)} spd ${this.mods.speedMul}`,
-        `ANIM   ${this.player.anims.currentAnim?.key ?? '-'} f${this.player.anims.currentFrame?.index ?? 0} play ${Number(this.player.anims.isPlaying)} walk ${walkAnim?.frameRate ?? 0} run ${runAnim?.frameRate ?? 0}`,
+        `MODE   ${this.movePose}  want ${this.moveDesiredAnim}  have ${anims.currentAnim?.key ?? '-'}`,
+        `ANIM   tex ${this.player.texture.key}  frame ${String(texName)}  idx ${anims.currentFrame?.index ?? 0}  prog ${progress.toFixed(2)}`,
+        `ANIM   play ${Number(anims.isPlaying)}  pause ${Number(anims.isPaused)}  ts ${anims.timeScale}  walk ${walkAnim?.frameRate ?? 0}  run ${runAnim?.frameRate ?? 0}`,
       ].join('\n'),
     )
   }
@@ -2989,7 +3014,11 @@ export class HeistScene extends Phaser.Scene {
   }
 
   private createDuckAnims() {
-    if (this.anims.exists('duck-idle')) return
+    const run = this.anims.get('duck-run')
+    if (run && run.frames.length === 4) return
+    for (const key of ['duck-idle', 'duck-walk', 'duck-sneak', 'duck-run'] as const) {
+      if (this.anims.exists(key)) this.anims.remove(key)
+    }
     this.anims.create({
       key: 'duck-idle',
       frames: this.anims.generateFrameNumbers('duck_sheet', { start: 0, end: 3 }),
@@ -3019,8 +3048,11 @@ export class HeistScene extends Phaser.Scene {
   private sheetReady(key: string) {
     if (!this.textures.exists(key)) return false
     const tex = this.textures.get(key)
-    const src = tex.getSourceImage() as HTMLImageElement | undefined
-    if (!src || src.width !== 256 * 4 || src.height !== 256 * 4) return false
+    const src = tex.getSourceImage() as HTMLImageElement | HTMLCanvasElement | undefined
+    if (!src) return false
+    const w = 'naturalWidth' in src && src.naturalWidth ? src.naturalWidth : src.width
+    const h = 'naturalHeight' in src && src.naturalHeight ? src.naturalHeight : src.height
+    if (w < DUCK_FRAME * 4 || h < DUCK_FRAME * 4) return false
     return tex.getFrameNames(false).length >= 16
   }
 
