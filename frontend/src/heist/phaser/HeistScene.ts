@@ -201,6 +201,7 @@ export class HeistScene extends Phaser.Scene {
   private hud!: Phaser.GameObjects.Text
   private bagHud!: Phaser.GameObjects.Text
   private objHud!: Phaser.GameObjects.Text
+  private debugHud?: Phaser.GameObjects.Text
   private crackHud!: Phaser.GameObjects.Text
   private crackHint!: Phaser.GameObjects.Text
   private fx?: Phaser.GameObjects.Particles.ParticleEmitter
@@ -264,6 +265,11 @@ export class HeistScene extends Phaser.Scene {
       KeyQ: 'q',
     }
     const slot = map[e.code]
+    if (DEBUG && down && e.code === 'KeyM') {
+      e.preventDefault()
+      this.startMoveTest()
+      return
+    }
     if (!slot) return
     e.preventDefault()
     this.winKeys[slot] = down
@@ -327,6 +333,14 @@ export class HeistScene extends Phaser.Scene {
   private moveProbeAt = 0
   private moveProbeX = 0
   private moveProbeY = 0
+  private moveGait: MoveAnim = 'idle'
+  private moveMag = 0
+  private moveJx = 0
+  private moveJy = 0
+  private moveBase = 0
+  private moveFinal = 0
+  private actualSpeed = 0
+  private speedLogAt = 0
   private firstLootAt = 0
   private lootIdleS = 0
   private onboardUntil = 0
@@ -443,6 +457,7 @@ export class HeistScene extends Phaser.Scene {
       this.pauseTitle,
       this.pauseResumeLbl,
       this.pauseAbortLbl,
+      this.debugHud,
     ]
     const uiList = ui.filter((o): o is Phaser.GameObjects.GameObject => Boolean(o))
     const uiSet = new Set(uiList)
@@ -479,8 +494,8 @@ export class HeistScene extends Phaser.Scene {
   /** Keep the duck in the lower-centre of the canvas, below the Mini App HUD. */
   private applyCameraFollow() {
     if (!this.player) return
-    this.cameras.main.startFollow(this.player, true, 0.22, 0.22)
-    this.cameras.main.setDeadzone(36, 52)
+    this.cameras.main.startFollow(this.player, true, 1, 1)
+    this.cameras.main.setDeadzone(0, 0)
     this.cameras.main.setFollowOffset(0, 88)
     this.cameras.main.setBounds(0, 0, this.mapW, this.mapH)
   }
@@ -901,6 +916,17 @@ export class HeistScene extends Phaser.Scene {
       .setScrollFactor(0)
       .setDepth(24)
       .setVisible(false)
+    if (DEBUG) {
+      this.debugHud = this.add
+        .text(8, 96, '', {
+          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+          fontSize: '9px',
+          color: '#9ef7c2',
+          lineSpacing: 1,
+        })
+        .setScrollFactor(0)
+        .setDepth(90)
+    }
 
     try {
       this.fx = this.add.particles(0, 0, 'spark', {
@@ -915,7 +941,6 @@ export class HeistScene extends Phaser.Scene {
       console.error(err)
     }
 
-    this.cameras.main.startFollow(this.player, true, 0.22, 0.22)
     this.applyCameraFollow()
 
     this.input.addPointer(3)
@@ -2326,9 +2351,9 @@ export class HeistScene extends Phaser.Scene {
     this.player.setData('moveState', next)
     if (!this.duckAnimsReady) return
     let key = 'duck-idle'
-    if (next === 'dash') key = 'duck-run'
+    if (next === 'dash' || next === 'run') key = 'duck-run'
     else if (next === 'sneak') key = 'duck-sneak'
-    else if (next !== 'idle') key = 'duck-walk'
+    else if (next === 'walk') key = 'duck-walk'
     if (!this.anims.exists(key)) return
     try {
       if (this.player.anims.currentAnim?.key !== key) {
@@ -2441,6 +2466,12 @@ export class HeistScene extends Phaser.Scene {
       body.setVelocity(0, 0)
     }
     this.player.setFlipX(this.facing.x < 0)
+    this.moveGait = gait
+    this.moveMag = mag
+    this.moveJx = jx
+    this.moveJy = jy
+    this.moveBase = gait === 'dash' ? pc.dash : gait === 'sneak' ? pc.sneak : gait === 'walk' ? pc.run * pc.walkMul : gait === 'run' ? pc.run : 0
+    this.moveFinal = spd
     if (DEBUG) this.logMoveProbe(gait, mag, spd, weightMul)
     void dt
   }
@@ -2448,6 +2479,7 @@ export class HeistScene extends Phaser.Scene {
   private logMoveProbe(gait: string, mag: number, spd: number, weightMul: number) {
     if (gait === 'idle') {
       this.moveProbeAt = 0
+      this.actualSpeed = 0
       return
     }
     const now = this.gameNow()
@@ -2457,24 +2489,65 @@ export class HeistScene extends Phaser.Scene {
       this.moveProbeY = this.player.y
       return
     }
-    if (now - this.moveProbeAt < 1000) return
+    if (now - this.moveProbeAt < 250) return
+    const elapsed = (now - this.moveProbeAt) / 1000
     const dist = Math.hypot(this.player.x - this.moveProbeX, this.player.y - this.moveProbeY)
-    console.info('[heist-speed]', {
-      gait,
-      stickMag: Number(mag.toFixed(2)),
-      bagCap: this.mods.bagCap,
-      bagLevel: this.mods.bagLevel,
-      currentLoot: this.currentLoot,
-      speedMul: this.mods.speedMul,
-      weightMul: Number(weightMul.toFixed(3)),
-      target: Math.round(spd),
-      travelled: Math.round(dist),
-      disguiseMul: this.mods.disguiseMul,
-      silentShoes: this.mods.silentShoes,
-    })
+    this.actualSpeed = elapsed > 0 ? dist / elapsed : 0
+    if (now - this.speedLogAt >= 1000) {
+      this.speedLogAt = now
+      console.info('[heist-speed]', {
+        gait,
+        stickMag: Number(mag.toFixed(2)),
+        bagCap: this.mods.bagCap,
+        bagLevel: this.mods.bagLevel,
+        currentLoot: this.currentLoot,
+        speedMul: this.mods.speedMul,
+        weightMul: Number(weightMul.toFixed(3)),
+        target: Math.round(spd),
+        actual: Math.round(this.actualSpeed),
+      })
+    }
     this.moveProbeAt = now
     this.moveProbeX = this.player.x
     this.moveProbeY = this.player.y
+  }
+
+  private startMoveTest() {
+    if (!this.player || this.ended || this.paused) return
+    const x = 1400
+    const y = 6900
+    this.player.setPosition(x, y)
+    const body = this.player.body as Phaser.Physics.Arcade.Body
+    body.reset(x, y)
+    this.moveProbeAt = 0
+    this.actualSpeed = 0
+  }
+
+  private drawMoveDebug() {
+    const hud = this.debugHud
+    if (!hud) return
+    const body = this.player.body as Phaser.Physics.Arcade.Body
+    const vel = Math.hypot(body.velocity.x, body.velocity.y)
+    const zoom = this.cameras.main.zoom
+    const screenSpeed = this.actualSpeed * zoom
+    const walkAnim = this.anims.get('duck-walk')
+    const runAnim = this.anims.get('duck-run')
+    hud.setText(
+      [
+        `INPUT  x ${this.moveJx.toFixed(2)}  y ${this.moveJy.toFixed(2)}  mag ${this.moveMag.toFixed(2)}`,
+        `MOVE   ${this.moveGait.toUpperCase()}  base ${Math.round(this.moveBase)}  final ${Math.round(this.moveFinal)}`,
+        `VEL    ${Math.round(body.velocity.x)} ${Math.round(body.velocity.y)}  |v| ${Math.round(vel)}`,
+        `ACTUAL ${Math.round(this.actualSpeed)} px/s   screen ${Math.round(screenSpeed)} px/s`,
+        `POS    ${Math.round(this.player.x)} ${Math.round(this.player.y)}`,
+        `BLOCK  L${Number(body.blocked.left)} R${Number(body.blocked.right)} U${Number(body.blocked.up)} D${Number(body.blocked.down)}`,
+        `BODY   ${Math.round(body.width)}x${Math.round(body.height)}  duck ${Math.round(this.player.displayWidth)}x${Math.round(this.player.displayHeight)}`,
+        `PHYS   drag ${body.drag.x} damp ${Number(body.useDamping)} acc ${body.acceleration.x}`,
+        `CAM    zoom ${zoom.toFixed(2)}  lerp 1  canvas ${this.scale.width}x${this.scale.height}`,
+        `WEIGHT loot ${this.currentLoot}/${this.mods.bagCap}  mul ${this.weightSpeedMul().toFixed(2)}`,
+        `UPG    bag ${this.mods.bagLevel}  disg ${this.mods.disguiseMul}  shoes ${Number(this.mods.silentShoes)} spd ${this.mods.speedMul}`,
+        `ANIM   walk ${walkAnim?.frameRate ?? 0}fps  run ${runAnim?.frameRate ?? 0}fps  ${this.player.anims.currentAnim?.key ?? '-'}`,
+      ].join('\n'),
+    )
   }
 
   private noiseOf(mode: 'sneak' | 'run' | 'dash' | 'walk') {
@@ -2857,7 +2930,7 @@ export class HeistScene extends Phaser.Scene {
     this.anims.create({
       key: 'duck-run',
       frames: this.anims.generateFrameNumbers('duck_sheet', { start: 12, end: 15 }),
-      frameRate: 11,
+      frameRate: 16,
       repeat: -1,
       skipMissedFrames: false,
     })
@@ -3145,6 +3218,11 @@ export class HeistScene extends Phaser.Scene {
     this.worldGfx.clear()
     this.worldGfx.fillStyle(0x000000, 0.32)
     this.worldGfx.fillEllipse(px, py + 16, 30, 12)
+    if (DEBUG) {
+      const body = this.player.body as Phaser.Physics.Arcade.Body
+      this.worldGfx.lineStyle(1, 0x4cff9a, 0.95)
+      this.worldGfx.strokeRect(body.x, body.y, body.width, body.height)
+    }
     for (const u of this.units) {
       if (Math.abs(u.sprite.x - px) > vis || Math.abs(u.sprite.y - py) > vis) continue
       this.worldGfx.fillEllipse(u.sprite.x, u.sprite.y + 12, 20, 10)
@@ -3281,6 +3359,7 @@ export class HeistScene extends Phaser.Scene {
       this.crackHint.setVisible(false)
     }
     this.drawPauseUi()
+    if (DEBUG) this.drawMoveDebug()
   }
 
   private drawObjectives(elapsedMs: number) {
