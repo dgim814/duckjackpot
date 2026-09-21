@@ -162,17 +162,9 @@ export const DEFAULT_TUNING: HeistTuning = {
   },
 }
 
-/** Zoom out ~25% from 0.64, then nudge by phone size so iPhone SE and Pro Max both read. */
-export function adaptiveCameraZoom(viewW: number, viewH: number, base = DEFAULT_TUNING.camera.zoom) {
-  const short = Math.min(viewW, viewH)
-  const long = Math.max(viewW, viewH)
-  const aspect = long / Math.max(1, short)
-  let zoom = base
-  if (short < 360) zoom = base * 0.92
-  else if (short < 390) zoom = base * 0.97
-  else if (short >= 430) zoom = base * 1.06
-  if (aspect > 2.05) zoom *= 0.95
-  return Math.max(0.4, Math.min(0.6, zoom))
+/** Integer 1:2 zoom so iPhone follow does not jitter on fractional camera scale. */
+export function adaptiveCameraZoom(_viewW: number, _viewH: number, _base = DEFAULT_TUNING.camera.zoom) {
+  return 0.5
 }
 
 /**

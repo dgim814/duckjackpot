@@ -394,6 +394,10 @@ export class HeistScene extends Phaser.Scene {
   private cfg: HeistTuning
   private cfgV = -1
   private uiCam?: Phaser.Cameras.Scene2D.Camera
+  private cameraPixelLocked = false
+  private playerDrawX = 0
+  private playerDrawY = 0
+  private playerDrawLocked = false
 
   constructor(onDone: (end: HeistEnd) => void, mods: HeistRunMods, levelId: HeistLevelId = 'bank', novice = false) {
     super('HeistScene')
@@ -485,19 +489,86 @@ export class HeistScene extends Phaser.Scene {
   }
 
   private onScaleResize = (size: Phaser.Structs.Size) => {
-    this.uiCam?.setSize(size.width, size.height)
-    this.cameras.main.setZoom(adaptiveCameraZoom(size.width, size.height, this.cfg.camera.zoom))
-    this.cameras.main.setBounds(0, 0, this.mapW, this.mapH)
-    this.applyCameraFollow()
+    this.fitEvenCamera(size.width, size.height)
+    const cam = this.cameras.main
+    if (cam.zoom !== 0.5) cam.setZoom(0.5)
+    cam.setBounds(0, 0, this.mapW, this.mapH)
   }
 
-  /** Keep the duck in the lower-centre of the canvas, below the Mini App HUD. */
+  /** Even viewport so zoom 0.5 clamp bounds stay on integer world pixels. */
+  private fitEvenCamera(viewW = this.scale.width, viewH = this.scale.height) {
+    const w = Math.max(2, Math.floor(viewW / 2) * 2)
+    const h = Math.max(2, Math.floor(viewH / 2) * 2)
+    this.cameras.main.setSize(w, h)
+    this.uiCam?.setSize(w, h)
+  }
+
+  /**
+   * One follow source. Zoom 0.5 + roundPixels + no deadzone.
+   * setDeadzone(0, 0) is NOT "off": Phaser still uses the deadzone follow path
+   * and that path jitters with a fractional zoom.
+   */
   private applyCameraFollow() {
     if (!this.player) return
-    this.cameras.main.startFollow(this.player, true, 1, 1)
-    this.cameras.main.setDeadzone(0, 0)
-    this.cameras.main.setFollowOffset(0, 88)
-    this.cameras.main.setBounds(0, 0, this.mapW, this.mapH)
+    const cam = this.cameras.main
+    this.fitEvenCamera()
+    cam.setZoom(0.5)
+    cam.roundPixels = true
+    cam.setDeadzone()
+    cam.setFollowOffset(0, 88)
+    cam.setBounds(0, 0, this.mapW, this.mapH)
+    cam.startFollow(this.player, true, 1, 1)
+    this.installCameraPixelLock()
+  }
+
+  /**
+   * Phaser skips sprite round-pixels when zoom is not an integer, and bounds
+   * clamp can reintroduce half pixels after floor(). Snap the follow result
+   * onto the 1:2 pixel grid without a second scroll controller.
+   */
+  private installCameraPixelLock() {
+    if (this.cameraPixelLocked) return
+    this.cameraPixelLocked = true
+    const cam = this.cameras.main
+    cam.on(Phaser.Cameras.Scene2D.Events.FOLLOW_UPDATE, this.snapCameraToPixelGrid)
+    this.events.on(Phaser.Scenes.Events.PRE_RENDER, this.snapPlayerToCameraGrid)
+    this.events.on(Phaser.Scenes.Events.RENDER, this.restorePlayerFromCameraGrid)
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      cam.off(Phaser.Cameras.Scene2D.Events.FOLLOW_UPDATE, this.snapCameraToPixelGrid)
+      this.events.off(Phaser.Scenes.Events.PRE_RENDER, this.snapPlayerToCameraGrid)
+      this.events.off(Phaser.Scenes.Events.RENDER, this.restorePlayerFromCameraGrid)
+    })
+  }
+
+  private snapCameraToPixelGrid = () => {
+    const cam = this.cameras.main as Phaser.Cameras.Scene2D.Camera & {
+      matrix: Phaser.GameObjects.Components.TransformMatrix
+      rotation: number
+    }
+    const step = 1 / cam.zoomX
+    cam.scrollX = Math.round(cam.scrollX / step) * step
+    cam.scrollY = Math.round(cam.scrollY / step) * step
+    const originX = cam.width * cam.originX
+    const originY = cam.height * cam.originY
+    cam.matrix.applyITRS(Math.round(cam.x + originX), Math.round(cam.y + originY), cam.rotation, cam.zoomX, cam.zoomY)
+    cam.matrix.translate(-originX, -originY)
+  }
+
+  private snapPlayerToCameraGrid = () => {
+    if (!this.player) return
+    this.playerDrawX = this.player.x
+    this.playerDrawY = this.player.y
+    this.playerDrawLocked = true
+    const step = 1 / this.cameras.main.zoomX
+    this.player.x = Math.round(this.player.x / step) * step
+    this.player.y = Math.round(this.player.y / step) * step
+  }
+
+  private restorePlayerFromCameraGrid = () => {
+    if (!this.player || !this.playerDrawLocked) return
+    this.player.x = this.playerDrawX
+    this.player.y = this.playerDrawY
+    this.playerDrawLocked = false
   }
 
   preload() {
@@ -941,8 +1012,6 @@ export class HeistScene extends Phaser.Scene {
       console.error(err)
     }
 
-    this.applyCameraFollow()
-
     this.input.addPointer(3)
     this.input.setTopOnly(false)
     this.input.on('pointerdown', (p: Phaser.Input.Pointer) => this.onDown(p))
@@ -1020,6 +1089,7 @@ export class HeistScene extends Phaser.Scene {
       .setVisible(false)
 
     this.setupCameras()
+    this.applyCameraFollow()
 
     this.startedAt = this.time.now
     if (this.novice && this.levelId === 'bank') this.onboardUntil = this.gameNow() + 2000
@@ -2348,6 +2418,11 @@ export class HeistScene extends Phaser.Scene {
   }
 
   private setMoveAnim(next: MoveAnim) {
+    this.updatePlayerAnimation(next)
+  }
+
+  /** Plays a clip only when the key changes or the current clip stopped. Never restarts every frame. */
+  private updatePlayerAnimation(next: MoveAnim) {
     this.player.setData('moveState', next)
     if (!this.duckAnimsReady) return
     let key = 'duck-idle'
@@ -2355,11 +2430,10 @@ export class HeistScene extends Phaser.Scene {
     else if (next === 'sneak') key = 'duck-sneak'
     else if (next === 'walk') key = 'duck-walk'
     if (!this.anims.exists(key)) return
+    const anims = this.player.anims
+    if (anims.currentAnim?.key === key && anims.isPlaying) return
     try {
-      if (this.player.anims.currentAnim?.key !== key) {
-        this.player.play(key, true)
-        this.pinDuckVisual()
-      }
+      anims.play(key)
     } catch (err) {
       console.error(err)
       this.duckAnimsReady = false
@@ -2424,48 +2498,58 @@ export class HeistScene extends Phaser.Scene {
       ny = jy / mag
     }
     const pc = this.cfg.player
-    let gait: 'idle' | 'walk' | 'run' | 'sneak' | 'dash' = 'idle'
+    let gait: MoveAnim = 'idle'
     if (dashing) {
       gait = 'dash'
-      this.setMoveAnim('dash')
       spd = pc.dash
       this.noise = this.noiseOf('dash')
       if (!moving) {
         nx = this.facing.x
         ny = this.facing.y
       }
-    } else if ((moving || sneaking) && sneaking && moving) {
+    } else if (moving && sneaking) {
       gait = 'sneak'
-      this.setMoveAnim('sneak')
       spd = this.hidden ? pc.sneak * pc.hiddenSneakMul : pc.sneak
       this.noise = this.noiseOf('sneak')
     } else if (moving && mag < walkCut && !this.stickRunHeld) {
       gait = 'walk'
-      this.setMoveAnim('walk')
       spd = pc.run * pc.walkMul * this.mods.speedMul
       this.noise = this.noiseOf('walk')
     } else if (moving) {
       gait = 'run'
-      this.setMoveAnim('run')
       spd = pc.run * this.mods.speedMul
       this.noise = this.noiseOf('run')
     } else {
-      this.setMoveAnim('idle')
       this.noise = 0
     }
     const weightMul = this.weightSpeedMul()
     spd *= weightMul
     this.noiseR = this.noise * 2.15
     const body = this.player.body as Phaser.Physics.Arcade.Body
+    const vx = body.velocity.x
+    const vy = body.velocity.y
+    const speed = Math.hypot(vx, vy)
+    const actuallyMoving = speed > 8
+    const blockedAhead =
+      (nx > 0.5 && body.blocked.right) ||
+      (nx < -0.5 && body.blocked.left) ||
+      (ny > 0.5 && body.blocked.down) ||
+      (ny < -0.5 && body.blocked.up)
+    let pose: MoveAnim = 'idle'
+    if (gait !== 'idle') {
+      if (actuallyMoving || dashing || (moving && !blockedAhead)) pose = gait
+    }
+    this.updatePlayerAnimation(pose)
     if (dashing || moving) {
       this.facing.set(nx, ny)
       body.setMaxVelocity(pc.dash, pc.dash)
       body.setVelocity(nx * spd, ny * spd)
       if (!dashing) heistSfx.step(sneaking)
+      if (nx > 0.25) this.player.setFlipX(false)
+      else if (nx < -0.25) this.player.setFlipX(true)
     } else {
       body.setVelocity(0, 0)
     }
-    this.player.setFlipX(this.facing.x < 0)
     this.moveGait = gait
     this.moveMag = mag
     this.moveJx = jx
@@ -2542,10 +2626,10 @@ export class HeistScene extends Phaser.Scene {
         `BLOCK  L${Number(body.blocked.left)} R${Number(body.blocked.right)} U${Number(body.blocked.up)} D${Number(body.blocked.down)}`,
         `BODY   ${Math.round(body.width)}x${Math.round(body.height)}  duck ${Math.round(this.player.displayWidth)}x${Math.round(this.player.displayHeight)}`,
         `PHYS   drag ${body.drag.x} damp ${Number(body.useDamping)} acc ${body.acceleration.x}`,
-        `CAM    zoom ${zoom.toFixed(2)}  lerp 1  canvas ${this.scale.width}x${this.scale.height}`,
+        `CAM    zoom ${zoom.toFixed(2)}  lerp ${this.cameras.main.lerp.x},${this.cameras.main.lerp.y}  round ${Number(this.cameras.main.roundPixels)}  dead ${this.cameras.main.deadzone ? `${Math.round(this.cameras.main.deadzone.width)}x${Math.round(this.cameras.main.deadzone.height)}` : 'off'}  ${this.cameras.main.scrollX.toFixed(1)},${this.cameras.main.scrollY.toFixed(1)}`,
         `WEIGHT loot ${this.currentLoot}/${this.mods.bagCap}  mul ${this.weightSpeedMul().toFixed(2)}`,
         `UPG    bag ${this.mods.bagLevel}  disg ${this.mods.disguiseMul}  shoes ${Number(this.mods.silentShoes)} spd ${this.mods.speedMul}`,
-        `ANIM   walk ${walkAnim?.frameRate ?? 0}fps  run ${runAnim?.frameRate ?? 0}fps  ${this.player.anims.currentAnim?.key ?? '-'}`,
+        `ANIM   ${this.player.anims.currentAnim?.key ?? '-'} f${this.player.anims.currentFrame?.index ?? 0} play ${Number(this.player.anims.isPlaying)} walk ${walkAnim?.frameRate ?? 0} run ${runAnim?.frameRate ?? 0}`,
       ].join('\n'),
     )
   }
@@ -2911,28 +2995,24 @@ export class HeistScene extends Phaser.Scene {
       frames: this.anims.generateFrameNumbers('duck_sheet', { start: 0, end: 3 }),
       frameRate: 4,
       repeat: -1,
-      skipMissedFrames: false,
     })
     this.anims.create({
       key: 'duck-walk',
       frames: this.anims.generateFrameNumbers('duck_sheet', { start: 4, end: 11 }),
       frameRate: 9,
       repeat: -1,
-      skipMissedFrames: false,
     })
     this.anims.create({
       key: 'duck-sneak',
       frames: this.anims.generateFrameNumbers('duck_sheet', { start: 4, end: 11 }),
       frameRate: 5,
       repeat: -1,
-      skipMissedFrames: false,
     })
     this.anims.create({
       key: 'duck-run',
       frames: this.anims.generateFrameNumbers('duck_sheet', { start: 12, end: 15 }),
       frameRate: 16,
       repeat: -1,
-      skipMissedFrames: false,
     })
   }
 

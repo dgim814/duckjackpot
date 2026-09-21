@@ -22,6 +22,10 @@ export function createHeistGame(
       height: parent.clientHeight || 640,
       autoCenter: Phaser.Scale.CENTER_BOTH,
     },
+    render: {
+      roundPixels: true,
+      antialias: false,
+    },
     physics: {
       default: 'arcade',
       arcade: { debug: false },
