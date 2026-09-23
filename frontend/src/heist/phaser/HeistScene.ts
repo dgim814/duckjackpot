@@ -165,24 +165,28 @@ const DUCK_BODY_H = 22
 /** Previous visual size; keep world hitbox identical when display scale changes. */
 const DUCK_HITBOX_FROM = 44
 /**
- * Sheet is 4×4. Idle 0–3 stand in place. 4–11 is the only cycle where the
- * legs actually change pose. 12–15 are four near-identical run stills — on
- * a 0.5 zoom iPhone they read as one frozen frame, so movement uses 4–11.
+ * Sheet is 4×4 of 256px frames: idle 0–3, walk cycle 4–11, run cycle 12–15.
+ * Played by hand from update(delta); Phaser AnimationState is not used.
  */
 const PLAYER_ANIM_FRAMES: Record<MoveAnim, readonly number[]> = {
   idle: [0, 1, 2, 3],
   walk: [4, 5, 6, 7, 8, 9, 10, 11],
   sneak: [4, 5, 6, 7, 8, 9, 10, 11],
-  run: [4, 5, 6, 7, 8, 9, 10, 11],
-  dash: [4, 5, 6, 7, 8, 9, 10, 11],
+  run: [12, 13, 14, 15],
+  dash: [12, 13, 14, 15],
 }
 const PLAYER_ANIM_MS: Record<MoveAnim, number> = {
-  idle: 300,
-  walk: 110,
-  sneak: 165,
-  run: 80,
-  dash: 70,
+  idle: 150,
+  walk: 100,
+  sneak: 125,
+  run: 70,
+  dash: 55,
 }
+/** Smoothed measured body speed (px/s) that starts / stops the moving cycles. */
+const PLAYER_ANIM_MOVE_ON = 20
+const PLAYER_ANIM_MOVE_OFF = 10
+/** Per-frame body jumps larger than this are teleports, not movement. */
+const PLAYER_ANIM_TELEPORT = 48
 /** Screen-space stick. Knob travel is the analog radius; the ring is only a well. */
 const STICK_RING = 54
 const STICK_KNOB = 36
@@ -366,6 +370,9 @@ export class HeistScene extends Phaser.Scene {
   private playerAnimElapsed = 0
   private playerAnimLastFrame = -1
   private playerAnimHold: number | null = null
+  private playerAnimSpeed = 0
+  private playerAnimBodyX = NaN
+  private playerAnimBodyY = NaN
   private moveMag = 0
   private moveJx = 0
   private moveJy = 0
@@ -1828,6 +1835,7 @@ export class HeistScene extends Phaser.Scene {
       this.noise = 0
       this.noiseR = 0
       this.updateSafeCrack(dt)
+      this.tickPlayerAnimator(dt, 'idle')
     } else {
       this.updatePlayer(dt)
       this.collectNearbyLoot()
@@ -2455,42 +2463,69 @@ export class HeistScene extends Phaser.Scene {
     this.playerAnimMode = mode
     this.playerAnimFrameIndex = 0
     this.playerAnimElapsed = 0
+    this.playerAnimSpeed = 0
+    this.playerAnimBodyX = NaN
+    this.playerAnimBodyY = NaN
     this.applyPlayerFrame(PLAYER_ANIM_FRAMES[mode][0])
   }
 
+  /** The only place that changes the player's frame. */
   private applyPlayerFrame(frame: number) {
     if (!this.duckAnimsReady || !this.player) return
-    if (this.playerAnimLastFrame === frame) return
-    this.player.setFrame(frame, false, false)
     this.playerAnimLastFrame = frame
+    if (String(this.player.frame.name) === String(frame)) return
+    this.player.setFrame(frame, false, false)
   }
 
-  /** Sole owner of the player texture frame. Phaser AnimationState is not used. */
-  private tickPlayerAnimator(dt: number, speed: number, sneaking: boolean, dashing: boolean) {
+  /**
+   * Measured body speed, not the commanded velocity: pushing the stick into a
+   * wall keeps velocity set but the body does not move, so the duck idles.
+   * Smoothed because 120Hz frames can land between fixed physics steps.
+   */
+  private measurePlayerSpeed(dt: number) {
+    const body = this.player.body as Phaser.Physics.Arcade.Body
+    const x = body.position.x
+    const y = body.position.y
+    let raw = 0
+    if (Number.isFinite(this.playerAnimBodyX) && dt > 0) {
+      const d = Math.hypot(x - this.playerAnimBodyX, y - this.playerAnimBodyY)
+      raw = d > PLAYER_ANIM_TELEPORT ? 0 : d / dt
+    }
+    this.playerAnimBodyX = x
+    this.playerAnimBodyY = y
+    const k = 1 - Math.exp(-dt / 0.06)
+    this.playerAnimSpeed += (raw - this.playerAnimSpeed) * k
+    return this.playerAnimSpeed
+  }
+
+  /** Manual frame cycle driven from update(delta). Phaser AnimationState is not used. */
+  private tickPlayerAnimator(dt: number, gait: MoveAnim) {
+    const speed = this.measurePlayerSpeed(dt)
     if (this.playerAnimHold !== null) {
       this.playerAnimElapsed = 0
       this.applyPlayerFrame(this.playerAnimHold)
       return
     }
-    let mode: MoveAnim = 'idle'
-    if (dashing && speed >= 5) mode = 'dash'
-    else if (speed < 5) mode = 'idle'
-    else if (sneaking) mode = 'sneak'
-    else if (speed < 110) mode = 'walk'
-    else mode = 'run'
+    const wasMoving = this.playerAnimMode !== 'idle'
+    const moving = speed >= (wasMoving ? PLAYER_ANIM_MOVE_OFF : PLAYER_ANIM_MOVE_ON)
+    const mode: MoveAnim = !moving ? 'idle' : gait === 'idle' ? 'walk' : gait
     const frames = PLAYER_ANIM_FRAMES[mode]
     const duration = PLAYER_ANIM_MS[mode]
     if (mode !== this.playerAnimMode) {
+      const sameCycle = String(PLAYER_ANIM_FRAMES[this.playerAnimMode]) === String(frames)
       this.playerAnimMode = mode
-      this.playerAnimFrameIndex = 0
-      this.playerAnimElapsed = 0
-      this.applyPlayerFrame(frames[0])
-      return
+      if (!sameCycle) {
+        this.playerAnimFrameIndex = 0
+        this.playerAnimElapsed = 0
+        this.applyPlayerFrame(frames[0])
+        return
+      }
     }
     this.playerAnimElapsed += dt * 1000
-    if (this.playerAnimElapsed < duration) return
-    this.playerAnimElapsed %= duration
-    this.playerAnimFrameIndex = (this.playerAnimFrameIndex + 1) % frames.length
+    while (this.playerAnimElapsed >= duration) {
+      this.playerAnimElapsed -= duration
+      this.playerAnimFrameIndex = (this.playerAnimFrameIndex + 1) % frames.length
+    }
     this.applyPlayerFrame(frames[this.playerAnimFrameIndex])
   }
 
@@ -2590,10 +2625,8 @@ export class HeistScene extends Phaser.Scene {
       body.setVelocity(0, 0)
     }
     const vx = body.velocity.x
-    const vy = body.velocity.y
-    const speed = Math.hypot(vx, vy)
     if (Math.abs(vx) > 0.25) this.player.setFlipX(vx < 0)
-    this.tickPlayerAnimator(dt, speed, sneaking, dashing)
+    this.tickPlayerAnimator(dt, gait)
     this.player.setData('moveState', this.playerAnimMode)
     this.moveGait = gait
     this.moveMag = mag
@@ -2675,9 +2708,9 @@ export class HeistScene extends Phaser.Scene {
         `CAM    zoom ${zoom.toFixed(2)}  lerp ${this.cameras.main.lerp.x},${this.cameras.main.lerp.y}  round ${Number(this.cameras.main.roundPixels)}  dead ${this.cameras.main.deadzone ? `${Math.round(this.cameras.main.deadzone.width)}x${Math.round(this.cameras.main.deadzone.height)}` : 'off'}  ${this.cameras.main.scrollX.toFixed(1)},${this.cameras.main.scrollY.toFixed(1)}`,
         `WEIGHT loot ${this.currentLoot}/${this.mods.bagCap}  mul ${this.weightSpeedMul().toFixed(2)}`,
         `UPG    bag ${this.mods.bagLevel}  disg ${this.mods.disguiseMul}  shoes ${Number(this.mods.silentShoes)} spd ${this.mods.speedMul}`,
-        `DUCK ANIM  mode ${this.playerAnimMode.toUpperCase()}  tex ${this.player.texture.key}`,
-        `DUCK ANIM  frame ${frame}  next ${next}  elapsed ${Math.round(this.playerAnimElapsed)}/${duration}`,
-        `DUCK ANIM  speed ${Math.round(vel)}  flipX ${this.player.flipX}  play ${Number(this.player.anims.isPlaying)}`,
+        `PLAYER ANIM  mode ${this.playerAnimMode.toUpperCase()}  tex ${this.player.texture.key}  actualSpeed ${Math.round(this.playerAnimSpeed)}`,
+        `PLAYER ANIM  frame ${frame} (shown ${this.player.frame.name})  next ${next}  seq [${frames.join(',')}]`,
+        `PLAYER ANIM  index ${this.playerAnimFrameIndex}  elapsed ${Math.round(this.playerAnimElapsed)}/${duration}  flipX ${this.player.flipX}`,
       ].join('\n'),
     )
   }
