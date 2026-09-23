@@ -7,6 +7,7 @@ import type { HeistLevelId } from './heistLevel'
 import { bindHeistI18n } from './heistI18n'
 import { haltHeistSfx, unlockHeistSfx } from './heistSfx'
 import { useI18n } from '../i18n/LanguageProvider'
+import { HeistGameV2 } from './v2/ui/HeistGameV2'
 
 export type { HeistEnd }
 
@@ -23,7 +24,25 @@ function telegramApp() {
   return tg ?? WebApp
 }
 
-export function HeistGame({ running, mods, levelId = 'bank', novice = false, onDone }: HeistGameProps) {
+const ENGINE_KEY = 'duckjackpot.heist.engine'
+
+/** V2 is the default on this branch; `?engine=v1` (or localStorage) keeps the old game for comparison. */
+function useLegacyEngine() {
+  try {
+    const q = new URLSearchParams(window.location.search).get('engine')
+    if (q === 'v1' || q === 'v2') localStorage.setItem(ENGINE_KEY, q)
+    return (q ?? localStorage.getItem(ENGINE_KEY)) === 'v1'
+  } catch {
+    return false
+  }
+}
+
+export function HeistGame(props: HeistGameProps) {
+  const legacy = useLegacyEngine()
+  return legacy ? <HeistGameV1 {...props} /> : <HeistGameV2 {...props} />
+}
+
+function HeistGameV1({ running, mods, levelId = 'bank', novice = false, onDone }: HeistGameProps) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const onDoneRef = useRef(onDone)
   onDoneRef.current = onDone
