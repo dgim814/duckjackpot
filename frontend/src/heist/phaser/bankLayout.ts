@@ -682,28 +682,42 @@ export function bankFinalLootIds() {
   return BANK_LOOT.filter((slot) => bankZoneAt(slot.x, slot.y).i >= BANK_ZONE_COUNT - 1).map((slot) => slot.id)
 }
 
+/**
+ * Loot curve by zone (index = zone number − 1). Early rooms pay a little but
+ * never nothing; value climbs with depth and peaks in the final vault.
+ */
 const LOOT_MIX: { c5: number; c10: number; c50: number; c100: number }[] = [
-  { c5: 8, c10: 4, c50: 1, c100: 0 },
-  { c5: 6, c10: 4, c50: 1, c100: 0 },
-  { c5: 8, c10: 5, c50: 1, c100: 0 },
-  { c5: 6, c10: 3, c50: 1, c100: 0 },
-  { c5: 6, c10: 3, c50: 1, c100: 0 },
-  { c5: 8, c10: 5, c50: 2, c100: 0 },
-  { c5: 6, c10: 3, c50: 1, c100: 0 },
-  { c5: 6, c10: 4, c50: 2, c100: 0 },
-  { c5: 8, c10: 5, c50: 2, c100: 1 },
-  { c5: 8, c10: 6, c50: 3, c100: 1 },
-  { c5: 8, c10: 6, c50: 3, c100: 1 },
-  { c5: 8, c10: 6, c50: 3, c100: 1 },
-  { c5: 8, c10: 6, c50: 4, c100: 1 },
-  { c5: 6, c10: 4, c50: 3, c100: 1 },
-  { c5: 8, c10: 6, c50: 4, c100: 2 },
-  { c5: 8, c10: 6, c50: 4, c100: 2 },
-  { c5: 8, c10: 8, c50: 4, c100: 2 },
-  { c5: 6, c10: 4, c50: 3, c100: 2 },
-  { c5: 8, c10: 6, c50: 4, c100: 2 },
-  { c5: 10, c10: 8, c50: 5, c100: 3 },
+  { c5: 8, c10: 2, c50: 0, c100: 0 }, // 1 start      60
+  { c5: 8, c10: 3, c50: 0, c100: 0 }, // 2 lobby      70
+  { c5: 10, c10: 5, c50: 1, c100: 0 }, // 3 hall      150
+  { c5: 5, c10: 3, c50: 1, c100: 0 }, // 4 west      105
+  { c5: 5, c10: 4, c50: 1, c100: 0 }, // 5 east      115
+  { c5: 8, c10: 5, c50: 1, c100: 0 }, // 6 offices   140
+  { c5: 5, c10: 4, c50: 1, c100: 0 }, // 7 toilet    115
+  { c5: 6, c10: 5, c50: 2, c100: 0 }, // 8 utility   180
+  { c5: 5, c10: 5, c50: 2, c100: 1 }, // 9 archive   275
+  { c5: 8, c10: 6, c50: 3, c100: 1 }, // 10 security 350
+  { c5: 8, c10: 6, c50: 3, c100: 1 }, // 11 server   350
+  { c5: 8, c10: 6, c50: 3, c100: 1 }, // 12 central  350
+  { c5: 8, c10: 6, c50: 4, c100: 1 }, // 13 closed   400
+  { c5: 6, c10: 5, c50: 3, c100: 1 }, // 14 storageA 330
+  { c5: 6, c10: 5, c50: 4, c100: 2 }, // 15 safeA    480
+  { c5: 8, c10: 6, c50: 4, c100: 2 }, // 16 deep     500
+  { c5: 8, c10: 7, c50: 4, c100: 2 }, // 17 wing     510
+  { c5: 6, c10: 5, c50: 4, c100: 2 }, // 18 storageB 480
+  { c5: 6, c10: 5, c50: 4, c100: 3 }, // 19 safeB    580
+  { c5: 10, c10: 8, c50: 5, c100: 3 }, // 20 final   680
 ]
+
+/**
+ * Loot layout version. Bumping it gives every coin a new id, so saves drained
+ * by the V1 bug (coins marked taken on pickup even when caught) start with a
+ * full building once. Coins taken from this layout stay taken as before.
+ */
+const LOOT_LAYOUT = 'bl2'
+/** About one phone screen of world width: every column gets its share of coins. */
+const LOOT_COLUMN_W = 700
+const LOOT_MIN_GAP = 96
 
 function lootBlocked() {
   return [
@@ -724,6 +738,16 @@ function lootWalkable(rects: BankRect[], x: number, y: number, pad = 26) {
   return true
 }
 
+function hash(x: number, y: number, seed: number) {
+  let h = (Math.floor(x) * 73856093) ^ (Math.floor(y) * 19349663) ^ (seed * 83492791)
+  h = Math.imul(h ^ (h >>> 13), 1274126177)
+  return ((h ^ (h >>> 16)) >>> 0) / 0xffffffff
+}
+
+/**
+ * Spread each room's coins over screen-wide columns so wherever the duck
+ * stands a few targets are in view; within a column keep coins apart.
+ */
 function fillBankLoot() {
   const blocked = lootBlocked()
   const out: BankLoot[] = []
@@ -735,21 +759,54 @@ function fillBankLoot() {
       ...Array.from({ length: mix.c50 }, () => 'C50' as const),
       ...Array.from({ length: mix.c100 }, () => 'C100' as const),
     ]
-    const spots: { x: number; y: number }[] = []
-    const step = zone.w * zone.h > 900000 ? 72 : 56
+    const seed = (zone.i + 1) * 31
+    // Interleave values so no column is all pennies or all jackpots.
+    const order = kinds.map((kind, i) => ({ kind, r: hash(i, 7, seed) })).sort((p, q) => p.r - q.r)
+    for (let i = 0; i < kinds.length; i += 1) kinds[i] = order[i].kind
+
+    const cols = Math.max(1, Math.round(zone.w / LOOT_COLUMN_W))
+    const colW = zone.w / cols
+    const buckets: { x: number; y: number; r: number }[][] = Array.from({ length: cols }, () => [])
+    const area = zone.w * zone.h
+    const step = area > 900000 ? 64 : area > 400000 ? 48 : 32
     for (let x = zone.x + 56; x < zone.x + zone.w - 56; x += step) {
       for (let y = zone.y + 48; y < zone.y + zone.h - 48; y += step) {
         if (!lootWalkable(blocked, x, y, 34)) continue
         if (bankZoneAt(x, y).i !== zone.i) continue
-        if (spots.some((p) => Math.abs(p.x - x) < 44 && Math.abs(p.y - y) < 44)) continue
-        spots.push({ x, y })
+        const c = Math.min(cols - 1, Math.floor((x - zone.x) / colW))
+        buckets[c].push({ x, y, r: hash(x, y, seed) })
       }
     }
-    const seed = (zone.i + 1) * 17
-    spots.sort((a, b) => ((a.x * 13 + a.y * 7 + seed) % 97) - ((b.x * 13 + b.y * 7 + seed) % 97))
-    const take = Math.min(kinds.length, spots.length)
-    for (let i = 0; i < take; i += 1) {
-      out.push({ id: `bl-z${zone.i}-${i}`, x: spots[i].x, y: spots[i].y, kind: kinds[i] })
+    // The start room greets the player: its coins line up nearest the spawn first.
+    const home = bankZoneAt(BANK_SPAWN.x, BANK_SPAWN.y).i === zone.i
+    if (home) {
+      for (const b of buckets) for (const q of b) q.r = Math.hypot(q.x - BANK_SPAWN.x, (q.y - BANK_SPAWN.y) * 1.6) + q.r * 120
+    }
+    for (const b of buckets) b.sort((a, c) => a.r - c.r)
+    const firstCol = home ? Math.min(cols - 1, Math.floor((BANK_SPAWN.x - zone.x) / colW)) : 0
+
+    const placed: { x: number; y: number }[] = []
+    const pick = (c: number, gap: number) => {
+      for (const cand of buckets[c]) {
+        if (placed.some((p) => Math.hypot(p.x - cand.x, p.y - cand.y) < gap)) continue
+        return cand
+      }
+      return null
+    }
+    let n = 0
+    for (let k = 0; k < kinds.length; k += 1) {
+      // Round-robin over columns; small rooms fall back to a tighter gap so no coin is dropped.
+      let spot: { x: number; y: number } | null = null
+      // The first few start-room coins sit around the spawn: the player sees loot at once.
+      const base = home && k < 4 ? firstCol - k : firstCol
+      for (const gap of [LOOT_MIN_GAP, LOOT_MIN_GAP * 0.6, LOOT_MIN_GAP * 0.4]) {
+        for (let tries = 0; tries < cols && !spot; tries += 1) spot = pick((((base + k + tries) % cols) + cols) % cols, gap)
+        if (spot) break
+      }
+      if (!spot) continue
+      placed.push(spot)
+      out.push({ id: `${LOOT_LAYOUT}-z${zone.i}-${n}`, x: spot.x, y: spot.y, kind: kinds[k] })
+      n += 1
     }
   }
   BANK_LOOT.push(...out)
