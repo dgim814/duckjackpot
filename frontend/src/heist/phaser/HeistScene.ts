@@ -159,7 +159,7 @@ const GUARD_FRAME = 256
 const GUARD_DISPLAY = 60
 const DUCK_SHEET = '/heist/duck_sheet.png'
 const DUCK_FRAME = 256
-const DUCK_DISPLAY = 136
+const DUCK_DISPLAY = 104
 /** Display size the body placement was tuned at; the body keeps that world offset. */
 const DUCK_BODY_FROM = 104
 const DUCK_BODY_W = 20
@@ -417,10 +417,6 @@ export class HeistScene extends Phaser.Scene {
   private cfg: HeistTuning
   private cfgV = -1
   private uiCam?: Phaser.Cameras.Scene2D.Camera
-  private cameraPixelLocked = false
-  private playerDrawX = 0
-  private playerDrawY = 0
-  private playerDrawLocked = false
 
   constructor(onDone: (end: HeistEnd) => void, mods: HeistRunMods, levelId: HeistLevelId = 'bank', novice = false) {
     super('HeistScene')
@@ -527,7 +523,7 @@ export class HeistScene extends Phaser.Scene {
   }
 
   /**
-   * One follow source. Zoom 0.5 + roundPixels + no deadzone.
+   * One follow source. Zoom 0.5 + no deadzone, rendered at subpixel precision.
    * setDeadzone(0, 0) is NOT "off": Phaser still uses the deadzone follow path
    * and that path jitters with a fractional zoom.
    */
@@ -536,62 +532,10 @@ export class HeistScene extends Phaser.Scene {
     const cam = this.cameras.main
     this.fitEvenCamera()
     cam.setZoom(0.5)
-    cam.roundPixels = true
     cam.setDeadzone()
     cam.setFollowOffset(0, 88)
     cam.setBounds(0, 0, this.mapW, this.mapH)
-    cam.startFollow(this.player, true, 1, 1)
-    this.installCameraPixelLock()
-  }
-
-  /**
-   * Phaser skips sprite round-pixels when zoom is not an integer, and bounds
-   * clamp can reintroduce half pixels after floor(). Snap the follow result
-   * onto the 1:2 pixel grid without a second scroll controller.
-   */
-  private installCameraPixelLock() {
-    if (this.cameraPixelLocked) return
-    this.cameraPixelLocked = true
-    const cam = this.cameras.main
-    cam.on(Phaser.Cameras.Scene2D.Events.FOLLOW_UPDATE, this.snapCameraToPixelGrid)
-    this.events.on(Phaser.Scenes.Events.PRE_RENDER, this.snapPlayerToCameraGrid)
-    this.events.on(Phaser.Scenes.Events.RENDER, this.restorePlayerFromCameraGrid)
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
-      cam.off(Phaser.Cameras.Scene2D.Events.FOLLOW_UPDATE, this.snapCameraToPixelGrid)
-      this.events.off(Phaser.Scenes.Events.PRE_RENDER, this.snapPlayerToCameraGrid)
-      this.events.off(Phaser.Scenes.Events.RENDER, this.restorePlayerFromCameraGrid)
-    })
-  }
-
-  private snapCameraToPixelGrid = () => {
-    const cam = this.cameras.main as Phaser.Cameras.Scene2D.Camera & {
-      matrix: Phaser.GameObjects.Components.TransformMatrix
-      rotation: number
-    }
-    const step = 1 / cam.zoomX
-    cam.scrollX = Math.round(cam.scrollX / step) * step
-    cam.scrollY = Math.round(cam.scrollY / step) * step
-    const originX = cam.width * cam.originX
-    const originY = cam.height * cam.originY
-    cam.matrix.applyITRS(Math.round(cam.x + originX), Math.round(cam.y + originY), cam.rotation, cam.zoomX, cam.zoomY)
-    cam.matrix.translate(-originX, -originY)
-  }
-
-  private snapPlayerToCameraGrid = () => {
-    if (!this.player) return
-    this.playerDrawX = this.player.x
-    this.playerDrawY = this.player.y
-    this.playerDrawLocked = true
-    const step = 1 / this.cameras.main.zoomX
-    this.player.x = Math.round(this.player.x / step) * step
-    this.player.y = Math.round(this.player.y / step) * step
-  }
-
-  private restorePlayerFromCameraGrid = () => {
-    if (!this.player || !this.playerDrawLocked) return
-    this.player.x = this.playerDrawX
-    this.player.y = this.playerDrawY
-    this.playerDrawLocked = false
+    cam.startFollow(this.player, false, 1, 1)
   }
 
   preload() {
