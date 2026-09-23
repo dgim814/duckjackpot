@@ -172,7 +172,7 @@ export function adaptiveCameraZoom(_viewW: number, _viewH: number, _base = DEFAU
  */
 const LEVEL_TUNING: Record<HeistLevelId, TuningPatch> = {
   bank: {
-    player: { walkMul: 0.9 },
+    player: { run: 160, walkMul: 0.9 },
     weight: { enabled: true, penaltyStart: 0.6, maxSpeedPenalty: 0.18, maxNoiseBonus: 0.25 },
     alert: { phasesEnabled: true, stepHoldS: { chase: 3.5, danger: 2.8, suspicious: 1.8 } },
     escape: { enabled: true, timerS: 90, sirenAlert: 0.72, routeChange: false },
