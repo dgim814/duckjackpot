@@ -159,7 +159,9 @@ const GUARD_FRAME = 256
 const GUARD_DISPLAY = 60
 const DUCK_SHEET = '/heist/duck_sheet.png'
 const DUCK_FRAME = 256
-const DUCK_DISPLAY = 104
+const DUCK_DISPLAY = 136
+/** Display size the body placement was tuned at; the body keeps that world offset. */
+const DUCK_BODY_FROM = 104
 const DUCK_BODY_W = 20
 const DUCK_BODY_H = 22
 /** Previous visual size; keep world hitbox identical when display scale changes. */
@@ -179,7 +181,7 @@ const PLAYER_ANIM_MS: Record<MoveAnim, number> = {
   idle: 150,
   walk: 100,
   sneak: 125,
-  run: 70,
+  run: 85,
   dash: 55,
 }
 /** Smoothed measured body speed (px/s) that starts / stops the moving cycles. */
@@ -2539,7 +2541,13 @@ export class HeistScene extends Phaser.Scene {
     if (!pb) return
     const hit = DUCK_HITBOX_FROM / DUCK_DISPLAY
     pb.setSize(DUCK_BODY_W * hit, DUCK_BODY_H * hit, false)
-    pb.setOffset((this.player.width / 2 - DUCK_BODY_W / 2) * hit, (this.player.height / 2 - 8) * hit)
+    const k0 = DUCK_BODY_FROM / Math.max(fw, fh)
+    const hit0 = DUCK_HITBOX_FROM / DUCK_BODY_FROM
+    const cx = this.player.width / 2
+    const cy = this.player.height / 2
+    const wx = k0 * ((cx - DUCK_BODY_W / 2) * hit0 - cx)
+    const wy = k0 * ((cy - 8) * hit0 - cy)
+    pb.setOffset(cx + wx / k, cy + wy / k)
   }
 
   private inRect(z: HideZone, x: number, y: number) {
