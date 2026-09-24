@@ -178,7 +178,13 @@ const LEVEL_TUNING: Record<HeistLevelId, TuningPatch> = {
     escape: { enabled: true, timerS: 90, sirenAlert: 0.72, routeChange: false },
   },
   // 40 zones: the siren run back from the deep safes is long, so the countdown is too.
-  mansion: { weight: { enabled: true }, alert: { phasesEnabled: true }, escape: { enabled: true, timerS: 150, routeChange: false } },
+  // DASH is ~22% stronger here (speed only: same 200 ms, cooldown, noise and collision).
+  mansion: {
+    player: { dash: 392 },
+    weight: { enabled: true },
+    alert: { phasesEnabled: true },
+    escape: { enabled: true, timerS: 150, routeChange: false },
+  },
 }
 
 export function mergeTuning(base: HeistTuning, patch?: TuningPatch): HeistTuning {
