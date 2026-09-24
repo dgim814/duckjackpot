@@ -1,7 +1,10 @@
 import { useRef, useSyncExternalStore } from 'react'
 import type { RaidPhase } from '../sim/events'
 
-export type Toast = { id: number; kind: 'intro' | 'info' | 'good' | 'warn' | 'danger'; title: string; sub?: string; until: number }
+export type Toast = { id: number; kind: 'intro' | 'info' | 'good' | 'warn' | 'danger' | 'safe'; title: string; sub?: string; note?: string; until: number }
+
+/** Coins flying from a cracked safe to the bag chip; x/y are the safe on screen, 0..1. */
+export type SafeFly = { id: number; x: number; y: number; amount: number }
 
 export type HudSnapshot = {
   bag: number
@@ -28,6 +31,11 @@ export type HudSnapshot = {
   hidden: boolean
   exitHold: number
   escapeLeft: number | null
+  /** The police countdown was started by a cracked safe. */
+  escapeBySafe: boolean
+  /** First seconds after a safe triggered the police: the timer pill carries the explanation. */
+  escapeIntro: boolean
+  safeFly: SafeFly | null
   /** Direction from the duck to the EXIT on screen, when the exit is off-screen. */
   exitArrow: { angle: number; dist: number } | null
   paused: boolean
@@ -61,6 +69,9 @@ export const EMPTY_HUD: HudSnapshot = {
   hidden: false,
   exitHold: 0,
   escapeLeft: null,
+  escapeBySafe: false,
+  escapeIntro: false,
+  safeFly: null,
   exitArrow: null,
   paused: false,
   ended: false,

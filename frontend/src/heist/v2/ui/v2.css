@@ -766,3 +766,112 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* ---------- safe payout (told apart from floor loot) ---------- */
+.v2-toast-safe {
+  padding: 10px 22px 12px;
+  border: 2px solid var(--gold);
+  background: linear-gradient(180deg, rgba(58, 38, 6, 0.94), rgba(20, 12, 4, 0.94));
+  box-shadow: 0 0 26px rgba(255, 214, 90, 0.45), 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+.v2-toast-safe .v2-toast-title {
+  font-size: 16px;
+  color: #fff1c2;
+}
+.v2-toast-safe .v2-toast-sub {
+  font-family: Unbounded, system-ui, sans-serif;
+  font-size: 24px;
+  font-weight: 900;
+  color: var(--gold);
+  text-shadow: 0 2px 0 #3a2408, 0 0 14px rgba(255, 214, 90, 0.55);
+  margin-top: 4px;
+}
+.v2-toast-note {
+  font-family: Manrope, system-ui, sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  color: #ffc49a;
+  margin-top: 4px;
+}
+.v2-siren small {
+  display: block;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  opacity: 0.9;
+  margin-top: 1px;
+}
+.v2-fly {
+  position: absolute;
+  inset: 0;
+  pointer-events: none !important;
+  overflow: hidden;
+}
+.v2-fly-coin {
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  left: var(--sx);
+  top: var(--sy);
+  transform: translate(-50%, -50%) scale(0.5);
+  opacity: 0;
+  filter: drop-shadow(0 0 6px rgba(255, 214, 90, 0.9));
+  animation: v2-fly 0.9s cubic-bezier(0.5, 0, 0.3, 1) both;
+}
+@keyframes v2-fly {
+  0% {
+    left: var(--sx);
+    top: var(--sy);
+    transform: translate(-50%, -50%) scale(0.5);
+    opacity: 0;
+  }
+  22% {
+    left: var(--sx);
+    top: var(--sy);
+    transform: translate(calc(-50% + var(--bx)), calc(-50% + var(--by))) scale(1.15);
+    opacity: 1;
+  }
+  100% {
+    left: 36px;
+    top: calc(var(--safe-top) + 34px);
+    transform: translate(-50%, -50%) scale(0.55);
+    opacity: 0.85;
+  }
+}
+.v2-bag.is-safe-pop {
+  animation: v2-safe-pop 0.65s ease-out;
+  border-color: var(--gold);
+}
+@keyframes v2-safe-pop {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 0 rgba(255, 214, 90, 0);
+  }
+  35% {
+    transform: scale(1.08);
+    box-shadow: 0 0 22px rgba(255, 214, 90, 0.8);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 rgba(255, 214, 90, 0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .v2-fly-coin {
+    animation-duration: 0.01s;
+  }
+}
+
+.v2-siren.is-intro {
+  padding: 8px 16px;
+  border-radius: 16px;
+  text-align: center;
+  border-width: 2px;
+  box-shadow: 0 0 22px rgba(255, 70, 40, 0.55);
+}
+.v2-siren.is-intro b {
+  font-size: 14px;
+}
+.v2-siren.is-intro small {
+  font-size: 11px;
+  margin-top: 2px;
+}

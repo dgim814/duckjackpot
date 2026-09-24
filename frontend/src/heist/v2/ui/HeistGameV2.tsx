@@ -17,7 +17,7 @@ import { InputController } from '../sim/Input'
 import { Raid } from '../sim/Raid'
 import { HeistV2Scene } from '../render/HeistV2Scene'
 import { ActionButtons, Joystick } from './Controls'
-import { CrackPanel, ExitArrow, PauseMenu, StatusLayer, Toasts, TopBar } from './Hud'
+import { CrackPanel, ExitArrow, PauseMenu, SafeFlyLayer, StatusLayer, Toasts, TopBar } from './Hud'
 import { NftVaultPanel } from './NftVault'
 import { HudStore } from './store'
 import './v2.css'
@@ -244,6 +244,8 @@ export function HeistGameV2({ running, mods, levelId = 'bank', novice = false, o
         <ExitArrow hud={hud} />
         <CrackPanel hud={hud} />
         <Toasts hud={hud} />
+        {/* Over the banners, under the bag chip: the coins read as dropping into the bag. */}
+        <SafeFlyLayer hud={hud} />
         <TopBar hud={hud} onPause={pause} />
         {!nftOpen && <PauseMenu hud={hud} onResume={pause} onAbort={abort} />}
         {nftOpen && <NftVaultPanel ids={vaultIds} trial={trial} onTry={tryNft} onOpenDrop={openDrop} onClose={closeNft} />}

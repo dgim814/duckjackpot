@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { heistT } from '../../heistI18n'
 import type { RaidPhase } from '../sim/events'
 import { useHud, shallowEqual, type HudStore } from './store'
@@ -8,6 +9,9 @@ const PHASE_LABEL: Record<RaidPhase, 'heistHudSafe' | 'heistHudSuspicious' | 'he
   DANGER: 'heistHudDanger',
   CHASE: 'heistHudChase',
 }
+
+/** Time the safe coins take to fly into the bag chip (matches .v2-fly-coin in v2.css). */
+const SAFE_FLY_MS = 900
 
 function clock(s: number) {
   const m = Math.floor(s / 60)
@@ -35,14 +39,32 @@ export function TopBar({ hud, onPause }: { hud: HudStore; onPause: () => void })
     }),
     shallowEqual,
   )
-  const bagPct = Math.min(100, (s.bag / Math.max(1, s.cap)) * 100)
+  // A safe's payout reaches the counter when its coins land on the chip, not before.
+  const fly = useHud(hud, (h) => h.safeFly, (a, b) => a?.id === b?.id)
+  const [pending, setPending] = useState<{ id: number; amount: number } | null>(null)
+  const [pop, setPop] = useState(false)
+  useEffect(() => {
+    if (!fly) return
+    setPending({ id: fly.id, amount: fly.amount })
+    const land = window.setTimeout(() => {
+      setPending(null)
+      setPop(true)
+    }, SAFE_FLY_MS)
+    const done = window.setTimeout(() => setPop(false), SAFE_FLY_MS + 650)
+    return () => {
+      window.clearTimeout(land)
+      window.clearTimeout(done)
+    }
+  }, [fly])
+  const shown = pending ? Math.max(0, s.bag - pending.amount) : s.bag
+  const bagPct = Math.min(100, (shown / Math.max(1, s.cap)) * 100)
   return (
     <div className="v2-top">
-      <div className={`v2-chip v2-bag${s.full ? ' is-full' : ''}`}>
+      <div className={`v2-chip v2-bag${s.full && !pending ? ' is-full' : ''}${pop ? ' is-safe-pop' : ''}`}>
         <img src="/heist/coin_10.png" alt="" className="v2-coin" draggable={false} />
         <div className="v2-bag-body">
           <div className="v2-bag-num">
-            <b>{s.bag}</b>
+            <b>{shown}</b>
             <span>/{s.cap}</span>
           </div>
           <div className="v2-bar">
@@ -92,17 +114,29 @@ export function TopBar({ hud, onPause }: { hud: HudStore; onPause: () => void })
 export function Toasts({ hud }: { hud: HudStore }) {
   const toasts = useHud(hud, (h) => h.toasts)
   const escape = useHud(hud, (h) => h.escapeLeft)
+  const bySafe = useHud(hud, (h) => h.escapeBySafe)
+  const intro = useHud(hud, (h) => h.escapeIntro)
   return (
     <div className="v2-toasts">
-      {escape !== null && (
-        <div className="v2-siren">
-          <b>{heistT('heistPolice')}</b> {clock(escape)}
-        </div>
-      )}
+      {escape !== null &&
+        (intro ? (
+          <div className="v2-siren is-intro">
+            <b>{heistT('heistPoliceAlerted')}</b>
+            <small>
+              {heistT('heistPoliceWhy')} · {clock(escape)}
+            </small>
+          </div>
+        ) : (
+          <div className="v2-siren">
+            <b>{heistT('heistPolice')}</b> {clock(escape)}
+            {bySafe && <small>{heistT('heistPoliceCause')}</small>}
+          </div>
+        ))}
       {toasts.map((t) => (
         <div key={t.id} className={`v2-toast v2-toast-${t.kind}`}>
           <div className="v2-toast-title">{t.title}</div>
           {t.sub && <div className="v2-toast-sub">{t.sub}</div>}
+          {t.note && <div className="v2-toast-note">{t.note}</div>}
         </div>
       ))}
     </div>
@@ -175,6 +209,45 @@ export function PauseMenu({ hud, onResume, onAbort }: { hud: HudStore; onResume:
           {heistT('heistAbortRaid')}
         </button>
       </div>
+    </div>
+  )
+}
+
+/** Coins bursting out of a cracked safe and flying into the bag chip (cosmetic only). */
+export function SafeFlyLayer({ hud }: { hud: HudStore }) {
+  const fly = useHud(hud, (h) => h.safeFly, (a, b) => a?.id === b?.id)
+  const [shown, setShown] = useState<typeof fly>(null)
+  useEffect(() => {
+    if (!fly) return
+    setShown(fly)
+    const t = window.setTimeout(() => setShown(null), SAFE_FLY_MS + 200)
+    return () => window.clearTimeout(t)
+  }, [fly])
+  if (!shown) return null
+  const n = Math.min(10, 4 + Math.floor(shown.amount / 50))
+  return (
+    <div className="v2-fly" key={shown.id} aria-hidden>
+      {Array.from({ length: n }, (_, i) => {
+        const a = (i / n) * Math.PI * 2
+        return (
+          <img
+            key={i}
+            src="/heist/coin_100.png"
+            alt=""
+            draggable={false}
+            className="v2-fly-coin"
+            style={
+              {
+                '--sx': `${shown.x * 100}%`,
+                '--sy': `${shown.y * 100}%`,
+                '--bx': `${Math.cos(a) * 46}px`,
+                '--by': `${Math.sin(a) * 34 - 18}px`,
+                animationDelay: `${i * 35}ms`,
+              } as React.CSSProperties
+            }
+          />
+        )
+      })}
     </div>
   )
 }

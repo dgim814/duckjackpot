@@ -6,7 +6,7 @@ import { zoneAt } from '../level/LevelDef'
 import type { RaidEvent } from '../sim/events'
 import type { InputController } from '../sim/Input'
 import { Raid, SIM_DT } from '../sim/Raid'
-import type { HudSnapshot, HudStore, Toast } from '../ui/store'
+import type { HudSnapshot, HudStore, SafeFly, Toast } from '../ui/store'
 import type { NftSkinDef } from '../../nftTrial'
 import { DuckView, GuardView, createActorAnims, nftSkinTextureKey } from './Actors'
 import { AudioBridge } from './AudioBridge'
@@ -36,6 +36,8 @@ export type SceneDeps = {
 
 /** Zones (1-based) where MANSION suggests heading back, once per raid each. */
 const FAR_HINTS = [15, 25, 35]
+/** How long the police pill spells out why the timer started. */
+const SIREN_INTRO_S = 3.6
 
 /**
  * Thin Phaser scene: it owns no game rules. Each frame it advances the fixed
@@ -67,6 +69,11 @@ export class HeistV2Scene extends Phaser.Scene {
   private depthAtStart = 0
   private nftView: NftVaultView | null = null
   private farShown = new Set<number>()
+  /** Last cracked safe, for the coins that fly to the bag chip (held briefly in the HUD). */
+  private safeFly: (SafeFly & { until: number }) | null = null
+  private safeFlyId = 0
+  private sirenBySafe = false
+  private sirenAt = -1
   stepsLastFrame = 0
 
   constructor(deps: SceneDeps) {
@@ -265,20 +272,42 @@ export class HeistV2Scene extends Phaser.Scene {
         this.toast('good', heistT('heistDoorOpened'), undefined, 1.4)
         break
       }
-      case 'safeOpened':
+      case 'safeOpened': {
+        // The safe's own payout, told apart from floor coins: gold flash, burst, a big number,
+        // a dedicated banner with the exact amount and coins flying into the bag chip.
         this.fx.burst(e.x, e.y, 34, 320)
-        if (e.reward > 0) this.fx.float(e.x, e.y - 90, `+${e.reward}`, 'big')
+        this.safeFlash(e.x, e.y)
+        if (e.total > 0) this.fx.float(e.x, e.y - 90, `+${e.total}`, 'big')
         this.rig.shake(0.35, 18)
+        // A bag overflow from this safe is explained on the safe banner itself: no second "bag full" banner.
+        this.toasts = this.toasts.filter((t) => !(t.kind === 'warn' && t.until > this.clock + 2))
         this.toast(
-          'good',
-          heistT('heistSafeOpenedTitle'),
-          e.reward > 0 ? heistT('heistSafeReward', { n: e.reward }) : heistT('heistBagFull'),
-          2.2,
+          'safe',
+          heistT('heistSafeBanner'),
+          heistT('heistSafeReward', { n: e.total }),
+          3.2,
+          e.spilled > 0 ? heistT('heistSafeSpilled', { n: e.spilled }) : undefined,
         )
+        if (e.reward > 0) {
+          const cam = this.cameras.main
+          const wv = cam.worldView
+          this.safeFlyId += 1
+          this.safeFly = {
+            id: this.safeFlyId,
+            x: Math.min(0.95, Math.max(0.05, (e.x - wv.x) / Math.max(1, wv.width))),
+            y: Math.min(0.9, Math.max(0.1, (e.y - 40 - wv.y) / Math.max(1, wv.height))),
+            amount: e.reward,
+            until: this.clock + 1.4,
+          }
+        }
+        this.sirenBySafe = true
         break
+      }
       case 'siren':
         this.rig.shake(0.4, 22)
-        this.toast('danger', heistT('heistSiren'), heistT('heistFleeNow'), 3)
+        // A safe-triggered siren is explained by the police timer pill itself (see Toasts).
+        this.sirenAt = this.clock
+        if (!this.sirenBySafe) this.toast('danger', heistT('heistSiren'), heistT('heistFleeNow'), 3)
         break
       case 'chaseStart':
         this.toast('danger', heistT('heistV2Seen'), undefined, 1.6)
@@ -334,11 +363,23 @@ export class HeistV2Scene extends Phaser.Scene {
     }
   }
 
-  private toast(kind: Toast['kind'], title: string, sub: string | undefined, seconds: number) {
+  private toast(kind: Toast['kind'], title: string, sub: string | undefined, seconds: number, note?: string) {
     this.toastId += 1
     // One banner per kind at a time; the newest wins.
     this.toasts = this.toasts.filter((t) => t.kind !== kind && t.until > this.clock).slice(-1)
-    this.toasts.push({ id: this.toastId, kind, title, sub, until: this.clock + seconds })
+    this.toasts.push({ id: this.toastId, kind, title, sub, note, until: this.clock + seconds })
+  }
+
+  /** One short additive gold bloom on the safe (single sprite, destroyed after). */
+  private safeFlash(x: number, y: number) {
+    const glow = this.add
+      .image(x, y - 20, 'v2_glow')
+      .setTint(0xffd65a)
+      .setBlendMode(Phaser.BlendModes.ADD)
+      .setDepth(DEPTH.fx)
+      .setDisplaySize(120, 120)
+      .setAlpha(0.95)
+    this.tweens.add({ targets: glow, displayWidth: 380, displayHeight: 380, alpha: 0, duration: 750, ease: 'Cubic.easeOut', onComplete: () => glow.destroy() })
   }
 
   // ---------- HUD ----------
@@ -395,6 +436,9 @@ export class HeistV2Scene extends Phaser.Scene {
       hidden: raid.hidden,
       exitHold: Math.round(Math.min(1, raid.exitHold / 0.6) * 20) / 20,
       escapeLeft: raid.escapeUntil > 0 ? Math.max(0, Math.ceil(raid.escapeUntil - raid.time)) : null,
+      escapeBySafe: raid.escapeUntil > 0 && this.sirenBySafe,
+      escapeIntro: raid.escapeUntil > 0 && this.sirenBySafe && this.clock - this.sirenAt < SIREN_INTRO_S,
+      safeFly: this.safeFly && this.safeFly.until > this.clock ? { id: this.safeFly.id, x: this.safeFly.x, y: this.safeFly.y, amount: this.safeFly.amount } : null,
       exitArrow: !exitVisible && raid.bag > 0 ? { angle: Math.round(Math.atan2(dy, dx) * 20) / 20, dist: Math.round(Math.hypot(dx, dy) / 50) * 50 } : null,
       paused: raid.paused,
       ended: raid.ended,

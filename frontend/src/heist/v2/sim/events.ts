@@ -17,7 +17,8 @@ export type RaidEvent =
   | { t: 'crackHit'; hits: number; need: number }
   | { t: 'crackMiss' }
   | { t: 'doorOpened'; id: string }
-  | { t: 'safeOpened'; id: string; reward: number; x: number; y: number }
+  /** reward = what went into the bag; total = the safe's full payout; spilled = left on the floor. */
+  | { t: 'safeOpened'; id: string; reward: number; total: number; spilled: number; x: number; y: number }
   | { t: 'siren' }
   | { t: 'cameraAlert' }
   | { t: 'investigate' }

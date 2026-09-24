@@ -489,7 +489,7 @@ export class Raid {
       })
     }
     this.lastSafe = { reward: gained, at: this.time }
-    this.events.push({ t: 'safeOpened', id, reward: gained, x: safe.x, y: safe.y })
+    this.events.push({ t: 'safeOpened', id, reward: gained, total: safe.reward, spilled: Math.max(0, safe.reward - gained), x: safe.x, y: safe.y })
     this.triggerSiren()
   }
 
