@@ -236,6 +236,90 @@ export function paintSolid(g: G, s: SolidDef, p: Palette) {
       g.fillRect(cx - 4, cy, 8, 2)
       return
     }
+    case 'piano': {
+      shadow(g, s, 10)
+      g.fillStyle(0x0a0a0c, 1)
+      g.fillRoundedRect(x, y, w, h, { tl: 8, tr: 40, bl: 8, br: 8 })
+      g.fillStyle(0x1c1c22, 1)
+      g.fillRoundedRect(x + 6, y + 6, w - 12, h - 30, { tl: 6, tr: 34, bl: 4, br: 4 })
+      g.fillStyle(0xf2efe6, 1)
+      g.fillRect(x + 8, y + h - 22, w - 16, 12)
+      g.fillStyle(0x0a0a0c, 1)
+      for (let k = x + 14; k < x + w - 12; k += 9) g.fillRect(k, y + h - 22, 4, 7)
+      g.lineStyle(1.5, p.accent, 0.7)
+      g.strokeRoundedRect(x + 1, y + 1, w - 2, h - 2, 8)
+      return
+    }
+    case 'table': {
+      shadow(g, s)
+      block(g, s, 0x6a4428, 0x3a2414, 10, 6)
+      g.fillStyle(0xf0e6d0, 0.85)
+      g.fillRoundedRect(x + 8, y + 6, w - 16, h - 22, 4)
+      g.fillStyle(p.accent, 0.9)
+      for (let k = 0; k < 3; k += 1) g.fillCircle(x + ((k + 1) * w) / 4, y + h / 2 - 6, 4)
+      return
+    }
+    case 'display': {
+      shadow(g, s)
+      block(g, s, 0x2a2420, 0x16120e, 12, 4)
+      g.fillStyle(0x9ad8ff, 0.18)
+      g.fillRect(x + 6, y + 5, w - 12, h - 22)
+      g.lineStyle(1.5, 0xd8f0ff, 0.5)
+      g.strokeRect(x + 6, y + 5, w - 12, h - 22)
+      g.fillStyle(0xffd65a, 0.95)
+      g.fillCircle(cx - 12, y + (h - 17) / 2, 5)
+      g.fillStyle(0xe06a8a, 0.95)
+      g.fillCircle(cx + 12, y + (h - 17) / 2, 4)
+      return
+    }
+    case 'statue': {
+      g.fillStyle(INK, 0.35)
+      g.fillEllipse(cx + 2, y + h - 4, w * 1.1, 16)
+      g.fillStyle(0x3a3430, 1)
+      g.fillRect(x + 4, y + h - 16, w - 8, 16)
+      g.fillStyle(0xc8c0b0, 1)
+      g.fillEllipse(cx, y + h * 0.45, w * 0.55, h * 0.7)
+      g.fillStyle(0xe8e2d4, 1)
+      g.fillCircle(cx - 2, y + h * 0.18, w * 0.18)
+      g.lineStyle(1.5, p.accent, 0.5)
+      g.strokeRect(x + 4, y + h - 16, w - 8, 16)
+      return
+    }
+    case 'pedestal': {
+      shadow(g, s)
+      block(g, s, 0xe8e2d4, 0x9a9486, 14, 4)
+      g.fillStyle(0xffd65a, 1)
+      g.fillRoundedRect(cx - 14, y + 8, 28, 16, 3)
+      g.fillStyle(0xfff4c8, 0.9)
+      g.fillRect(cx - 10, y + 10, 8, 4)
+      g.lineStyle(1.5, p.accent, 0.8)
+      g.strokeRect(x + 1, y + 1, w - 2, h - 2)
+      return
+    }
+    case 'grille': {
+      // Heavy vault bars: frame, vertical bars with a lit edge, cross rails.
+      g.fillStyle(INK, 0.45)
+      g.fillRect(x, y + h, w, 10)
+      g.fillStyle(0x1a1c20, 1)
+      g.fillRect(x, y, w, h)
+      g.fillStyle(0x3a3e46, 1)
+      g.fillRect(x, y, w, 5)
+      g.fillRect(x, y + h - 5, w, 5)
+      for (let bx = x + 10; bx < x + w - 6; bx += 22) {
+        g.fillStyle(0x4a505a, 1)
+        g.fillRect(bx, y - 150, 8, 150 + h)
+        g.fillStyle(0x9aa4b4, 0.9)
+        g.fillRect(bx + 1, y - 150, 2, 150 + h)
+        g.fillStyle(0x0a0b0e, 0.8)
+        g.fillRect(bx + 6, y - 150, 2, 150 + h)
+      }
+      g.fillStyle(0x5a606a, 1)
+      g.fillRect(x, y - 150, w, 6)
+      g.fillRect(x, y - 78, w, 5)
+      g.lineStyle(2, 0xffd65a, 0.55)
+      g.strokeRect(x + 1, y - 150, w - 2, 150 + h)
+      return
+    }
   }
 }
 
@@ -274,6 +358,24 @@ export function paintDecor(g: G, d: DecorDef, mansion: boolean) {
     g.strokeEllipse(x + w / 2, y + h / 2, Math.min(w, h) * 0.5, Math.min(w, h) * 0.34)
     g.fillStyle(GOLD, 0.12)
     g.fillEllipse(x + w / 2, y + h / 2, Math.min(w, h) * 0.3, Math.min(w, h) * 0.2)
+    return
+  }
+  if (d.kind === 'stairs') {
+    // Grand staircase going up: steps get lighter towards the landing.
+    const steps = 9
+    for (let i = 0; i < steps; i += 1) {
+      const sy = y + (i * h) / steps
+      const shade = 0x2a2018 + (steps - i) * 0x060504
+      g.fillStyle(shade, 1)
+      g.fillRect(x, sy, w, h / steps - 2)
+      g.fillStyle(0xffe6b0, 0.12)
+      g.fillRect(x, sy, w, 2)
+    }
+    g.fillStyle(0x7a1a24, 0.9)
+    g.fillRect(x + w * 0.25, y, w * 0.5, h)
+    g.lineStyle(3, GOLD, 0.8)
+    g.lineBetween(x + 6, y, x + 6, y + h)
+    g.lineBetween(x + w - 6, y, x + w - 6, y + h)
     return
   }
   if (d.kind === 'painting') {

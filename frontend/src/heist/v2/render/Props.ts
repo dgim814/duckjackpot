@@ -1,7 +1,8 @@
 import Phaser from 'phaser'
 import { coinDef } from '../../coinAssets'
+import { getRaffle } from '../../../constants'
 import { heistT } from '../../heistI18n'
-import type { LevelDef, Rect } from '../level/LevelDef'
+import type { LevelDef, NftVaultDef, Rect } from '../level/LevelDef'
 import type { Door, Raid, Safe } from '../sim/Raid'
 import type { Coin } from '../sim/Loot'
 import type { SecCam } from '../sim/SecurityCams'
@@ -334,5 +335,73 @@ export class CoinLayer {
       s.coin = null
     }
     this.used = n
+  }
+}
+
+/** Top prize of the main NFT Drop as "5,000" — read from the draw config, never invented. */
+export function nftWinAmount() {
+  const raw = getRaffle('classic').prizes[0]?.amount ?? ''
+  const n = Number.parseInt(raw.replace(/[^0-9]/g, ''), 10)
+  return Number.isFinite(n) ? n.toLocaleString('en-US') : raw
+}
+
+export function nftTextureKey(raffle: string) {
+  return `v2_nft_${raffle}`
+}
+
+/** NFT cards behind the vault bars: lit, floating a little, clearly out of reach. */
+export class NftVaultView {
+  private cards: { img: Phaser.GameObjects.Image; glow: Phaser.GameObjects.Image; y: number; phase: number }[] = []
+
+  constructor(scene: Phaser.Scene, vault: NftVaultDef) {
+    const back = scene.add
+      .rectangle(vault.grille.x, vault.grille.y - 190, vault.grille.w, 190, 0x04060c, 0.75)
+      .setOrigin(0, 0)
+      .setDepth(DEPTH.mood + 0.1)
+    back.setBlendMode(Phaser.BlendModes.NORMAL)
+    vault.cards.forEach((c, i) => {
+      const glow = scene.add
+        .image(c.x, c.y, 'v2_glow')
+        .setDisplaySize(230, 230)
+        .setTint(i === 1 ? 0xffd65a : 0x7ac8ff)
+        .setBlendMode(Phaser.BlendModes.ADD)
+        .setAlpha(0.45)
+        .setDepth(DEPTH.mood + 0.2)
+      const key = scene.textures.exists(nftTextureKey(c.raffle)) ? nftTextureKey(c.raffle) : 'v2_nft_default'
+      const img = scene.add.image(c.x, c.y, key).setDepth(DEPTH.mood + 0.3)
+      const size = i === 1 ? 118 : 96
+      const k = size / Math.max(img.width || size, img.height || size)
+      img.setScale(k)
+      this.cards.push({ img, glow, y: c.y, phase: i * 1.7 })
+    })
+    const cx = vault.grille.x + vault.grille.w / 2
+    scene.add
+      .text(cx, vault.view.y + vault.view.h + 34, heistT('heistNftVault'), {
+        fontFamily: 'Unbounded, system-ui, sans-serif',
+        fontSize: '30px',
+        color: '#bfe8ff',
+        stroke: '#04060c',
+        strokeThickness: 8,
+      })
+      .setOrigin(0.5)
+      .setDepth(DEPTH.labels)
+    scene.add
+      .text(cx, vault.view.y + vault.view.h + 74, heistT('heistNftWinTitle', { amount: nftWinAmount() }), {
+        fontFamily: 'Unbounded, system-ui, sans-serif',
+        fontSize: '26px',
+        color: '#ffd65a',
+        stroke: '#1a1006',
+        strokeThickness: 7,
+      })
+      .setOrigin(0.5)
+      .setDepth(DEPTH.labels)
+  }
+
+  update(time: number) {
+    for (const c of this.cards) {
+      const bob = Math.sin(time * 1.6 + c.phase) * 4
+      c.img.setY(c.y + bob)
+      c.glow.setAlpha(0.35 + Math.sin(time * 2 + c.phase) * 0.12)
+    }
   }
 }

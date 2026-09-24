@@ -27,6 +27,7 @@ export function TopBar({ hud, onPause }: { hud: HudStore; onPause: () => void })
       zoneCount: h.zoneCount,
       best: h.depthBest,
       level: h.level,
+      zoneName: h.zoneName,
       showWeight: h.showWeight,
       load: h.load,
       heavy: h.heavy,
@@ -70,7 +71,14 @@ export function TopBar({ hud, onPause }: { hud: HudStore; onPause: () => void })
             <div className="v2-zone-best">{heistT('heistV2Record', { n: s.best })}</div>
           </>
         ) : (
-          <div className="v2-zone-num">{heistT('heistMapMansion')}</div>
+          <>
+            <div className="v2-zone-lvl">{heistT('heistMapMansion')}</div>
+            <div className="v2-zone-num">
+              {s.zone}
+              <span>/{s.zoneCount}</span>
+            </div>
+            <div className="v2-zone-best v2-zone-name">{s.zoneName}</div>
+          </>
         )}
       </div>
       <button type="button" className="v2-pause" onPointerDown={(e) => { e.preventDefault(); onPause() }} aria-label={heistT('heistPause')}>

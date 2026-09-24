@@ -19,7 +19,7 @@ export type HudSnapshot = {
   load: number
   showWeight: boolean
   canDrop: boolean
-  prompt: 'door' | 'safe' | null
+  prompt: 'door' | 'safe' | 'nft' | null
   cracking: boolean
   crack: { kind: 'door' | 'safe'; marker: number; center: number; width: number; hits: number; need: number; miss: boolean } | null
   dashCd: number

@@ -4,9 +4,8 @@ import { heistLevelObjectives, type HeistLevelId } from '../../heistLevel'
 import { resolveTuning } from '../../debugConfig'
 import type { HeistTuning } from '../../tuning'
 import type { DuckCoinKind } from '../../coinAssets'
-import { MANSION_SIREN } from '../../phaser/mansionLayout'
 import { levelDef, zoneAt, type DoorDef, type LevelDef, type Rect, type SafeDef } from '../level/LevelDef'
-import { BankPersistence, type BankWorldSave } from '../persist/BankPersistence'
+import { persistenceFor, type BankWorldSave, type WorldPersistence } from '../persist/BankPersistence'
 import { Alert } from './Alert'
 import { SolidGrid, distToRect, pointInRect, type Solid } from './Collision'
 import { CrackGame, DOOR_HITS, SAFE_HITS } from './Crack'
@@ -30,7 +29,7 @@ export type DoorState = 'CLOSED' | 'HACKING' | 'OPEN'
 export type Door = DoorDef & { state: DoorState; solid: Solid; openedAt: number }
 export type Safe = SafeDef & { opened: boolean; openedAt: number }
 type Carried = { kind: DuckCoinKind; value: number; weight: number; persistId?: string }
-export type Prompt = { kind: 'door' | 'safe'; x: number; y: number } | null
+export type Prompt = { kind: 'door' | 'safe' | 'nft'; x: number; y: number } | null
 
 export class Raid {
   readonly level: LevelDef
@@ -74,10 +73,10 @@ export class Raid {
   result: HeistEnd | null = null
 
   private save: BankWorldSave | null
+  private store: WorldPersistence
   private runLootIds: string[] = []
   private runSafes: string[] = []
   private caughtFlag = false
-  private sirenWalls: Solid[] = []
 
   constructor(
     readonly levelId: HeistLevelId,
@@ -86,7 +85,9 @@ export class Raid {
   ) {
     this.level = levelDef(levelId)
     this.cfg = resolveTuning(levelId)
-    this.save = levelId === 'bank' ? BankPersistence.load() : null
+    // BANK and MANSION persist the same way, each in its own fields.
+    this.store = persistenceFor(levelId)
+    this.save = this.store.load()
     const obj = heistLevelObjectives(levelId)
     this.objLoot = Math.min(obj.loot, mods.bagCap)
     this.objTimeS = obj.timeS
@@ -100,9 +101,6 @@ export class Raid {
       solid.active = !open
       return { ...d, state: open ? 'OPEN' : 'CLOSED', solid, openedAt: -1 } as Door
     })
-    if (levelId === 'mansion') {
-      this.sirenWalls = MANSION_SIREN.openWalls.map((r) => this.solids.add(r))
-    }
     this.nav = new Nav(this.solids, NAV_CELL, NAV_PAD)
 
     this.player = new Player(L.spawn.x, L.spawn.y)
@@ -382,11 +380,21 @@ export class Raid {
       return
     }
     const safe = this.nearestSafe()
-    this.prompt = safe ? { kind: 'safe', x: safe.x, y: safe.y } : null
+    if (safe) {
+      this.prompt = { kind: 'safe', x: safe.x, y: safe.y }
+      return
+    }
+    const vault = this.level.nftVault
+    this.prompt = vault && pointInRect(this.player.x, this.player.y, vault.view) ? { kind: 'nft', x: this.player.x, y: vault.grille.y } : null
   }
 
   private tryAction() {
     if (this.crack) return
+    if (this.prompt?.kind === 'nft') {
+      // Looking through the bars: nothing is taken, the bag is untouched.
+      this.events.push({ t: 'nftView' })
+      return
+    }
     const door = this.nearestDoor()
     if (door) {
       door.state = 'HACKING'
@@ -437,7 +445,7 @@ export class Raid {
     this.nav.rebuildArea(door)
     this.guards.invalidatePaths()
     this.lastDoorOpenedAt = this.time
-    if (this.levelId === 'bank') BankPersistence.saveDoor(id)
+    this.store.saveDoor(id)
     this.events.push({ t: 'doorOpened', id })
   }
 
@@ -476,7 +484,7 @@ export class Raid {
     }
     if (safe.extra) {
       this.loot.spawn(safe.extra.x, safe.extra.y, safe.extra.kind, {
-        persistId: this.levelId === 'bank' ? safe.extra.id : undefined,
+        persistId: safe.extra.id,
         weight: this.itemWeight(safe.extra.kind),
       })
     }
@@ -494,27 +502,6 @@ export class Raid {
     this.alert.raiseTo(Math.max(this.cfg.alert.bandDanger, ec.sirenAlert))
     this.alert.updatePhase(this.guards.anyChase())
     this.events.push({ t: 'siren' })
-    if (ec.routeChange && this.levelId === 'mansion') this.applyMansionSiren()
-  }
-
-  private applyMansionSiren() {
-    for (const r of MANSION_SIREN.close) {
-      this.solids.add(r)
-      this.nav.rebuildArea(r)
-    }
-    for (const s of this.sirenWalls) {
-      s.active = false
-      this.nav.rebuildArea(s)
-    }
-    for (const id of MANSION_SIREN.unlockDoors) this.openDoor(id)
-    for (const plan of MANSION_SIREN.redeploy) {
-      const g = this.guards.guards[plan.guard]
-      if (!g) continue
-      g.route = plan.route.map((p) => ({ ...p }))
-      g.wi = 0
-      g.path = []
-    }
-    this.guards.invalidatePaths()
   }
 
   private updateExit(dt: number) {
@@ -536,12 +523,11 @@ export class Raid {
     const deeper = z.i > this.zoneMax
     this.zoneMax = Math.max(this.zoneMax, z.i)
     this.events.push({ t: 'zone', i: z.i, deeper })
-    if (this.levelId !== 'bank') return
     const final = z.i >= this.level.finalZone
     if (z.i > this.depthBest || (final && !this.reachedFinal)) {
       this.depthBest = Math.max(this.depthBest, z.i)
       this.reachedFinal = this.reachedFinal || final
-      BankPersistence.saveDepth(this.depthBest, this.reachedFinal)
+      this.store.saveDepth(this.depthBest, this.reachedFinal)
     }
   }
 
@@ -553,8 +539,8 @@ export class Raid {
     if (this.ended) return
     this.verdict = verdict
     this.crack = null
-    let bankCompleted = false
-    if (this.levelId === 'bank' && verdict === 'escaped') {
+    let levelCompleted = false
+    if (verdict === 'escaped') {
       // BANK is complete only when THIS raid reached the final zone, carried loot
       // out of it (or it was already emptied) and left through EXIT.
       const finalIds = this.level.loot.filter((c) => zoneAt(this.level, c.x, c.y).i >= this.level.finalZone).map((c) => c.id)
@@ -562,8 +548,8 @@ export class Raid {
       const tookFinal =
         finalIds.some((id) => this.runLootIds.includes(id)) || finalIds.every((id) => taken.has(id) || this.runLootIds.includes(id))
       const complete = this.zoneMax >= this.level.finalZone && tookFinal
-      bankCompleted = complete && !this.save?.complete
-      BankPersistence.saveEscape({
+      levelCompleted = complete && !this.save?.complete
+      this.store.saveEscape({
         lootTaken: this.runLootIds,
         openedSafes: this.runSafes,
         depth: this.depthBest,
@@ -591,7 +577,8 @@ export class Raid {
       banked: 0,
       timeMs,
       alert: this.alert.value,
-      bankCompleted,
+      bankCompleted: this.levelId === 'bank' && levelCompleted,
+      mansionCompleted: this.levelId === 'mansion' && levelCompleted,
     }
     this.events.push({ t: 'ended', verdict })
   }

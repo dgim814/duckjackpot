@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import Phaser from 'phaser'
 import WebApp from '@twa-dev/sdk'
 import type { HeistEnd } from '../../types'
@@ -7,11 +8,16 @@ import type { HeistLevelId } from '../../heistLevel'
 import { bindHeistI18n } from '../../heistI18n'
 import { haltHeistSfx, heistSfx, unlockHeistSfx } from '../../heistSfx'
 import { useI18n } from '../../../i18n/LanguageProvider'
+import { useAdmin } from '../../../admin/AdminProvider'
+import { useCards } from '../../../cards/CardsProvider'
+import type { RaffleId } from '../../../constants'
+import { NFT_SKIN, loadNftTrial, startNftTrial, type NftTrial } from '../../nftTrial'
 import { InputController } from '../sim/Input'
 import { Raid } from '../sim/Raid'
 import { HeistV2Scene } from '../render/HeistV2Scene'
 import { ActionButtons, Joystick } from './Controls'
 import { CrackPanel, ExitArrow, PauseMenu, StatusLayer, Toasts, TopBar } from './Hud'
+import { NftVaultPanel } from './NftVault'
 import { HudStore } from './store'
 import './v2.css'
 
@@ -53,6 +59,16 @@ export function HeistGameV2({ running, mods, levelId = 'bank', novice = false, o
   const hud = useMemo(() => new HudStore(), [])
   const input = useMemo(() => new InputController(), [])
   const raidRef = useRef<Raid | null>(null)
+  const sceneRef = useRef<HeistV2Scene | null>(null)
+  const { cardArt } = useAdmin()
+  const { setRaffleId } = useCards()
+  const navigate = useNavigate()
+  const [nftOpen, setNftOpen] = useState(false)
+  const nftOpenRef = useRef(false)
+  nftOpenRef.current = nftOpen
+  const [trial, setTrial] = useState<NftTrial | null>(() => loadNftTrial())
+  const cardArtRef = useRef(cardArt)
+  cardArtRef.current = cardArt
 
   useEffect(() => {
     const host = canvasRef.current
@@ -64,7 +80,7 @@ export function HeistGameV2({ running, mods, levelId = 'bank', novice = false, o
     raidRef.current = raid
     input.attachKeyboard()
     const togglePause = () => {
-      if (raid.ended) return
+      if (raid.ended || nftOpenRef.current) return
       raid.setPaused(!raid.paused)
       input.releaseAll()
       if (raid.paused) heistSfx.pause()
@@ -80,6 +96,17 @@ export function HeistGameV2({ running, mods, levelId = 'bank', novice = false, o
       input,
       hud,
       resolution: res,
+      nftArt: { classic: cardArtRef.current('classic'), fast200: cardArtRef.current('fast200'), fast100: cardArtRef.current('fast100') },
+      skin: (() => {
+        const tr = loadNftTrial()
+        return tr ? NFT_SKIN[tr.nftId].color : null
+      })(),
+      onNftView: () => {
+        if (raid.ended) return
+        if (!raid.paused) raid.setPaused(true)
+        input.releaseAll()
+        setNftOpen(true)
+      },
       onEnd: (end) => {
         if (ended) return
         ended = true
@@ -100,6 +127,7 @@ export function HeistGameV2({ running, mods, levelId = 'bank', novice = false, o
       scene,
     })
     live = { game, raid, scene, input }
+    sceneRef.current = scene
 
     const ro = new ResizeObserver(() => {
       const cw = Math.max(1, host.clientWidth)
@@ -142,6 +170,8 @@ export function HeistGameV2({ running, mods, levelId = 'bank', novice = false, o
         game.destroy(true)
       }
       raidRef.current = null
+      sceneRef.current = null
+      setNftOpen(false)
       try {
         ;(telegramApp() as { enableVerticalSwipes?: () => void }).enableVerticalSwipes?.()
       } catch {
@@ -153,7 +183,7 @@ export function HeistGameV2({ running, mods, levelId = 'bank', novice = false, o
 
   const pause = () => {
     const raid = raidRef.current
-    if (!raid || raid.ended) return
+    if (!raid || raid.ended || nftOpenRef.current) return
     raid.setPaused(!raid.paused)
     input.releaseAll()
     if (raid.paused) heistSfx.pause()
@@ -164,6 +194,36 @@ export function HeistGameV2({ running, mods, levelId = 'bank', novice = false, o
     raid.setPaused(false)
     raid.abort()
   }
+
+  // A try-on that runs out mid-raid takes the look off the duck.
+  useEffect(() => {
+    if (!trial) return
+    const left = trial.expiresAt - Date.now()
+    const id = window.setTimeout(() => {
+      setTrial(loadNftTrial())
+      sceneRef.current?.setSkin(null)
+    }, Math.max(0, Math.min(left, 2 ** 31 - 1)))
+    return () => window.clearTimeout(id)
+  }, [trial])
+
+  const closeNft = () => {
+    setNftOpen(false)
+    const raid = raidRef.current
+    if (raid && !raid.ended && raid.paused) raid.setPaused(false)
+    input.releaseAll()
+  }
+  const tryNft = (id: RaffleId) => {
+    const next = startNftTrial(id)
+    setTrial(next)
+    sceneRef.current?.setSkin(NFT_SKIN[id].color)
+  }
+  const openDrop = (id: RaffleId) => {
+    setRaffleId(id)
+    setNftOpen(false)
+    // Leaving unmounts the raid: the unbanked bag is lost, opened doors stay open.
+    navigate('/drop')
+  }
+  const vaultIds: RaffleId[] = ['classic', 'fast200', 'fast100']
 
   return (
     <div ref={rootRef} className="v2-root">
@@ -176,7 +236,8 @@ export function HeistGameV2({ running, mods, levelId = 'bank', novice = false, o
         <CrackPanel hud={hud} />
         <Toasts hud={hud} />
         <TopBar hud={hud} onPause={pause} />
-        <PauseMenu hud={hud} onResume={pause} onAbort={abort} />
+        {!nftOpen && <PauseMenu hud={hud} onResume={pause} onAbort={abort} />}
+        {nftOpen && <NftVaultPanel ids={vaultIds} trial={trial} onTry={tryNft} onOpenDrop={openDrop} onClose={closeNft} />}
       </div>
     </div>
   )

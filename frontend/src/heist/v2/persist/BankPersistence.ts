@@ -1,4 +1,5 @@
-import { loadProgress, persistBankWorld } from '../../progress'
+import { loadProgress, persistBankWorld, persistMansionWorld } from '../../progress'
+import type { HeistLevelId } from '../../heistLevel'
 
 export type BankWorldSave = {
   lootTaken: Set<string>
@@ -9,17 +10,24 @@ export type BankWorldSave = {
   complete: boolean
 }
 
+export type WorldPersistence = {
+  load(): BankWorldSave
+  saveDoor(id: string): void
+  saveDepth(depth: number, reachedFinal: boolean): void
+  saveEscape(p: { lootTaken: string[]; openedSafes: string[]; depth: number; reachedFinal: boolean; complete: boolean }): void
+}
+
 /**
- * V2 reads and writes the same `duckjackpot.heist.progress.v1` fields as V1
- * through progress.ts, so no data migration is needed and nothing is lost.
+ * V2 reads and writes `duckjackpot.heist.progress.v1` through progress.ts, so
+ * no data migration is needed and nothing is lost.
  *
- * Rules:
+ * Rules (same for BANK and MANSION):
  *  - opened doors and depth are world progress: saved the moment they happen;
  *  - coins and safes count only when carried out: saved on a successful EXIT.
  *    A caught raid returns its coins and closed safes to the building.
  */
-export const BankPersistence = {
-  load(): BankWorldSave {
+export const BankPersistence: WorldPersistence = {
+  load() {
     const p = loadProgress()
     return {
       lootTaken: new Set(p.bankLootTaken ?? []),
@@ -39,7 +47,7 @@ export const BankPersistence = {
     persistBankWorld({ depth, reachedFinal })
   },
 
-  saveEscape(p: { lootTaken: string[]; openedSafes: string[]; depth: number; reachedFinal: boolean; complete: boolean }) {
+  saveEscape(p) {
     persistBankWorld({
       lootTaken: p.lootTaken,
       openedSafes: p.openedSafes,
@@ -48,4 +56,40 @@ export const BankPersistence = {
       complete: p.complete,
     })
   },
+}
+
+export const MansionPersistence: WorldPersistence = {
+  load() {
+    const p = loadProgress()
+    return {
+      lootTaken: new Set(p.mansionLootTaken ?? []),
+      openedSafes: new Set(p.mansionOpenedSafes ?? []),
+      openedDoors: new Set(p.mansionOpenedDoors ?? []),
+      depth: Math.max(0, Math.floor(p.mansionDepth ?? 0)),
+      reachedFinal: Boolean(p.mansionReachedFinal),
+      complete: Boolean(p.mansionComplete),
+    }
+  },
+
+  saveDoor(id: string) {
+    persistMansionWorld({ openedDoors: [id] })
+  },
+
+  saveDepth(depth: number, reachedFinal: boolean) {
+    persistMansionWorld({ depth, reachedFinal })
+  },
+
+  saveEscape(p) {
+    persistMansionWorld({
+      lootTaken: p.lootTaken,
+      openedSafes: p.openedSafes,
+      depth: p.depth,
+      reachedFinal: p.reachedFinal,
+      complete: p.complete,
+    })
+  },
+}
+
+export function persistenceFor(level: HeistLevelId): WorldPersistence {
+  return level === 'mansion' ? MansionPersistence : BankPersistence
 }

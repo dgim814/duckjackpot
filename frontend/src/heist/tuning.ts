@@ -177,7 +177,8 @@ const LEVEL_TUNING: Record<HeistLevelId, TuningPatch> = {
     alert: { phasesEnabled: true, stepHoldS: { chase: 3.5, danger: 2.8, suspicious: 1.8 } },
     escape: { enabled: true, timerS: 90, sirenAlert: 0.72, routeChange: false },
   },
-  mansion: { weight: { enabled: true }, alert: { phasesEnabled: true }, escape: { enabled: true } },
+  // 40 zones: the siren run back from the deep safes is long, so the countdown is too.
+  mansion: { weight: { enabled: true }, alert: { phasesEnabled: true }, escape: { enabled: true, timerS: 150, routeChange: false } },
 }
 
 export function mergeTuning(base: HeistTuning, patch?: TuningPatch): HeistTuning {

@@ -41,15 +41,31 @@ function lerp(a: number, b: number, t: number) {
 export class DuckView {
   readonly sprite: Phaser.GameObjects.Sprite
   private shadow: Phaser.GameObjects.Image
+  private aura: Phaser.GameObjects.Image
+  private crown: Phaser.GameObjects.Image
+  private skin: number | null = null
   private key = ''
   x = 0
   y = 0
 
   constructor(scene: Phaser.Scene) {
     this.shadow = scene.add.image(0, 0, 'v2_shadow').setDisplaySize(64, 22).setAlpha(0.9)
+    this.aura = scene.add.image(0, 0, 'v2_glow').setBlendMode(Phaser.BlendModes.ADD).setDisplaySize(150, 150).setVisible(false)
     this.sprite = scene.add.sprite(0, 0, 'duck_sheet', 0).setOrigin(0.5, 0.9)
     const k = DUCK_DISPLAY / 256
     this.sprite.setScale(k)
+    this.crown = scene.add.image(0, 0, 'v2_crown').setDisplaySize(40, 30).setOrigin(0.5, 1).setVisible(false)
+  }
+
+  /** NFT try-on look: a crown and an aura in the drop's colour. null = plain duck. */
+  setSkin(color: number | null) {
+    this.skin = color
+    this.aura.setVisible(color !== null)
+    this.crown.setVisible(color !== null)
+    if (color !== null) {
+      this.aura.setTint(color)
+      this.crown.setTint(color)
+    }
   }
 
   update(p: Player, alpha: number, hidden: boolean) {
@@ -65,6 +81,13 @@ export class DuckView {
       this.sprite.play(key, true)
     }
     this.sprite.setAlpha(hidden ? 0.62 : 1)
+    if (this.skin !== null) {
+      const d = actorDepth(this.y)
+      const dir = p.flip ? -1 : 1
+      const bob = p.anim === 'idle' ? 0 : Math.sin(this.sprite.anims.currentFrame?.index ?? 0) * 1.5
+      this.aura.setPosition(this.x, this.y - 44).setDepth(d - 0.00002).setAlpha(hidden ? 0.2 : 0.42)
+      this.crown.setPosition(this.x + dir * 14, this.y - 80 + bob).setDepth(d + 0.00001).setFlipX(p.flip).setAlpha(hidden ? 0.62 : 1)
+    }
   }
 }
 

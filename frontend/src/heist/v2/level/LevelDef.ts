@@ -20,23 +20,7 @@ import {
   BANK_WALLS,
   BANK_ZONES,
 } from '../../phaser/bankLayout'
-import {
-  MANSION_CAMS,
-  MANSION_DECOR,
-  MANSION_DOORS,
-  MANSION_EXIT,
-  MANSION_FURNITURE,
-  MANSION_GUARD_ROUTES,
-  MANSION_H,
-  MANSION_HIDES,
-  MANSION_LABELS,
-  MANSION_LAMPS,
-  MANSION_LOOT,
-  MANSION_SAFES,
-  MANSION_SPAWN,
-  MANSION_W,
-  MANSION_WALLS,
-} from '../../phaser/mansionLayout'
+import { mansion40 } from './mansion40'
 
 export type Rect = { x: number; y: number; w: number; h: number }
 export type Vec = { x: number; y: number }
@@ -56,6 +40,11 @@ export type FloorTheme =
   | 'gold'
   | 'mansionWood'
   | 'mansionStone'
+  | 'parquet'
+  | 'carpetRed'
+  | 'marbleWhite'
+  | 'ballroom'
+  | 'greenhouse'
 
 export type LightTone = 'warm' | 'cool' | 'blue' | 'dim' | 'gold'
 
@@ -83,10 +72,16 @@ export type FurnitureKind =
   | 'bed'
   | 'stove'
   | 'nightstand'
+  | 'piano'
+  | 'table'
+  | 'display'
+  | 'statue'
+  | 'grille'
+  | 'pedestal'
 
 export type SolidDef = Rect & { kind: 'wall' | FurnitureKind }
 export type DoorDef = Rect & { id: string }
-export type DecorDef = Rect & { kind: 'rug' | 'runner' | 'painting' | 'rope'; tone?: string }
+export type DecorDef = Rect & { kind: 'rug' | 'runner' | 'painting' | 'rope' | 'stairs'; tone?: string }
 export type LootDef = { id: string; x: number; y: number; kind: DuckCoinKind; persistent: boolean }
 export type SafeDef = {
   id: string
@@ -97,6 +92,14 @@ export type SafeDef = {
 }
 export type CamDef = { x: number; y: number; base: number; sweep: number; speed: number }
 export type LampDef = { x: number; y: number; color: number; alpha: number }
+
+/** NFT cards shown behind a grille. Viewing never picks anything up. */
+export type NftVaultDef = {
+  grille: Rect
+  /** Where the player stands to look through the bars. */
+  view: Rect
+  cards: { raffle: 'classic' | 'fast200' | 'fast100'; x: number; y: number }[]
+}
 
 export type LevelDef = {
   id: HeistLevelId
@@ -119,6 +122,7 @@ export type LevelDef = {
   /** Zone index a raid must reach for the level to count as "final". */
   finalZone: number
   background: number
+  nftVault?: NftVaultDef
 }
 
 const WALL_T = 40
@@ -163,7 +167,6 @@ const BANK_THEME: Record<string, { floor: FloorTheme; light: LightTone }> = {
 }
 
 let bankCache: LevelDef | null = null
-let mansionCache: LevelDef | null = null
 
 function bankLevel(): LevelDef {
   if (bankCache) return bankCache
@@ -202,52 +205,9 @@ function bankLevel(): LevelDef {
   return bankCache
 }
 
+/** V2 MANSION is the 40-zone building; V1 keeps the old one-room layout. */
 function mansionLevel(): LevelDef {
-  if (mansionCache) return mansionCache
-  mansionCache = {
-    id: 'mansion',
-    w: MANSION_W,
-    h: MANSION_H,
-    spawn: { ...MANSION_SPAWN },
-    exit: exitRect(MANSION_EXIT),
-    solids: [
-      ...border(MANSION_W, MANSION_H),
-      ...MANSION_WALLS.map((r) => ({ ...r, kind: 'wall' as const })),
-      ...MANSION_FURNITURE.map((f) => ({ ...f })),
-    ],
-    doors: MANSION_DOORS.map((d) => ({ ...d })),
-    decor: MANSION_DECOR.map((d) => ({ ...d })),
-    foliage: [],
-    hides: MANSION_HIDES.map((h) => ({ ...h })),
-    loot: MANSION_LOOT.map((l, i) => ({ id: `mansion-loot-${i}`, x: l.x, y: l.y, kind: l.kind, persistent: false })),
-    safes: MANSION_SAFES.map((s) => ({
-      id: `mansion-${s.x}-${s.y}`,
-      x: s.x,
-      y: s.y,
-      reward: s.reward,
-      extra: s.extraKind ? { id: `mansion-extra-${s.x}-${s.y}`, x: s.extraX, y: s.extraY, kind: s.extraKind } : undefined,
-    })),
-    cams: MANSION_CAMS.map((c) => ({ ...c })),
-    guardRoutes: MANSION_GUARD_ROUTES.map((r) => r.map((p) => ({ ...p }))),
-    zones: [
-      {
-        i: 0,
-        id: 'mansion',
-        key: 'heistMapMansion',
-        x: 0,
-        y: 0,
-        w: MANSION_W,
-        h: MANSION_H,
-        floor: 'mansionWood',
-        light: 'warm',
-      },
-    ],
-    labels: MANSION_LABELS.map((l) => ({ ...l })),
-    lamps: MANSION_LAMPS.map(([x, y]) => ({ x, y, color: 0xd4a24a, alpha: 0.1 })),
-    finalZone: 0,
-    background: 0x140e0c,
-  }
-  return mansionCache
+  return mansion40()
 }
 
 export function levelDef(id: HeistLevelId): LevelDef {

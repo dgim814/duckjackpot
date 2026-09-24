@@ -194,6 +194,71 @@ function paintFloor(theme: FloorTheme): HTMLCanvasElement {
       grid(ctx, 64, 'rgba(201,162,39,0.3)')
       break
     }
+    case 'parquet': {
+      // Herringbone oak.
+      ctx.fillStyle = '#2e1c10'
+      ctx.fillRect(0, 0, T, T)
+      const woods = ['#4a2e1a', '#553520', '#3f2716', '#5c3a22']
+      for (let y = -32; y < T + 32; y += 16) {
+        for (let x = -32; x < T + 32; x += 32) {
+          ctx.save()
+          ctx.translate(x + ((y / 16) % 2 ? 16 : 0), y)
+          ctx.rotate(Math.PI / 4)
+          ctx.fillStyle = woods[Math.abs((x + y) / 16) % woods.length]
+          ctx.fillRect(0, 0, 30, 10)
+          ctx.restore()
+        }
+      }
+      speckle(ctx, 200, 'rgba(0,0,0,0.25)', 1, 61)
+      break
+    }
+    case 'carpetRed': {
+      ctx.fillStyle = '#3a0e16'
+      ctx.fillRect(0, 0, T, T)
+      speckle(ctx, 900, 'rgba(255,200,160,0.03)', 1, 62)
+      ctx.strokeStyle = 'rgba(214,170,60,0.12)'
+      ctx.lineWidth = 1.5
+      for (let i = 0; i < 2; i += 1)
+        for (let j = 0; j < 2; j += 1) {
+          ctx.beginPath()
+          ctx.moveTo(i * 64 + 32, j * 64 + 8)
+          ctx.lineTo(i * 64 + 56, j * 64 + 32)
+          ctx.lineTo(i * 64 + 32, j * 64 + 56)
+          ctx.lineTo(i * 64 + 8, j * 64 + 32)
+          ctx.closePath()
+          ctx.stroke()
+        }
+      break
+    }
+    case 'marbleWhite': {
+      ctx.fillStyle = '#4a4640'
+      ctx.fillRect(0, 0, T, T)
+      veins(ctx, 'rgba(240,232,214,0.14)', 63, 5)
+      grid(ctx, 64, 'rgba(20,16,12,0.45)', 2)
+      grid(ctx, 64, 'rgba(214,170,60,0.12)')
+      break
+    }
+    case 'ballroom': {
+      for (let y = 0; y < 4; y += 1)
+        for (let x = 0; x < 4; x += 1) {
+          ctx.fillStyle = (x + y) % 2 === 0 ? '#4a4540' : '#16120e'
+          ctx.fillRect(x * 32, y * 32, 32, 32)
+        }
+      veins(ctx, 'rgba(255,240,210,0.07)', 64, 3)
+      grid(ctx, 32, 'rgba(214,170,60,0.18)')
+      break
+    }
+    case 'greenhouse': {
+      ctx.fillStyle = '#243024'
+      ctx.fillRect(0, 0, T, T)
+      for (let y = 0; y < T; y += 32)
+        for (let x = 0; x < T; x += 32) {
+          ctx.fillStyle = ((x + y) / 32) % 2 === 0 ? '#5a3a26' : '#4e3220'
+          ctx.fillRect(x + 2, y + 2, 28, 28)
+        }
+      grid(ctx, 32, 'rgba(40,80,40,0.8)', 3)
+      break
+    }
     case 'mansionStone': {
       ctx.fillStyle = '#231c18'
       ctx.fillRect(0, 0, T, T)
@@ -363,6 +428,41 @@ function icon(glyph: string, fg: string, bg: string) {
   return c
 }
 
+/** Crown for the NFT try-on skin, drawn in light greys so a tint colours it per drop. */
+function crown() {
+  const [c, ctx] = canvas(64, 48)
+  const g = ctx.createLinearGradient(0, 8, 0, 44)
+  g.addColorStop(0, '#ffffff')
+  g.addColorStop(1, '#a8a8a8')
+  ctx.fillStyle = g
+  ctx.beginPath()
+  ctx.moveTo(6, 42)
+  ctx.lineTo(4, 14)
+  ctx.lineTo(18, 26)
+  ctx.lineTo(32, 6)
+  ctx.lineTo(46, 26)
+  ctx.lineTo(60, 14)
+  ctx.lineTo(58, 42)
+  ctx.closePath()
+  ctx.fill()
+  ctx.strokeStyle = 'rgba(40,30,10,0.8)'
+  ctx.lineWidth = 2
+  ctx.stroke()
+  ctx.fillStyle = '#d0d0d0'
+  ctx.fillRect(6, 36, 52, 6)
+  for (const [x, y, r] of [[4, 13, 4], [32, 6, 5], [60, 13, 4]] as const) {
+    ctx.fillStyle = '#ffffff'
+    ctx.beginPath()
+    ctx.arc(x, y, r, 0, Math.PI * 2)
+    ctx.fill()
+  }
+  ctx.fillStyle = 'rgba(60,20,30,0.9)'
+  ctx.beginPath()
+  ctx.arc(32, 32, 4, 0, Math.PI * 2)
+  ctx.fill()
+  return c
+}
+
 function add(scene: Phaser.Scene, key: string, c: HTMLCanvasElement) {
   if (scene.textures.exists(key)) scene.textures.remove(key)
   scene.textures.addCanvas(key, c)
@@ -383,6 +483,11 @@ export const FLOOR_THEMES: FloorTheme[] = [
   'gold',
   'mansionWood',
   'mansionStone',
+  'parquet',
+  'carpetRed',
+  'marbleWhite',
+  'ballroom',
+  'greenhouse',
 ]
 
 export function floorKey(theme: FloorTheme) {
@@ -417,4 +522,5 @@ export function buildTextures(scene: Phaser.Scene, guardFov: number, camFov: num
   add(scene, 'v2_icon_x', icon('!', '#ffffff', '#e0452e'))
   add(scene, 'v2_spark', radial(16, [[0, 'rgba(255,240,190,1)'], [0.5, 'rgba(255,214,90,0.8)'], [1, 'rgba(255,214,90,0)']]))
   add(scene, 'v2_pixel', radial(4, [[0, '#ffffff'], [1, '#ffffff']]))
+  add(scene, 'v2_crown', crown())
 }

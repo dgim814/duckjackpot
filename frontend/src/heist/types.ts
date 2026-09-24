@@ -17,4 +17,6 @@ export type HeistEnd = {
   alert: number
   /** True only on the raid that finished the BANK for the first time. */
   bankCompleted?: boolean
+  /** True only on the raid that finished the MANSION for the first time. */
+  mansionCompleted?: boolean
 }

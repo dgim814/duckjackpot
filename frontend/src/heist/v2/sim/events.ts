@@ -27,4 +27,5 @@ export type RaidEvent =
   | { t: 'zone'; i: number; deeper: boolean }
   | { t: 'firstLoot' }
   | { t: 'exitHold'; progress: number }
+  | { t: 'nftView' }
   | { t: 'ended'; verdict: 'escaped' | 'caught' | 'aborted' }

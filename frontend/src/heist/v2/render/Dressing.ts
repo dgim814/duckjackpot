@@ -29,6 +29,7 @@ function inColumn(z: ZoneDef, x0: number, x1: number) {
 export function buildDressing(level: LevelDef): { items: DressingItem[]; sconces: Sconce[] } {
   const items: DressingItem[] = []
   const sconces: Sconce[] = []
+  if (level.id === 'mansion') return mansionDressing(level)
   if (level.id !== 'bank') return { items, sconces }
 
   const colX0 = 1330
@@ -125,6 +126,61 @@ export function buildDressing(level: LevelDef): { items: DressingItem[]; sconces
           g.fillEllipse(x, s.y + s.h + 3, 14, 7)
           g.fillStyle(0xffffff, 0.8)
           g.fillEllipse(x, s.y + s.h + 3, 6, 3)
+        },
+      })
+    }
+  }
+  return { items, sconces }
+}
+
+/** Mansion: a red-and-gold runner up the grand route and warm sconces on every long wall. */
+function mansionDressing(level: LevelDef): { items: DressingItem[]; sconces: Sconce[] } {
+  const items: DressingItem[] = []
+  const sconces: Sconce[] = []
+  const x0 = 1350
+  const x1 = 1650
+  const stairs = level.decor.filter((d) => d.kind === 'stairs')
+  for (const z of level.zones) {
+    if (z.x > x0 || z.x + z.w < x1) continue
+    const r: Rect = { x: x0 + 10, y: z.y + 30, w: x1 - x0 - 20, h: z.h - 32 }
+    if (stairs.some((s) => s.y >= r.y && s.y < r.y + r.h)) {
+      r.y += 210
+      r.h -= 210
+      if (r.h <= 40) continue
+    }
+    const gold = z.light === 'gold'
+    items.push({
+      r,
+      paint: (g) => {
+        g.fillStyle(0x000000, 0.28)
+        g.fillRect(r.x + 2, r.y + 3, r.w, r.h)
+        g.fillStyle(gold ? 0x3a2808 : 0x5a121c, 0.95)
+        g.fillRect(r.x, r.y, r.w, r.h)
+        g.fillStyle(GOLD, 0.7)
+        g.fillRect(r.x + 8, r.y, 3, r.h)
+        g.fillRect(r.x + r.w - 11, r.y, 3, r.h)
+        g.fillStyle(GOLD, 0.14)
+        for (let yy = r.y + 24; yy < r.y + r.h - 16; yy += 48) g.fillTriangle(r.x + r.w / 2, yy, r.x + r.w / 2 - 10, yy + 12, r.x + r.w / 2 + 10, yy + 12)
+      },
+    })
+  }
+  const tone: Record<string, number> = { warm: 0xffc070, cool: 0xa0c8ff, blue: 0x6ec8ff, gold: 0xffd65a, dim: 0x9a7a50 }
+  for (const s of level.solids) {
+    if (s.kind !== 'wall' || s.h > 40 || s.w < 300 || s.y < 60 || s.y > level.h - 80) continue
+    for (let x = s.x + 150; x < s.x + s.w - 100; x += 420) {
+      const y = s.y + s.h + 2
+      const zone = level.zones.find((z) => x >= z.x && x <= z.x + z.w && y >= z.y && y <= z.y + z.h)
+      const color = tone[zone?.light ?? 'warm']
+      sconces.push({ x, y, color })
+      items.push({
+        r: { x: x - 12, y: s.y + s.h - 6, w: 24, h: 16 },
+        paint: (g) => {
+          g.fillStyle(0x2a1c10, 1)
+          g.fillRect(x - 10, s.y + s.h - 4, 20, 6)
+          g.fillStyle(GOLD, 1)
+          g.fillRect(x - 2, s.y + s.h, 4, 6)
+          g.fillStyle(color, 0.95)
+          g.fillEllipse(x, s.y + s.h + 6, 12, 10)
         },
       })
     }

@@ -31,6 +31,13 @@ export type PlayerProgress = {
   bankDepth: number
   bankReachedFinal: boolean
   bankComplete: boolean
+  /** Persistent MANSION heist, same rules as BANK. Missing fields migrate empty. */
+  mansionLootTaken: string[]
+  mansionOpenedSafes: string[]
+  mansionOpenedDoors: string[]
+  mansionDepth: number
+  mansionReachedFinal: boolean
+  mansionComplete: boolean
 }
 
 export type HeistRunMods = {
@@ -94,6 +101,12 @@ const emptyProgress = (): PlayerProgress => ({
   bankDepth: 0,
   bankReachedFinal: false,
   bankComplete: false,
+  mansionLootTaken: [],
+  mansionOpenedSafes: [],
+  mansionOpenedDoors: [],
+  mansionDepth: 0,
+  mansionReachedFinal: false,
+  mansionComplete: false,
 })
 
 function readOwned(raw: unknown): OwnedCollection {
@@ -197,6 +210,12 @@ export function loadProgress(): PlayerProgress {
       bankDepth: Math.max(0, Math.floor(Number((parsed as { bankDepth?: unknown }).bankDepth) || 0)),
       bankReachedFinal: Boolean((parsed as { bankReachedFinal?: unknown }).bankReachedFinal),
       bankComplete: Boolean((parsed as { bankComplete?: unknown }).bankComplete),
+      mansionLootTaken: readIdList((parsed as { mansionLootTaken?: unknown }).mansionLootTaken),
+      mansionOpenedSafes: readIdList((parsed as { mansionOpenedSafes?: unknown }).mansionOpenedSafes),
+      mansionOpenedDoors: readIdList((parsed as { mansionOpenedDoors?: unknown }).mansionOpenedDoors),
+      mansionDepth: Math.max(0, Math.floor(Number((parsed as { mansionDepth?: unknown }).mansionDepth) || 0)),
+      mansionReachedFinal: Boolean((parsed as { mansionReachedFinal?: unknown }).mansionReachedFinal),
+      mansionComplete: Boolean((parsed as { mansionComplete?: unknown }).mansionComplete),
     }
     const before = JSON.stringify(readOwned(parsed.ownedArt))
     if (before !== JSON.stringify(ownedArt)) saveProgress(next)
@@ -238,7 +257,12 @@ export function isGameplayFresh(progress: PlayerProgress) {
     migrateBankDoors(readIdList(progress.bankOpenedDoors)).length === 0 &&
     Math.max(0, Math.floor(progress.bankDepth ?? 0)) === 0 &&
     !progress.bankReachedFinal &&
-    !progress.bankComplete
+    !progress.bankComplete &&
+    readIdList(progress.mansionLootTaken).length === 0 &&
+    readIdList(progress.mansionOpenedSafes).length === 0 &&
+    readIdList(progress.mansionOpenedDoors).length === 0 &&
+    Math.max(0, Math.floor(progress.mansionDepth ?? 0)) === 0 &&
+    !progress.mansionComplete
   )
 }
 
@@ -302,6 +326,30 @@ export function persistBankWorld(patch: {
     bankDepth: Math.max(live.bankDepth ?? 0, Math.max(0, Math.floor(patch.depth ?? 0))),
     bankReachedFinal: Boolean(live.bankReachedFinal || patch.reachedFinal),
     bankComplete: Boolean(live.bankComplete || patch.complete),
+  }
+  saveProgress(next)
+  return next
+}
+
+/** Same rules as persistBankWorld: ids and depth only grow, completion never resets. */
+export function persistMansionWorld(patch: {
+  lootTaken?: readonly string[]
+  openedSafes?: readonly string[]
+  openedDoors?: readonly string[]
+  depth?: number
+  reachedFinal?: boolean
+  complete?: boolean
+}) {
+  const live = loadProgress()
+  const next: PlayerProgress = {
+    ...live,
+    ...keepWallet(live),
+    mansionLootTaken: mergeIds(live.mansionLootTaken, patch.lootTaken),
+    mansionOpenedSafes: mergeIds(live.mansionOpenedSafes, patch.openedSafes),
+    mansionOpenedDoors: mergeIds(live.mansionOpenedDoors, patch.openedDoors),
+    mansionDepth: Math.max(live.mansionDepth ?? 0, Math.max(0, Math.floor(patch.depth ?? 0))),
+    mansionReachedFinal: Boolean(live.mansionReachedFinal || patch.reachedFinal),
+    mansionComplete: Boolean(live.mansionComplete || patch.complete),
   }
   saveProgress(next)
   return next

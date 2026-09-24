@@ -24,6 +24,8 @@ import { heistSfx, unlockHeistSfx } from '../heist/heistSfx'
 import { BANK_ZONE_COUNT, bankCollectedPotential, bankTotalPotential } from '../heist/phaser/bankLayout'
 import { heistLevelBrief, heistLevelCards, type HeistLevelId } from '../heist/heistLevel'
 import { useI18n } from '../i18n/LanguageProvider'
+import { RAFFLE_TITLE_KEY } from '../i18n/raffleLabels'
+import { loadNftTrial, nftTrialLeft, NFT_SKIN } from '../heist/nftTrial'
 
 /** Goal, guards and cameras of a level, so the player picks the risk knowingly. */
 function LevelBrief({ id, cap }: { id: HeistLevelId; cap: number }) {
@@ -71,6 +73,8 @@ export function HeistPage() {
   const [screen, setScreen] = useState<Screen>(() => (isHeistNovice(loadProgress()) ? 'play' : 'lobby'))
   const mods = useMemo(() => runMods(progress), [progress])
   const novice = isHeistNovice(progress)
+  // Re-read on every HUB render so an expired try-on disappears on its own.
+  const skinTrial = screen === 'lobby' ? loadNftTrial() : null
 
   useEffect(
     () =>
@@ -265,6 +269,7 @@ export function HeistPage() {
 
   if (screen === 'result' && end) {
     const win = end.verdict === 'escaped'
+    const mansionDone = levelId === 'mansion' && win && end.mansionCompleted
     const bankRun = levelId === 'bank'
     const gained = end.coins + end.bonus + end.objBonus
     const need = Math.max(0, firstLotPrice - end.banked)
@@ -272,7 +277,37 @@ export function HeistPage() {
       <section className="relative flex h-[calc(100dvh-4.75rem-env(safe-area-inset-bottom))] items-center justify-center overflow-hidden bg-[#120c10] px-5">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_20%,rgba(255,193,7,0.22),transparent_55%)]" />
         <div className="relative max-h-full w-full max-w-sm overflow-y-auto rounded-3xl border border-amber-400/40 bg-[#101014]/92 p-6 text-center shadow-[0_0_60px_rgba(255,176,40,0.12)]">
-          {bankRun && win && end.bankCompleted ? (
+          {mansionDone ? (
+            <>
+              <p className="text-4xl">🏆</p>
+              <p className="font-display mt-2 text-3xl font-black text-amber-300">{t('heistMansionDoneTitle')}</p>
+              <p className="mt-2 text-sm font-semibold text-amber-100">{t('heistMansionDoneSub')}</p>
+              <div className="mt-6 flex items-baseline justify-between gap-3 text-left">
+                <span className="text-[11px] font-extrabold tracking-[0.16em] text-zinc-500">{t('heistCarriedOut')}</span>
+                <span className="font-display text-2xl font-black text-white">
+                  {gained} {t('heistDuckCoin')}
+                </span>
+              </div>
+              <div className="mt-3 flex items-baseline justify-between gap-3 text-left">
+                <span className="text-[11px] font-extrabold tracking-[0.16em] text-zinc-500">{t('heistThiefScore')}</span>
+                <span className="font-display text-2xl font-black text-amber-200">{end.banked}</span>
+              </div>
+              <div className="mt-5 rounded-2xl border border-white/15 bg-white/5 px-4 py-3">
+                <p className="text-[10px] font-extrabold tracking-[0.18em] text-zinc-400">{t('heistLevelNum', { n: 3 })} · {t('heistLevelLocked')}</p>
+                <p className="font-display mt-1 text-lg font-black text-zinc-200">{t('heistMansionDoneNext')}</p>
+              </div>
+              <button
+                type="button"
+                className="buy-btn mt-6 w-full rounded-2xl px-4 py-3 text-zinc-950"
+                onClick={() => {
+                  setEnd(null)
+                  setScreen('lobby')
+                }}
+              >
+                {t('heistToHub')}
+              </button>
+            </>
+          ) : bankRun && win && end.bankCompleted ? (
             <>
               <p className="text-4xl">🏆</p>
               <p className="font-display mt-2 text-3xl font-black text-amber-300">{t('heistBankDoneTitle')}</p>
@@ -474,10 +509,20 @@ export function HeistPage() {
               total: bankTotalPotential(),
             })}
           </p>
+          {skinTrial ? (
+            <div className="mt-3 rounded-2xl border border-sky-200/30 bg-sky-300/10 px-3 py-2 text-center">
+              <p className="text-[11px] font-extrabold tracking-[0.12em]" style={{ color: NFT_SKIN[skinTrial.nftId].css }}>
+                👑 {t('heistNftSkinActive', { name: t(RAFFLE_TITLE_KEY[skinTrial.nftId]), time: nftTrialLeft(skinTrial) })}
+              </p>
+              <button type="button" className="mt-1 text-[11px] font-bold tracking-[0.12em] text-sky-100 underline" onClick={() => navigate('/drop')}>
+                {t('heistNftOpenDrop')}
+              </button>
+            </div>
+          ) : null}
           <div className="mt-4 space-y-3">
             {heistLevelCards(progress).map((card) => {
               const open = !card.locked && card.id
-              const done = card.id === 'bank' && progress.bankComplete
+              const done = (card.id === 'bank' && progress.bankComplete) || (card.id === 'mansion' && Boolean(progress.mansionComplete))
               const fresh = card.id === 'mansion' && open && justUnlocked
               const badge = done ? t('heistLevelDone') : card.id === 'mansion' && open ? t('heistLevelUnlocked') : open ? t('heistLevelOpen') : t('heistLevelLocked')
               const tone =
@@ -495,6 +540,11 @@ export function HeistPage() {
                     <div>
                       <p className="text-[10px] font-extrabold tracking-[0.18em] text-amber-200/80">{t('heistLevelNum', { n: card.n })}</p>
                       <p className="font-display mt-0.5 text-xl font-black text-amber-50">{t(card.nameKey)}</p>
+                      <p className="mt-0.5 text-[10px] font-bold tracking-[0.14em] text-zinc-400">
+                        {card.id === 'mansion' && open && !done
+                          ? t('heistMansionZone', { n: Math.min(card.zones, Math.max(1, (progress.mansionDepth ?? 0) + 1)), max: card.zones })
+                          : t('heistZonesN', { n: card.zones })}
+                      </p>
                     </div>
                     <span
                       className={`rounded-full px-2 py-1 text-[10px] font-extrabold tracking-[0.14em] ${

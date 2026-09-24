@@ -669,3 +669,71 @@
     transform: translateX(calc(-50% + 6px));
   }
 }
+
+/* ---------- NFT vault (MANSION) ---------- */
+.v2-nft-menu {
+  pointer-events: auto;
+  overflow-y: auto;
+  align-items: flex-start;
+  padding: max(16px, env(safe-area-inset-top)) 16px 24px;
+}
+.v2-nft-card {
+  width: min(360px, 100%);
+  gap: 8px;
+  margin: auto;
+}
+.v2-nft-sub,
+.v2-nft-desc,
+.v2-nft-note {
+  font-size: 12px;
+  color: #cbbd9c;
+  line-height: 1.35;
+}
+.v2-nft-art {
+  width: 72%;
+  margin: 4px auto;
+}
+.v2-nft-name {
+  font-family: Unbounded, system-ui, sans-serif;
+  font-weight: 800;
+  font-size: 16px;
+  color: #fff4d6;
+}
+.v2-nft-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  color: #ffe08a;
+}
+.v2-nft-win {
+  font-family: Unbounded, system-ui, sans-serif;
+  font-weight: 900;
+  font-size: 26px;
+  color: var(--gold);
+  text-shadow: 0 0 18px rgba(255, 214, 90, 0.55);
+}
+.v2-nft-like {
+  font-weight: 800;
+  color: #bfe8ff;
+  margin-top: 4px;
+}
+.v2-nft-warn {
+  font-size: 12px;
+  color: #ff9a7a;
+}
+.v2-pause-resume:disabled {
+  opacity: 0.7;
+}
+
+.v2-zone-lvl {
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  color: #ffb48a;
+}
+.v2-zone-name {
+  max-width: 84px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

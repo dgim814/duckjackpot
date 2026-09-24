@@ -11,7 +11,7 @@ import { DuckView, GuardView, createActorAnims } from './Actors'
 import { AudioBridge } from './AudioBridge'
 import { CameraRig } from './CameraRig'
 import { FxLayer } from './Fx'
-import { CamView, CoinLayer, DEPTH, DoorView, ExitView, FoliageLayer, SafeView, buildGround, buildLabels } from './Props'
+import { CamView, CoinLayer, DEPTH, DoorView, ExitView, FoliageLayer, NftVaultView, SafeView, buildGround, buildLabels, nftTextureKey } from './Props'
 import { buildTextures } from './textures'
 import { WorldBaker } from './WorldBaker'
 
@@ -26,7 +26,15 @@ export type SceneDeps = {
   hud: HudStore
   resolution: number
   onEnd: (end: HeistEnd) => void
+  /** Card art URLs for the MANSION NFT vault, by raffle id. */
+  nftArt?: Partial<Record<string, string>>
+  /** Colour of an active 24h NFT try-on, or null. Cosmetic only. */
+  skin?: number | null
+  onNftView?: () => void
 }
+
+/** Zones (1-based) where MANSION suggests heading back, once per raid each. */
+const FAR_HINTS = [15, 25, 35]
 
 /**
  * Thin Phaser scene: it owns no game rules. Each frame it advances the fixed
@@ -56,6 +64,8 @@ export class HeistV2Scene extends Phaser.Scene {
   private animsPaused = false
   private lastSnap: HudSnapshot | null = null
   private depthAtStart = 0
+  private nftView: NftVaultView | null = null
+  private farShown = new Set<number>()
   stepsLastFrame = 0
 
   constructor(deps: SceneDeps) {
@@ -71,6 +81,16 @@ export class HeistV2Scene extends Phaser.Scene {
     this.load.spritesheet('duck_sheet', '/heist/duck_sheet.png', { frameWidth: 256, frameHeight: 256 })
     this.load.spritesheet('guard_sheet', '/heist/guard_sheet.png', { frameWidth: 256, frameHeight: 256 })
     loadDuckCoinImages(this)
+    this.load.image('v2_nft_default', '/duck-jackpot.jpg')
+    const vault = this.raid.level.nftVault
+    if (vault) {
+      // Admin art may live on another host; a failed load falls back to the default card.
+      this.load.setCORS('anonymous')
+      for (const c of vault.cards) {
+        const url = this.deps.nftArt?.[c.raffle]
+        if (url && !this.textures.exists(nftTextureKey(c.raffle))) this.load.image(nftTextureKey(c.raffle), url)
+      }
+    }
   }
 
   create() {
@@ -91,6 +111,8 @@ export class HeistV2Scene extends Phaser.Scene {
     this.camViews = raid.cams.cams.map((c) => new CamView(this, c, v.camDist * raid.mods.disguiseMul))
     this.coins = new CoinLayer(this)
     this.duck = new DuckView(this)
+    this.duck.setSkin(this.deps.skin ?? null)
+    if (L.nftVault) this.nftView = new NftVaultView(this, L.nftVault)
     this.guardViews = raid.guards.guards.map(() => new GuardView(this, v.guardDist * raid.mods.disguiseMul))
     this.foliage = new FoliageLayer(this, L)
     this.fx = new FxLayer(this)
@@ -112,6 +134,12 @@ export class HeistV2Scene extends Phaser.Scene {
 
   private onResize(size: Phaser.Structs.Size) {
     this.cameras.main.setSize(size.width, size.height)
+  }
+
+  /** Apply or clear the cosmetic NFT try-on look on the duck. */
+  setSkin(color: number | null) {
+    this.deps.skin = color
+    this.duck?.setSkin(color)
   }
 
   setResolution(res: number) {
@@ -182,6 +210,7 @@ export class HeistV2Scene extends Phaser.Scene {
     this.exitView.update(this.clock, dt, raid.bag > 0)
     this.coins.update(raid, view, t)
     this.foliage.update(this.duck.x, this.duck.y)
+    this.nftView?.update(this.clock)
     this.fx.update(dt)
     this.publishHud(view)
   }
@@ -241,9 +270,13 @@ export class HeistV2Scene extends Phaser.Scene {
         if (!raid.ended) this.toast('good', heistT('heistV2Lost'), undefined, 1.6)
         break
       case 'zone': {
-        if (!e.deeper || raid.levelId !== 'bank') break
+        if (!e.deeper) break
         const z = raid.level.zones[e.i]
         const name = z ? heistT(z.key) : ''
+        if (raid.levelId === 'mansion') {
+          this.mansionZoneToast(e.i, name)
+          break
+        }
         if (e.i > this.depthAtStart) {
           this.depthAtStart = e.i
           this.toast('good', heistT('heistV2NewDepth', { n: e.i + 1 }), name, 2.2)
@@ -252,11 +285,35 @@ export class HeistV2Scene extends Phaser.Scene {
         }
         break
       }
+      case 'nftView':
+        this.deps.onNftView?.()
+        break
       case 'ended':
         if (e.verdict === 'caught') this.rig.shake(0.3, 16)
         break
       default:
         break
+    }
+  }
+
+  /** MANSION: new floor / new record / "time to go" — one banner, never a stream. */
+  private mansionZoneToast(i: number, name: string) {
+    const raid = this.raid
+    const n = i + 1
+    const far = FAR_HINTS.find((z) => n >= z && !this.farShown.has(z))
+    if (far !== undefined && raid.bag > 0 && n < raid.level.zones.length) {
+      for (const z of FAR_HINTS) if (z <= n) this.farShown.add(z)
+      this.toast('warn', heistT('heistV2FarIn'), heistT('heistV2TimeToGo'), 3)
+      this.exitView.emphasize(3)
+      return
+    }
+    const max = raid.level.zones.length
+    if (i > this.depthAtStart) {
+      this.depthAtStart = i
+      const newFloor = i % 10 === 0
+      this.toast('good', newFloor ? heistT('heistV2Floor', { n: i / 10 + 1 }) : heistT('heistMansionZone', { n, max }), name, 2.2)
+    } else {
+      this.toast('info', heistT('heistMansionZone', { n, max }), name, 1.4)
     }
   }
 
@@ -342,7 +399,8 @@ export class HeistV2Scene extends Phaser.Scene {
 }
 
 function zoneTitle(raid: Raid) {
-  return raid.levelId === 'bank' ? heistT('heistBankZone', { n: 1, max: raid.level.zones.length }) : heistT('heistMapMansion')
+  const max = raid.level.zones.length
+  return raid.levelId === 'bank' ? heistT('heistBankZone', { n: 1, max }) : heistT('heistMansionZone', { n: 1, max })
 }
 
 function sameToasts(a: Toast[], b: Toast[]) {
