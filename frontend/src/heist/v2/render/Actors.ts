@@ -1,6 +1,7 @@
 import Phaser from 'phaser'
 import type { Guard } from '../sim/Guards'
 import type { Gait, Player } from '../sim/Player'
+import type { NftSkinDef, NftSkinGait } from '../../nftTrial'
 
 export const DUCK_DISPLAY = 104
 export const GUARD_DISPLAY = 80
@@ -34,6 +35,29 @@ export function createActorAnims(scene: Phaser.Scene) {
   mk('v2-guard-run', 'guard_sheet', 12, 15, 11)
 }
 
+export function nftSkinTextureKey(skin: NftSkinDef) {
+  return `v2_nftskin_${skin.id}`
+}
+
+/** Animations of a full NFT skin sheet (only when that sheet is loaded). Returns gait → anim key. */
+function createSkinAnims(scene: Phaser.Scene, skin: NftSkinDef): Partial<Record<Gait, string>> {
+  const tex = nftSkinTextureKey(skin)
+  if (!skin.sheet || !skin.anims || !scene.textures.exists(tex)) return {}
+  const out: Partial<Record<Gait, string>> = {}
+  for (const gait of Object.keys(skin.anims) as NftSkinGait[]) {
+    const def = skin.anims[gait]
+    if (!def) continue
+    const key = `v2-nftskin-${skin.id}-${gait}`
+    if (!scene.anims.exists(key)) {
+      scene.anims.create({ key, frames: scene.anims.generateFrameNumbers(tex, { start: def.start, end: def.end }), frameRate: def.fps, repeat: -1 })
+    }
+    out[gait] = key
+  }
+  // A skin without its own run cycle runs like it walks, as the normal duck does.
+  if (!out.run && out.walk) out.run = out.walk
+  return out
+}
+
 function lerp(a: number, b: number, t: number) {
   return a + (b - a) * t
 }
@@ -43,12 +67,13 @@ export class DuckView {
   private shadow: Phaser.GameObjects.Image
   private aura: Phaser.GameObjects.Image
   private crown: Phaser.GameObjects.Image
-  private skin: number | null = null
+  private skin: NftSkinDef | null = null
+  private skinAnims: Partial<Record<Gait, string>> = {}
   private key = ''
   x = 0
   y = 0
 
-  constructor(scene: Phaser.Scene) {
+  constructor(private scene: Phaser.Scene) {
     this.shadow = scene.add.image(0, 0, 'v2_shadow').setDisplaySize(64, 22).setAlpha(0.9)
     this.aura = scene.add.image(0, 0, 'v2_glow').setBlendMode(Phaser.BlendModes.ADD).setDisplaySize(150, 150).setVisible(false)
     this.sprite = scene.add.sprite(0, 0, 'duck_sheet', 0).setOrigin(0.5, 0.9)
@@ -57,14 +82,20 @@ export class DuckView {
     this.crown = scene.add.image(0, 0, 'v2_crown').setDisplaySize(40, 30).setOrigin(0.5, 1).setVisible(false)
   }
 
-  /** NFT try-on look: a crown and an aura in the drop's colour. null = plain duck. */
-  setSkin(color: number | null) {
-    this.skin = color
-    this.aura.setVisible(color !== null)
-    this.crown.setVisible(color !== null)
-    if (color !== null) {
-      this.aura.setTint(color)
-      this.crown.setTint(color)
+  /**
+   * NFT try-on look. With a loaded skin sheet the duck plays that NFT's own
+   * animations; otherwise it stays the normal duck. Aura and crown follow the
+   * skin's flags in its colour. null = plain duck.
+   */
+  setSkin(skin: NftSkinDef | null) {
+    this.skin = skin
+    this.skinAnims = skin ? createSkinAnims(this.scene, skin) : {}
+    this.key = ''
+    this.aura.setVisible(Boolean(skin?.aura))
+    this.crown.setVisible(Boolean(skin?.crown))
+    if (skin) {
+      this.aura.setTint(skin.color)
+      this.crown.setTint(skin.color)
     }
   }
 
@@ -75,13 +106,13 @@ export class DuckView {
     this.sprite.setDepth(actorDepth(this.y))
     this.shadow.setPosition(this.x, this.y + 2).setDepth(actorDepth(this.y) - 0.00001)
     this.sprite.setFlipX(p.flip)
-    const key = DUCK_ANIM[p.anim]
+    const key = this.skinAnims[p.anim] ?? DUCK_ANIM[p.anim]
     if (key !== this.key) {
       this.key = key
       this.sprite.play(key, true)
     }
     this.sprite.setAlpha(hidden ? 0.62 : 1)
-    if (this.skin !== null) {
+    if (this.skin && (this.skin.aura || this.skin.crown)) {
       const d = actorDepth(this.y)
       const dir = p.flip ? -1 : 1
       const bob = p.anim === 'idle' ? 0 : Math.sin(this.sprite.anims.currentFrame?.index ?? 0) * 1.5

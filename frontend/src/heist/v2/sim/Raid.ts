@@ -104,7 +104,7 @@ export class Raid {
     this.nav = new Nav(this.solids, NAV_CELL, NAV_PAD)
 
     this.player = new Player(L.spawn.x, L.spawn.y)
-    this.guards = new GuardSystem(this.guardRoutes(), this.nav)
+    this.guards = new GuardSystem(this.guardRoutes(), this.nav, { antiStuck: levelId === 'mansion' })
     this.cams = new CamSystem(this.cfg.counts.cams == null ? L.cams : L.cams.slice(0, this.cfg.counts.cams))
     this.alert = new Alert(this.cfg.alert)
 

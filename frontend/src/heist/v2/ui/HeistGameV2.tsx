@@ -5,13 +5,14 @@ import WebApp from '@twa-dev/sdk'
 import type { HeistEnd } from '../../types'
 import type { HeistRunMods } from '../../progress'
 import type { HeistLevelId } from '../../heistLevel'
-import { bindHeistI18n } from '../../heistI18n'
+import { bindHeistI18n, heistT } from '../../heistI18n'
 import { haltHeistSfx, heistSfx, unlockHeistSfx } from '../../heistSfx'
 import { useI18n } from '../../../i18n/LanguageProvider'
 import { useAdmin } from '../../../admin/AdminProvider'
 import { useCards } from '../../../cards/CardsProvider'
 import type { RaffleId } from '../../../constants'
-import { NFT_SKIN, loadNftTrial, startNftTrial, type NftTrial } from '../../nftTrial'
+import { loadNftTrial, nftSkin, nftTrialLeft, startNftTrial, type NftTrial } from '../../nftTrial'
+import { RAFFLE_TITLE_KEY } from '../../../i18n/raffleLabels'
 import { InputController } from '../sim/Input'
 import { Raid } from '../sim/Raid'
 import { HeistV2Scene } from '../render/HeistV2Scene'
@@ -99,7 +100,7 @@ export function HeistGameV2({ running, mods, levelId = 'bank', novice = false, o
       nftArt: { classic: cardArtRef.current('classic'), fast200: cardArtRef.current('fast200'), fast100: cardArtRef.current('fast100') },
       skin: (() => {
         const tr = loadNftTrial()
-        return tr ? NFT_SKIN[tr.nftId].color : null
+        return tr ? nftSkin(tr.nftId) : null
       })(),
       onNftView: () => {
         if (raid.ended) return
@@ -141,7 +142,11 @@ export function HeistGameV2({ running, mods, levelId = 'bank', novice = false, o
     }
     document.addEventListener('visibilitychange', onVis)
 
-    const stop = (e: TouchEvent) => e.preventDefault()
+    // Block page rubber-banding over the game, but let the NFT viewer scroll (iOS).
+    const stop = (e: TouchEvent) => {
+      if (e.target instanceof Element && e.target.closest('.v2-nft-menu')) return
+      e.preventDefault()
+    }
     root.addEventListener('touchmove', stop, { passive: false })
     const unlock = () => unlockHeistSfx()
     root.addEventListener('pointerdown', unlock)
@@ -212,10 +217,14 @@ export function HeistGameV2({ running, mods, levelId = 'bank', novice = false, o
     if (raid && !raid.ended && raid.paused) raid.setPaused(false)
     input.releaseAll()
   }
+  /** Try-on keeps the raid: skin on, viewer closed, the same run continues where it paused. */
   const tryNft = (id: RaffleId) => {
     const next = startNftTrial(id)
     setTrial(next)
-    sceneRef.current?.setSkin(NFT_SKIN[id].color)
+    const scene = sceneRef.current
+    scene?.setSkin(nftSkin(id))
+    closeNft()
+    scene?.notify('good', heistT('heistNftSkinActive', { name: t(RAFFLE_TITLE_KEY[id]), time: nftTrialLeft(next) }), heistT('heistNftTryNote'), 3)
   }
   const openDrop = (id: RaffleId) => {
     setRaffleId(id)

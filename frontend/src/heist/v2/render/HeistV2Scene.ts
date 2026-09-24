@@ -7,7 +7,8 @@ import type { RaidEvent } from '../sim/events'
 import type { InputController } from '../sim/Input'
 import { Raid, SIM_DT } from '../sim/Raid'
 import type { HudSnapshot, HudStore, Toast } from '../ui/store'
-import { DuckView, GuardView, createActorAnims } from './Actors'
+import type { NftSkinDef } from '../../nftTrial'
+import { DuckView, GuardView, createActorAnims, nftSkinTextureKey } from './Actors'
 import { AudioBridge } from './AudioBridge'
 import { CameraRig } from './CameraRig'
 import { FxLayer } from './Fx'
@@ -28,8 +29,8 @@ export type SceneDeps = {
   onEnd: (end: HeistEnd) => void
   /** Card art URLs for the MANSION NFT vault, by raffle id. */
   nftArt?: Partial<Record<string, string>>
-  /** Colour of an active 24h NFT try-on, or null. Cosmetic only. */
-  skin?: number | null
+  /** Active 24h NFT try-on look, or null. Cosmetic only. */
+  skin?: NftSkinDef | null
   onNftView?: () => void
 }
 
@@ -82,6 +83,8 @@ export class HeistV2Scene extends Phaser.Scene {
     this.load.spritesheet('guard_sheet', '/heist/guard_sheet.png', { frameWidth: 256, frameHeight: 256 })
     loadDuckCoinImages(this)
     this.load.image('v2_nft_default', '/duck-jackpot.jpg')
+    const skin = this.deps.skin
+    if (skin?.sheet) this.load.spritesheet(nftSkinTextureKey(skin), skin.sheet.url, { frameWidth: skin.sheet.frameWidth, frameHeight: skin.sheet.frameHeight })
     const vault = this.raid.level.nftVault
     if (vault) {
       // Admin art may live on another host; a failed load falls back to the default card.
@@ -136,10 +139,24 @@ export class HeistV2Scene extends Phaser.Scene {
     this.cameras.main.setSize(size.width, size.height)
   }
 
-  /** Apply or clear the cosmetic NFT try-on look on the duck. */
-  setSkin(color: number | null) {
-    this.deps.skin = color
-    this.duck?.setSkin(color)
+  /**
+   * Apply or clear the cosmetic NFT try-on look mid-raid. The fallback look is
+   * shown at once; a full skin sheet, if the NFT has one, swaps in once loaded.
+   */
+  setSkin(skin: NftSkinDef | null) {
+    this.deps.skin = skin
+    this.duck?.setSkin(skin)
+    if (!skin?.sheet || this.textures.exists(nftSkinTextureKey(skin))) return
+    this.load.spritesheet(nftSkinTextureKey(skin), skin.sheet.url, { frameWidth: skin.sheet.frameWidth, frameHeight: skin.sheet.frameHeight })
+    this.load.once(Phaser.Loader.Events.COMPLETE, () => {
+      if (this.deps.skin === skin) this.duck?.setSkin(skin)
+    })
+    this.load.start()
+  }
+
+  /** A banner from outside the simulation (e.g. the NFT try-on confirmation). */
+  notify(kind: Toast['kind'], title: string, sub: string | undefined, seconds: number) {
+    this.toast(kind, title, sub, seconds)
   }
 
   setResolution(res: number) {

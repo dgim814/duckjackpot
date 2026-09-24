@@ -671,11 +671,40 @@
 }
 
 /* ---------- NFT vault (MANSION) ---------- */
-.v2-nft-menu {
+.v2-nft-layer {
+  position: absolute;
+  inset: 0;
   pointer-events: auto;
+}
+.v2-nft-menu {
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
   align-items: flex-start;
-  padding: max(16px, env(safe-area-inset-top)) 16px 24px;
+  padding: calc(var(--safe-top) + 60px) 16px calc(var(--safe-bottom) + 24px);
+}
+.v2-nft-close {
+  position: absolute;
+  top: calc(var(--safe-top) + 10px);
+  right: 14px;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  background: #120c10;
+  border: 2px solid var(--gold);
+  color: var(--gold);
+  font-size: 22px;
+  font-weight: 900;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.45), 0 0 18px rgba(255, 214, 90, 0.35);
+  z-index: 2;
+}
+.v2-nft-close:active {
+  transform: scale(0.94);
 }
 .v2-nft-card {
   width: min(360px, 100%);
@@ -690,7 +719,7 @@
   line-height: 1.35;
 }
 .v2-nft-art {
-  width: 72%;
+  width: 58%;
   margin: 4px auto;
 }
 .v2-nft-name {

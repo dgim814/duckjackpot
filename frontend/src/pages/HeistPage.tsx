@@ -25,7 +25,7 @@ import { BANK_ZONE_COUNT, bankCollectedPotential, bankTotalPotential } from '../
 import { heistLevelBrief, heistLevelCards, type HeistLevelId } from '../heist/heistLevel'
 import { useI18n } from '../i18n/LanguageProvider'
 import { RAFFLE_TITLE_KEY } from '../i18n/raffleLabels'
-import { loadNftTrial, nftTrialLeft, NFT_SKIN } from '../heist/nftTrial'
+import { loadNftTrial, nftSkin, nftTrialLeft } from '../heist/nftTrial'
 
 /** Goal, guards and cameras of a level, so the player picks the risk knowingly. */
 function LevelBrief({ id, cap }: { id: HeistLevelId; cap: number }) {
@@ -511,7 +511,7 @@ export function HeistPage() {
           </p>
           {skinTrial ? (
             <div className="mt-3 rounded-2xl border border-sky-200/30 bg-sky-300/10 px-3 py-2 text-center">
-              <p className="text-[11px] font-extrabold tracking-[0.12em]" style={{ color: NFT_SKIN[skinTrial.nftId].css }}>
+              <p className="text-[11px] font-extrabold tracking-[0.12em]" style={{ color: nftSkin(skinTrial.nftId).css }}>
                 👑 {t('heistNftSkinActive', { name: t(RAFFLE_TITLE_KEY[skinTrial.nftId]), time: nftTrialLeft(skinTrial) })}
               </p>
               <button type="button" className="mt-1 text-[11px] font-bold tracking-[0.12em] text-sky-100 underline" onClick={() => navigate('/drop')}>

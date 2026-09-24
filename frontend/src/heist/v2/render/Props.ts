@@ -352,6 +352,12 @@ export function nftTextureKey(raffle: string) {
 /** NFT cards behind the vault bars: lit, floating a little, clearly out of reach. */
 export class NftVaultView {
   private cards: { img: Phaser.GameObjects.Image; glow: Phaser.GameObjects.Image; y: number; phase: number }[] = []
+  /** Casino trim on the bars: rail glows, corner lamps and one slow glint. 8 sprites, no tweens. */
+  private rails: { img: Phaser.GameObjects.Image; base: number; amp: number }[] = []
+  private lamps: { img: Phaser.GameObjects.Image; phase: number }[] = []
+  private glint: Phaser.GameObjects.Image | null = null
+  private glintX0 = 0
+  private glintW = 0
 
   constructor(scene: Phaser.Scene, vault: NftVaultDef) {
     const back = scene.add
@@ -374,6 +380,7 @@ export class NftVaultView {
       img.setScale(k)
       this.cards.push({ img, glow, y: c.y, phase: i * 1.7 })
     })
+    this.buildTrim(scene, vault)
     const cx = vault.grille.x + vault.grille.w / 2
     scene.add
       .text(cx, vault.view.y + vault.view.h + 34, heistT('heistNftVault'), {
@@ -397,7 +404,42 @@ export class NftVaultView {
       .setDepth(DEPTH.labels)
   }
 
+  private buildTrim(scene: Phaser.Scene, vault: NftVaultDef) {
+    const g = vault.grille
+    const top = g.y - 150
+    const bottom = g.y + g.h
+    const cx = g.x + g.w / 2
+    // Above the baked bars (static layer) but below labels; warm gold, additive, faint.
+    const d = DEPTH.static + 0.5
+    const glow = (x: number, y: number, w: number, h: number, tint: number) =>
+      scene.add.image(x, y, 'v2_glow').setDisplaySize(w, h).setTint(tint).setBlendMode(Phaser.BlendModes.ADD).setDepth(d)
+    // Bottom rail carries the light; the top rail stays very faint so the cards read clearly.
+    this.rails.push({ img: glow(cx, bottom - 4, g.w * 1.05, 56, 0xffc451), base: 0.38, amp: 0.08 })
+    // Warm light rising up the lower bars, kept under the cards so they read clearly.
+    this.rails.push({ img: glow(cx, bottom - 26, g.w * 1.1, 70, 0xffb43c), base: 0.16, amp: 0.05 })
+    this.rails.push({ img: glow(cx, top + 2, g.w * 1.02, 24, 0xffc451), base: 0.1, amp: 0.03 })
+    for (const [x, y, phase] of [
+      [g.x + 6, top + 4, 0],
+      [g.x + g.w - 6, top + 4, 1.9],
+      [g.x + 6, bottom - 3, 3.1],
+      [g.x + g.w - 6, bottom - 3, 4.4],
+    ] as const) {
+      this.lamps.push({ img: glow(x, y, 64, 64, 0xffd98a), phase })
+    }
+    this.glint = glow(g.x, bottom - 4, 70, 18, 0xfff1c4)
+    this.glintX0 = g.x + 20
+    this.glintW = g.w - 40
+  }
+
   update(time: number) {
+    // Slow breathing on the rails, lamps twinkle out of step, one glint crosses every ~7 s.
+    for (const r of this.rails) r.img.setAlpha(r.base + Math.sin(time * 1.1) * r.amp)
+    for (const l of this.lamps) l.img.setAlpha(0.32 + Math.max(0, Math.sin(time * 1.7 + l.phase)) * 0.33)
+    if (this.glint) {
+      const t = (time % 7) / 7
+      const run = Math.min(1, t / 0.35)
+      this.glint.setX(this.glintX0 + this.glintW * run).setAlpha(t < 0.35 ? Math.sin(run * Math.PI) * 0.7 : 0)
+    }
     for (const c of this.cards) {
       const bob = Math.sin(time * 1.6 + c.phase) * 4
       c.img.setY(c.y + bob)

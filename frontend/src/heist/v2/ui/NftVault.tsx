@@ -32,7 +32,8 @@ export function NftVaultPanel({ ids, trial, onTry, onOpenDrop, onClose }: Props)
   const wearing = trial?.nftId === id
 
   return (
-    <div className="v2-pause-menu v2-nft-menu">
+    <div className="v2-nft-layer" role="dialog" aria-modal="true" aria-label={heistT('heistNftVault')}>
+      <div className="v2-pause-menu v2-nft-menu">
       <div className="v2-pause-card v2-nft-card">
         <div className="v2-pause-title">{heistT('heistNftVault')}</div>
         <div className="v2-nft-sub">{heistT('heistNftBehindBars')}</div>
@@ -73,6 +74,11 @@ export function NftVaultPanel({ ids, trial, onTry, onOpenDrop, onClose }: Props)
           {heistT('heistNftBack')}
         </button>
       </div>
+      </div>
+      {/* Outside the scroller so it never scrolls away; closes back into the same raid. */}
+      <button type="button" className="v2-nft-close" onClick={onClose} aria-label={heistT('heistNftBack')}>
+        ✕
+      </button>
     </div>
   )
 }

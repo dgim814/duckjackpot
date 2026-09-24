@@ -98,6 +98,35 @@ export class Nav {
     return this.center(sx, sy)
   }
 
+  /**
+   * Nearest walkable cell the caller can actually step to (`clear` checks the
+   * straight line), so a body pressed against a wall never resolves to the
+   * far side of that wall or door.
+   */
+  nearestReachable(wx: number, wy: number, clear: (x: number, y: number) => boolean, maxR = 6): Vec | null {
+    const sx = Math.max(0, Math.min(this.cols - 1, Math.floor(wx / this.cell)))
+    const sy = Math.max(0, Math.min(this.rows - 1, Math.floor(wy / this.cell)))
+    if (this.walkableCell(sx, sy)) return this.center(sx, sy)
+    for (let r = 1; r <= maxR; r += 1) {
+      let best: Vec | null = null
+      let bestD = Number.POSITIVE_INFINITY
+      for (let dy = -r; dy <= r; dy += 1) {
+        for (let dx = -r; dx <= r; dx += 1) {
+          if (Math.abs(dx) !== r && Math.abs(dy) !== r) continue
+          if (!this.walkableCell(sx + dx, sy + dy)) continue
+          const c = this.center(sx + dx, sy + dy)
+          const d = Math.hypot(c.x - wx, c.y - wy)
+          if (d < bestD && clear(c.x, c.y)) {
+            best = c
+            bestD = d
+          }
+        }
+      }
+      if (best) return best
+    }
+    return null
+  }
+
   center(cx: number, cy: number): Vec {
     return { x: (cx + 0.5) * this.cell, y: (cy + 0.5) * this.cell }
   }
