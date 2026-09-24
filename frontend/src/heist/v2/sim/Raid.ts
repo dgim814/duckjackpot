@@ -553,17 +553,22 @@ export class Raid {
     if (this.ended) return
     this.verdict = verdict
     this.crack = null
+    let bankCompleted = false
     if (this.levelId === 'bank' && verdict === 'escaped') {
+      // BANK is complete only when THIS raid reached the final zone, carried loot
+      // out of it (or it was already emptied) and left through EXIT.
       const finalIds = this.level.loot.filter((c) => zoneAt(this.level, c.x, c.y).i >= this.level.finalZone).map((c) => c.id)
       const taken = this.save?.lootTaken ?? new Set<string>()
       const tookFinal =
         finalIds.some((id) => this.runLootIds.includes(id)) || finalIds.every((id) => taken.has(id) || this.runLootIds.includes(id))
+      const complete = this.zoneMax >= this.level.finalZone && tookFinal
+      bankCompleted = complete && !this.save?.complete
       BankPersistence.saveEscape({
         lootTaken: this.runLootIds,
         openedSafes: this.runSafes,
         depth: this.depthBest,
         reachedFinal: this.reachedFinal,
-        complete: this.reachedFinal && tookFinal,
+        complete,
       })
     }
     const coins = verdict === 'aborted' ? 0 : this.bag
@@ -586,6 +591,7 @@ export class Raid {
       banked: 0,
       timeMs,
       alert: this.alert.value,
+      bankCompleted,
     }
     this.events.push({ t: 'ended', verdict })
   }

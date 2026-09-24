@@ -15,4 +15,6 @@ export type HeistEnd = {
   banked: number
   timeMs: number
   alert: number
+  /** True only on the raid that finished the BANK for the first time. */
+  bankCompleted?: boolean
 }
