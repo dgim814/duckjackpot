@@ -24,8 +24,7 @@ import { heistSfx, unlockHeistSfx } from '../heist/heistSfx'
 import { BANK_ZONE_COUNT, bankCollectedPotential, bankTotalPotential } from '../heist/phaser/bankLayout'
 import { heistLevelBrief, heistLevelCards, type HeistLevelId } from '../heist/heistLevel'
 import { useI18n } from '../i18n/LanguageProvider'
-import { RAFFLE_TITLE_KEY } from '../i18n/raffleLabels'
-import { loadNftTrial, nftSkin, nftTrialLeft } from '../heist/nftTrial'
+import { loadNftTrial, nftSkin, nftTrialLeft, type NftTrial } from '../heist/nftTrial'
 
 /** Goal, guards and cameras of a level, so the player picks the risk knowingly. */
 function LevelBrief({ id, cap }: { id: HeistLevelId; cap: number }) {
@@ -47,6 +46,30 @@ function LevelBrief({ id, cap }: { id: HeistLevelId; cap: number }) {
           {item}
         </span>
       ))}
+    </div>
+  )
+}
+
+/** Active 24h NFT look on the HUB, ticking; it removes itself when the try-on expires. */
+function HubSkinLine({ trial, onDrop }: { trial: NftTrial; onDrop: () => void }) {
+  const { t } = useI18n()
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(id)
+  }, [])
+  if (now >= trial.expiresAt) return null
+  const skin = nftSkin(trial.nftId)
+  return (
+    <div className="mt-3 rounded-2xl border px-3 py-2 text-center" style={{ borderColor: `${skin.css}66`, background: `${skin.css}14` }}>
+      <p className="text-[10px] font-extrabold tracking-[0.18em] text-zinc-300">👑 {t('heistNftSkinHub')}</p>
+      <p className="font-display text-sm font-black" style={{ color: skin.css }}>
+        {skin.name}
+      </p>
+      <p className="font-mono text-xs font-bold text-amber-100">{nftTrialLeft(trial, now, true)}</p>
+      <button type="button" className="mt-1 text-[11px] font-bold tracking-[0.12em] text-sky-100 underline" onClick={onDrop}>
+        {t('heistNftOpenDrop')}
+      </button>
     </div>
   )
 }
@@ -509,16 +532,7 @@ export function HeistPage() {
               total: bankTotalPotential(),
             })}
           </p>
-          {skinTrial ? (
-            <div className="mt-3 rounded-2xl border border-sky-200/30 bg-sky-300/10 px-3 py-2 text-center">
-              <p className="text-[11px] font-extrabold tracking-[0.12em]" style={{ color: nftSkin(skinTrial.nftId).css }}>
-                👑 {t('heistNftSkinActive', { name: t(RAFFLE_TITLE_KEY[skinTrial.nftId]), time: nftTrialLeft(skinTrial) })}
-              </p>
-              <button type="button" className="mt-1 text-[11px] font-bold tracking-[0.12em] text-sky-100 underline" onClick={() => navigate('/drop')}>
-                {t('heistNftOpenDrop')}
-              </button>
-            </div>
-          ) : null}
+          {skinTrial ? <HubSkinLine trial={skinTrial} onDrop={() => navigate('/drop')} /> : null}
           <div className="mt-4 space-y-3">
             {heistLevelCards(progress).map((card) => {
               const open = !card.locked && card.id

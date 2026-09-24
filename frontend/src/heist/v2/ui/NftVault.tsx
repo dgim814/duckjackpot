@@ -5,7 +5,7 @@ import { formatCardPrice, useUsdtRate } from '../../../hooks/useUsdtRate'
 import { useI18n } from '../../../i18n/LanguageProvider'
 import { RAFFLE_HINT_KEY, RAFFLE_TITLE_KEY } from '../../../i18n/raffleLabels'
 import { heistT } from '../../heistI18n'
-import { nftTrialLeft, type NftTrial } from '../../nftTrial'
+import { nftSkin, nftTrialLeft, type NftTrial } from '../../nftTrial'
 import { nftWinAmount } from '../render/Props'
 
 type Props = {
@@ -53,6 +53,7 @@ export function NftVaultPanel({ ids, trial, onTry, onOpenDrop, onClose }: Props)
             {heistT('heistNftNext')}
           </button>
         )}
+        <SkinPreview id={id} />
         <button type="button" className="v2-pause-resume" disabled={wearing} onClick={() => onTry(id)}>
           {wearing && trial ? heistT('heistNftTrying', { time: nftTrialLeft(trial) }) : heistT('heistNftTry')}
         </button>
@@ -79,6 +80,31 @@ export function NftVaultPanel({ ids, trial, onTry, onOpenDrop, onClose }: Props)
       <button type="button" className="v2-nft-close" onClick={onClose} aria-label={heistT('heistNftBack')}>
         ✕
       </button>
+    </div>
+  )
+}
+
+/**
+ * The in-raid look of this NFT: its idle frames from the skin sheet, stepped in
+ * CSS (no canvas). If the sheet is missing it shows the fallback — the normal
+ * duck with the NFT crown — exactly what the raid would show.
+ */
+function SkinPreview({ id }: { id: RaffleId }) {
+  const skin = nftSkin(id)
+  const [failed, setFailed] = useState<string | null>(null)
+  const url = skin.sheet?.url
+  const ok = Boolean(url) && failed !== url
+  return (
+    <div className="v2-nft-skin" style={{ '--skin': skin.css } as React.CSSProperties}>
+      <div className="v2-nft-skin-stage">
+        <div className="v2-nft-skin-duck" style={{ backgroundImage: `url(${ok ? url : '/heist/duck_sheet.png'})` }} />
+        {!ok && <span className="v2-nft-skin-crown">👑</span>}
+        {url && <img src={url} alt="" hidden onError={() => setFailed(url)} />}
+      </div>
+      <div className="v2-nft-skin-text">
+        <b>{skin.name}</b>
+        <span>{heistT('heistNftSkinLook')}</span>
+      </div>
     </div>
   )
 }

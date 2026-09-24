@@ -875,3 +875,53 @@
   font-size: 11px;
   margin-top: 2px;
 }
+
+/* NFT skin preview: idle frames 0-3 of the 4x4 sheet, stepped */
+.v2-nft-skin {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--skin, var(--gold));
+  background: radial-gradient(circle at 22% 50%, rgba(255, 214, 90, 0.18), rgba(0, 0, 0, 0.35) 60%);
+  text-align: left;
+}
+.v2-nft-skin-stage {
+  position: relative;
+  width: 72px;
+  height: 72px;
+  flex: none;
+}
+.v2-nft-skin-duck {
+  width: 72px;
+  height: 72px;
+  background-size: 400% 400%;
+  background-position: 0 0;
+  background-repeat: no-repeat;
+  animation: v2-skin-idle 1s steps(3) infinite alternate;
+}
+@keyframes v2-skin-idle {
+  from {
+    background-position: 0% 0;
+  }
+  to {
+    background-position: 100% 0;
+  }
+}
+.v2-nft-skin-crown {
+  position: absolute;
+  left: 30px;
+  top: -2px;
+  font-size: 16px;
+}
+.v2-nft-skin-text b {
+  display: block;
+  font-family: Unbounded, system-ui, sans-serif;
+  font-size: 13px;
+  color: var(--skin, var(--gold));
+}
+.v2-nft-skin-text span {
+  font-size: 11px;
+  color: #cbbd9c;
+}

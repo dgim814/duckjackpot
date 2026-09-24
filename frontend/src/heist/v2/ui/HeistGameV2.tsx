@@ -12,7 +12,6 @@ import { useAdmin } from '../../../admin/AdminProvider'
 import { useCards } from '../../../cards/CardsProvider'
 import type { RaffleId } from '../../../constants'
 import { loadNftTrial, nftSkin, nftTrialLeft, startNftTrial, type NftTrial } from '../../nftTrial'
-import { RAFFLE_TITLE_KEY } from '../../../i18n/raffleLabels'
 import { InputController } from '../sim/Input'
 import { Raid } from '../sim/Raid'
 import { HeistV2Scene } from '../render/HeistV2Scene'
@@ -224,7 +223,7 @@ export function HeistGameV2({ running, mods, levelId = 'bank', novice = false, o
     const scene = sceneRef.current
     scene?.setSkin(nftSkin(id))
     closeNft()
-    scene?.notify('good', heistT('heistNftSkinActive', { name: t(RAFFLE_TITLE_KEY[id]), time: nftTrialLeft(next) }), heistT('heistNftTryNote'), 3)
+    scene?.notify('good', heistT('heistNftSkinOn'), `${nftSkin(id).name} · ${nftTrialLeft(next)}`, 3)
   }
   const openDrop = (id: RaffleId) => {
     setRaffleId(id)
