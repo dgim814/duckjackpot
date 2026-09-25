@@ -37,7 +37,7 @@ export type CarV = {
 
 type Shape = { d: string; glass: string; wheels: [number, number]; r: number };
 
-const SHAPES: Record<CarBody, Shape> = {
+export const SHAPES: Record<CarBody, Shape> = {
   gt60: {
     d: "M62 124Q58 112 72 106L118 98Q140 78 170 76Q204 76 224 94L254 102Q262 108 258 124Z",
     glass: "M132 97Q146 83 168 82Q192 82 206 96Z",

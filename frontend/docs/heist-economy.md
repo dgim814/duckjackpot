@@ -163,3 +163,8 @@ they show in-app (HUB); a Telegram bot sink can be added without touching the ru
   «собрано X из N»), «ПОКАЗАТЬ ЕЩЁ · 12 из 40» with a peek of the next lots,
   «✓ ВСЕ ПРЕДМЕТЫ ПОКАЗАНЫ», VIP «ЗАЛ ШЕДЕВРОВ» for MASTERPIECES, 🎭 badge for fictional lots,
   «🏆 КОЛЛЕКЦИЯ n / total» in the market and on the HUB goal card.
+
+### Black Market 2.2 — lot images
+- Every lot has a baked studio render (`tools/lot-renderer`): 288×228 card thumbnail (~5 KB) and
+  800×500 detail (~14 KB), lazy-loaded WebP, ≈4.5 MB for all 236. 19 famous paintings use their real
+  public-domain images; the vector illustrations remain only as a fallback.

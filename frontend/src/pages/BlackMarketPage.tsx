@@ -427,7 +427,7 @@ function LotCard({
       {vip ? (
         <button type="button" className="block w-full text-left" onClick={onOpen}>
           <div className="bm-vip-frame">
-            <LotArt item={item} className="bm-card-art aspect-[16/9] w-full overflow-hidden" />
+            <LotArt item={item} size="detail" className="bm-card-art aspect-[16/9] w-full overflow-hidden" />
           </div>
           <p className="font-display mt-3 text-[17px] font-black leading-snug text-[#f6edd4]">{item.name[locale]}</p>
           {item.maker ? <p className="mt-0.5 truncate text-[11px] font-extrabold tracking-[0.08em] text-[#d4af58]/80">{item.maker[locale]}</p> : null}
@@ -506,7 +506,7 @@ function LotSheet({
     <div className="bm-sheet-layer" role="dialog" aria-modal="true" aria-label={item.name[locale]}>
       <div className="bm-sheet-scroll">
         <div className={`bm-sheet bm-card-${tier} rounded-3xl p-4`}>
-          <LotArt item={item} className={`${tier === 'MASTERPIECE' ? 'bm-vip-frame' : ''} aspect-[16/10] h-auto w-full overflow-hidden rounded-2xl`} />
+          <LotArt item={item} size="detail" className={`${tier === 'MASTERPIECE' ? 'bm-vip-frame' : ''} aspect-[16/10] h-auto w-full overflow-hidden rounded-2xl`} />
           <p className="font-display mt-3 text-xl font-black leading-tight text-[#f6edd4]">{item.name[locale]}</p>
           {item.maker ? <p className="mt-0.5 text-[11px] font-extrabold tracking-[0.08em] text-[#d4af58]/80">{item.maker[locale]}</p> : null}
           <div className="mt-2 flex flex-wrap items-center gap-2">

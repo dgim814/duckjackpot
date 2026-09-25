@@ -88,7 +88,7 @@ export function CollectionPage() {
         ) : (
           entries.map((item) => (
             <article key={item.id} className={`lot-card rounded-2xl border bg-[#141218] p-3 ${RARITY_TONE[item.rarity]}`}>
-              <LotArt item={item} className="mb-3 h-28 w-full" />
+              <LotArt item={item} size="detail" className="mb-3 h-28 w-full" />
               <p className="font-display text-sm font-black text-amber-50">{item.name[locale]}</p>
               {item.maker?.[locale] ? (
                 <p className="mt-0.5 text-[10px] font-extrabold tracking-[0.12em] text-amber-200/80">{item.maker[locale]}</p>

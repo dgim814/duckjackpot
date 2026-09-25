@@ -596,3 +596,17 @@ body {
   background: rgba(212, 175, 88, 0.12);
   color: #e6d3a3;
 }
+
+/* ---------- Black Market 2.2: baked studio renders ---------- */
+.lot-art-photo {
+  background: #0b0907;
+}
+.lot-art-photo img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.bm-vip-frame.lot-art-photo img {
+  border-radius: 11px;
+}

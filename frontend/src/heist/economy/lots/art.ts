@@ -20,7 +20,7 @@ export const ART_LOTS: LotDraft[] = [
     'ART',
     40,
     48,
-    { image: '/heist/lots/renoir-galette.png' },
+    { image: '/heist/lots/art_sketch.webp' },
   ),
   C(
     'art_vangogh_starry',

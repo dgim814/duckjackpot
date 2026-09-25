@@ -1,6 +1,7 @@
 import type { CatalogItem, ItemRarity } from './catalog'
 import { LotVisual } from './art/LotVisual'
 import { VISUALS } from './art/visuals'
+import { LOT_ASSET_IDS, LOT_ASSET_VERSION } from './art/assets'
 
 export const RARITY_TONE: Record<ItemRarity, string> = {
   COMMON: 'border-white/20 text-zinc-300',
@@ -277,7 +278,27 @@ function InstrumentGlyph({ hue }: { hue: number }) {
   )
 }
 
-export function LotArt({ item, className = '' }: { item: CatalogItem; className?: string }) {
+/**
+ * Lot picture. Every Black Market lot has a baked studio render (tools/lot-renderer):
+ * a small card thumbnail and a larger detail image, both lazy-loaded WebP.
+ * The vector illustration stays as a fallback for anything without a render.
+ */
+export function LotArt({ item, className = '', size = 'thumb' }: { item: CatalogItem; className?: string; size?: 'thumb' | 'detail' }) {
+  if (LOT_ASSET_IDS.has(item.id)) {
+    const thumb = size === 'thumb'
+    return (
+      <div className={`lot-art lot-art-photo ${className}`.trim()} aria-hidden>
+        <img
+          src={`/heist/lots/${item.id}${thumb ? '.thumb' : ''}.webp?v=${LOT_ASSET_VERSION}`}
+          alt=""
+          width={thumb ? 288 : 800}
+          height={thumb ? 228 : 500}
+          loading="lazy"
+          decoding="async"
+        />
+      </div>
+    )
+  }
   const kind = lotKind(item)
   const visual = item.image ? undefined : VISUALS[item.id]
   return (

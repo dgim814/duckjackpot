@@ -36,10 +36,10 @@ export type Frame = 'ornate' | 'gold' | 'black' | 'wood' | 'mat' | 'fresco'
 
 export type PaintV = { k: 'paint'; scene: PaintScene; frame: Frame; portrait?: boolean }
 
-type Box = { x: number; y: number; w: number; h: number }
+export type Box = { x: number; y: number; w: number; h: number }
 
 /** Composition sketches — stylised impressions of the works, not reproductions. */
-function sceneArt(s: PaintScene, b: Box): ReactNode {
+export function sceneArt(s: PaintScene, b: Box): ReactNode {
   const X = (f: number) => b.x + f * b.w
   const Y = (f: number) => b.y + f * b.h
   type Extra = { key?: string | number; opacity?: number; transform?: string }
