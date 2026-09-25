@@ -29,7 +29,7 @@ function inColumn(z: ZoneDef, x0: number, x1: number) {
 export function buildDressing(level: LevelDef): { items: DressingItem[]; sconces: Sconce[] } {
   const items: DressingItem[] = []
   const sconces: Sconce[] = []
-  if (level.id === 'mansion') return mansionDressing(level)
+  if (level.id === 'mansion' || level.runner) return mansionDressing(level)
   if (level.id !== 'bank') return { items, sconces }
 
   const colX0 = 1330
@@ -154,9 +154,9 @@ function mansionDressing(level: LevelDef): { items: DressingItem[]; sconces: Sco
       paint: (g) => {
         g.fillStyle(0x000000, 0.28)
         g.fillRect(r.x + 2, r.y + 3, r.w, r.h)
-        g.fillStyle(gold ? 0x3a2808 : 0x5a121c, 0.95)
+        g.fillStyle(gold ? (level.runner?.gold ?? 0x3a2808) : (level.runner?.base ?? 0x5a121c), 0.95)
         g.fillRect(r.x, r.y, r.w, r.h)
-        g.fillStyle(GOLD, 0.7)
+        g.fillStyle(level.runner?.edge ?? GOLD, 0.7)
         g.fillRect(r.x + 8, r.y, 3, r.h)
         g.fillRect(r.x + r.w - 11, r.y, 3, r.h)
         g.fillStyle(GOLD, 0.14)

@@ -3,6 +3,8 @@ import { ensureCoinPlaceholders, loadDuckCoinImages } from '../../coinAssets'
 import { heistT } from '../../heistI18n'
 import type { HeistEnd } from '../../types'
 import { zoneAt } from '../level/LevelDef'
+import { HEIST_LEVEL_NAME, isGrandLevel } from '../../heistLevel'
+import type { MessageKey } from '../../../i18n/messages'
 import type { RaidEvent } from '../sim/events'
 import type { InputController } from '../sim/Input'
 import { Raid, SIM_DT } from '../sim/Raid'
@@ -34,8 +36,12 @@ export type SceneDeps = {
   onNftView?: () => void
 }
 
-/** Zones (1-based) where MANSION suggests heading back, once per raid each. */
-const FAR_HINTS = [15, 25, 35]
+/** Zones (1-based) where deep levels suggest heading back, once per raid each: 15, 25, 35… */
+function farHints(zones: number) {
+  const out: number[] = []
+  for (let n = 15; n < zones; n += 10) out.push(n)
+  return out
+}
 /** How long the police pill spells out why the timer started. */
 const SIREN_INTRO_S = 3.6
 
@@ -69,6 +75,10 @@ export class HeistV2Scene extends Phaser.Scene {
   private depthAtStart = 0
   private nftView: NftVaultView | null = null
   private farShown = new Set<number>()
+  private farHints: number[] = []
+  /** Big maps (LEVELS 3–5): ground tiles, lamps and labels drawn only near the camera. */
+  private culled: { obj: Phaser.GameObjects.GameObject & Phaser.GameObjects.Components.Visible; r: { x: number; y: number; w: number; h: number } }[] = []
+  private cullFrame = 0
   /** Last cracked safe, for the coins that fly to the bag chip (held briefly in the HUD). */
   private safeFly: (SafeFly & { until: number }) | null = null
   private safeFlyId = 0
@@ -112,9 +122,12 @@ export class HeistV2Scene extends Phaser.Scene {
     createActorAnims(this)
 
     this.cameras.main.setBackgroundColor(L.background)
+    this.farHints = farHints(L.zones.length)
+    const before = this.children.list.length
     buildGround(this, L)
     this.baker = new WorldBaker(this, L, DEPTH.static)
     buildLabels(this, L)
+    if (isGrandLevel(raid.levelId)) this.collectCulled(before)
     this.exitView = new ExitView(this, L.exit)
     this.doorViews = raid.doors.map((d) => new DoorView(this, d))
     this.safeViews = raid.safes.map((s) => new SafeView(this, s))
@@ -220,6 +233,7 @@ export class HeistV2Scene extends Phaser.Scene {
     const view = this.rig.view()
     const pad = { x: view.x - VIEW_PAD, y: view.y - VIEW_PAD, w: view.w + VIEW_PAD * 2, h: view.h + VIEW_PAD * 2 }
     this.baker.update(view)
+    this.cull(view)
     const t = raid.time
     raid.guards.guards.forEach((g, i) => {
       const vis = g.box.x > pad.x && g.box.x < pad.x + pad.w && g.box.y > pad.y && g.box.y < pad.y + pad.h
@@ -319,7 +333,7 @@ export class HeistV2Scene extends Phaser.Scene {
         if (!e.deeper) break
         const z = raid.level.zones[e.i]
         const name = z ? heistT(z.key) : ''
-        if (raid.levelId === 'mansion') {
+        if (raid.levelId !== 'bank') {
           this.mansionZoneToast(e.i, name)
           break
         }
@@ -342,24 +356,51 @@ export class HeistV2Scene extends Phaser.Scene {
     }
   }
 
-  /** MANSION: new floor / new record / "time to go" — one banner, never a stream. */
+  /** MANSION and LEVELS 3–5: new floor / new record / "time to go" — one banner, never a stream. */
   private mansionZoneToast(i: number, name: string) {
     const raid = this.raid
     const n = i + 1
-    const far = FAR_HINTS.find((z) => n >= z && !this.farShown.has(z))
+    const far = this.farHints.find((z) => n >= z && !this.farShown.has(z))
     if (far !== undefined && raid.bag > 0 && n < raid.level.zones.length) {
-      for (const z of FAR_HINTS) if (z <= n) this.farShown.add(z)
+      for (const z of this.farHints) if (z <= n) this.farShown.add(z)
       this.toast('warn', heistT('heistV2FarIn'), heistT('heistV2TimeToGo'), 3)
       this.exitView.emphasize(3)
       return
     }
-    const max = raid.level.zones.length
     if (i > this.depthAtStart) {
       this.depthAtStart = i
       const newFloor = i % 10 === 0
-      this.toast('good', newFloor ? heistT('heistV2Floor', { n: i / 10 + 1 }) : heistT('heistMansionZone', { n, max }), name, 2.2)
+      this.toast('good', newFloor ? sectionTitle(raid, i / 10) : zoneLabel(raid, n), name, 2.2)
     } else {
-      this.toast('info', heistT('heistMansionZone', { n, max }), name, 1.4)
+      this.toast('info', zoneLabel(raid, n), name, 1.4)
+    }
+  }
+
+  /** Every object the ground/label builders just added, with its world bounds, for view culling. */
+  private collectCulled(from: number) {
+    for (const obj of this.children.list.slice(from)) {
+      const o = obj as Phaser.GameObjects.GameObject & Phaser.GameObjects.Components.Visible & { getBounds?: () => Phaser.Geom.Rectangle }
+      if (!o.getBounds || typeof o.setVisible !== 'function') continue
+      const b = o.getBounds()
+      // The street and the facade outline cover the whole map: always drawn.
+      if (b.width >= this.raid.level.w && b.height >= this.raid.level.h) continue
+      this.culled.push({ obj: o, r: { x: b.x, y: b.y, w: b.width, h: b.height } })
+    }
+  }
+
+  /** Cheap visibility pass a few times a second (static objects only; the camera moves slowly). */
+  private cull(view: { x: number; y: number; w: number; h: number }) {
+    if (this.culled.length === 0) return
+    this.cullFrame += 1
+    if (this.cullFrame % 6 !== 1) return
+    const m = 700
+    const x0 = view.x - m
+    const x1 = view.x + view.w + m
+    const y0 = view.y - m
+    const y1 = view.y + view.h + m
+    for (const c of this.culled) {
+      const on = c.r.x < x1 && c.r.x + c.r.w > x0 && c.r.y < y1 && c.r.y + c.r.h > y0
+      if (c.obj.visible !== on) c.obj.setVisible(on)
     }
   }
 
@@ -461,7 +502,23 @@ export class HeistV2Scene extends Phaser.Scene {
 
 function zoneTitle(raid: Raid) {
   const max = raid.level.zones.length
-  return raid.levelId === 'bank' ? heistT('heistBankZone', { n: 1, max }) : heistT('heistMansionZone', { n: 1, max })
+  return raid.levelId === 'bank' ? heistT('heistBankZone', { n: 1, max }) : zoneLabel(raid, 1)
+}
+
+/** "MANSION · ЗОНА 7/40", "PRIVATE BANK · ЗОНА 7/50"… */
+function zoneLabel(raid: Raid, n: number) {
+  const max = raid.level.zones.length
+  if (raid.levelId === 'mansion') return heistT('heistMansionZone', { n, max })
+  return heistT('heistLevelZone', { level: heistT(HEIST_LEVEL_NAME[raid.levelId]), n, max })
+}
+
+/** New floor banner: MANSION counts floors, LEVELS 3–5 name their sections. */
+function sectionTitle(raid: Raid, floor: number) {
+  if (isGrandLevel(raid.levelId)) {
+    const lv = raid.levelId === 'level3' ? 'L3' : raid.levelId === 'level4' ? 'L4' : 'L5'
+    return heistT(`heist${lv}s${floor + 1}` as MessageKey)
+  }
+  return heistT('heistV2Floor', { n: floor + 1 })
 }
 
 function sameToasts(a: Toast[], b: Toast[]) {

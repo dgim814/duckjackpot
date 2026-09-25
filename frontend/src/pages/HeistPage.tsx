@@ -22,7 +22,7 @@ import { catalogItem } from '../heist/economy/catalog'
 import { requestStarsPurchase, STAR_PACKS } from '../heist/economy/stars'
 import { heistSfx, unlockHeistSfx } from '../heist/heistSfx'
 import { BANK_ZONE_COUNT, bankCollectedPotential, bankTotalPotential } from '../heist/phaser/bankLayout'
-import { heistLevelBrief, heistLevelCards, type HeistLevelId } from '../heist/heistLevel'
+import { HEIST_LEVEL_NAME, HEIST_LEVEL_ORDER, heistLevelBrief, heistLevelCards, isGrandLevel, nextHeistLevel, type HeistLevelId } from '../heist/heistLevel'
 import { useI18n } from '../i18n/LanguageProvider'
 import { loadNftTrial, nftSkin, nftTrialLeft, type NftTrial } from '../heist/nftTrial'
 
@@ -47,6 +47,39 @@ function LevelBrief({ id, cap }: { id: HeistLevelId; cap: number }) {
         </span>
       ))}
     </div>
+  )
+}
+
+/** Card colours: each building reads as its own place, locked ones as the next goal. */
+const CARD_TONE: Record<HeistLevelId, string> = {
+  bank: 'border-amber-400/45 bg-[#1a140c]/95',
+  mansion: 'border-orange-300/40 bg-[#1a1014]/95',
+  level3: 'border-sky-300/40 bg-[#0e1622]/95',
+  level4: 'border-red-400/40 bg-[#1a0c0e]/95',
+  level5: 'border-yellow-300/60 bg-[#14100a]/95 shadow-[0_0_24px_rgba(255,214,90,0.12)]',
+}
+
+/** Deepest zone reached so far (0-based) for the card's progress line. */
+function levelDepth(progress: ReturnType<typeof loadProgress>, id: HeistLevelId) {
+  if (id === 'bank') return progress.bankDepth ?? 0
+  if (id === 'mansion') return progress.mansionDepth ?? 0
+  return progress.worlds?.[id]?.depth ?? 0
+}
+
+/** "LEVEL 4 · BLACK MARKET — UNLOCKED" with a play button, on a completion screen. */
+function NextLevelBox({ id, onPlay }: { id: HeistLevelId; onPlay: () => void }) {
+  const { t } = useI18n()
+  const n = HEIST_LEVEL_ORDER.indexOf(id) + 1
+  return (
+    <>
+      <div className="mt-5 rounded-2xl border border-orange-300/50 bg-orange-400/10 px-4 py-3">
+        <p className="text-[10px] font-extrabold tracking-[0.18em] text-orange-200">{t('heistLevelNum', { n })}</p>
+        <p className="font-display mt-1 text-lg font-black text-orange-100">{t('heistLevelNextUnlocked', { level: t(HEIST_LEVEL_NAME[id]) })}</p>
+      </div>
+      <button type="button" className="buy-btn mt-5 w-full rounded-2xl px-4 py-3 text-zinc-950" onClick={onPlay}>
+        {t('heistPlayLevel', { level: t(HEIST_LEVEL_NAME[id]) })}
+      </button>
+    </>
   )
 }
 
@@ -92,7 +125,7 @@ export function HeistPage() {
   const [levelId, setLevelId] = useState<HeistLevelId>('bank')
   const [shopMsg, setShopMsg] = useState<string | null>(null)
   /** Set by the raid that just finished the BANK: the HUB highlights MANSION once. */
-  const [justUnlocked, setJustUnlocked] = useState(false)
+  const [justUnlocked, setJustUnlocked] = useState<HeistLevelId | null>(null)
   const [screen, setScreen] = useState<Screen>(() => (isHeistNovice(loadProgress()) ? 'play' : 'lobby'))
   const mods = useMemo(() => runMods(progress), [progress])
   const novice = isHeistNovice(progress)
@@ -126,7 +159,7 @@ export function HeistPage() {
       if (levelId === 'bank') updated = noteBankEscape(updated)
       updated = loadProgress()
       setProgress(updated)
-      if (next.bankCompleted && updated.bankComplete) setJustUnlocked(true)
+      if (next.levelCompleted) setJustUnlocked(nextHeistLevel(levelId))
       setEnd({ ...next, banked: updated.bankedDuckCoin })
     } else {
       const live = loadProgress()
@@ -137,7 +170,7 @@ export function HeistPage() {
   }
 
   const playLevel = (id: HeistLevelId) => {
-    setJustUnlocked(false)
+    setJustUnlocked(null)
     unlockHeistSfx()
     heistSfx.uiTap()
     setLevelId(id)
@@ -293,6 +326,7 @@ export function HeistPage() {
   if (screen === 'result' && end) {
     const win = end.verdict === 'escaped'
     const mansionDone = levelId === 'mansion' && win && end.mansionCompleted
+    const grandDone = isGrandLevel(levelId) && win && end.levelCompleted
     const bankRun = levelId === 'bank'
     const gained = end.coins + end.bonus + end.objBonus
     const need = Math.max(0, firstLotPrice - end.banked)
@@ -315,13 +349,57 @@ export function HeistPage() {
                 <span className="text-[11px] font-extrabold tracking-[0.16em] text-zinc-500">{t('heistThiefScore')}</span>
                 <span className="font-display text-2xl font-black text-amber-200">{end.banked}</span>
               </div>
-              <div className="mt-5 rounded-2xl border border-white/15 bg-white/5 px-4 py-3">
-                <p className="text-[10px] font-extrabold tracking-[0.18em] text-zinc-400">{t('heistLevelNum', { n: 3 })} · {t('heistLevelLocked')}</p>
-                <p className="font-display mt-1 text-lg font-black text-zinc-200">{t('heistMansionDoneNext')}</p>
-              </div>
+              <NextLevelBox id="level3" onPlay={() => playLevel('level3')} />
               <button
                 type="button"
-                className="buy-btn mt-6 w-full rounded-2xl px-4 py-3 text-zinc-950"
+                className="mt-3 w-full rounded-2xl border border-amber-400/40 px-4 py-3 text-sm font-bold text-amber-100"
+                onClick={() => {
+                  setEnd(null)
+                  setScreen('lobby')
+                }}
+              >
+                {t('heistToHub')}
+              </button>
+            </>
+          ) : grandDone ? (
+            <>
+              <p className="text-4xl">{levelId === 'level5' ? '👑' : '🏆'}</p>
+              {levelId === 'level5' ? (
+                <>
+                  <p className="mt-1 text-[11px] font-extrabold tracking-[0.24em] text-emerald-300">{t('heistGameDoneBadge')}</p>
+                  <p className="font-display mt-1 text-3xl font-black text-amber-300">{t('heistGameDoneTitle')}</p>
+                  <p className="mt-2 text-sm font-semibold text-amber-100">{t('heistGameDoneSub')}</p>
+                </>
+              ) : (
+                <>
+                  <p className="font-display mt-2 text-3xl font-black text-amber-300">{t('heistLevelDoneTitle', { level: t(HEIST_LEVEL_NAME[levelId]) })}</p>
+                  <p className="mt-2 text-sm font-semibold text-amber-100">{t('heistLevelDoneSub')}</p>
+                </>
+              )}
+              <div className="mt-6 flex items-baseline justify-between gap-3 text-left">
+                <span className="text-[11px] font-extrabold tracking-[0.16em] text-zinc-500">{t('heistCarriedOut')}</span>
+                <span className="font-display text-2xl font-black text-white">
+                  {gained} {t('heistDuckCoin')}
+                </span>
+              </div>
+              <div className="mt-3 flex items-baseline justify-between gap-3 text-left">
+                <span className="text-[11px] font-extrabold tracking-[0.16em] text-zinc-500">{t('heistThiefScore')}</span>
+                <span className="font-display text-2xl font-black text-amber-200">{end.banked}</span>
+              </div>
+              {nextHeistLevel(levelId) ? (
+                <NextLevelBox id={nextHeistLevel(levelId)!} onPlay={() => playLevel(nextHeistLevel(levelId)!)} />
+              ) : (
+                <div className="mt-5 flex justify-center gap-1.5 text-lg">
+                  {HEIST_LEVEL_ORDER.map((id) => (
+                    <span key={id} title={t(HEIST_LEVEL_NAME[id])}>
+                      ✓
+                    </span>
+                  ))}
+                </div>
+              )}
+              <button
+                type="button"
+                className="mt-3 w-full rounded-2xl border border-amber-400/40 px-4 py-3 text-sm font-bold text-amber-100"
                 onClick={() => {
                   setEnd(null)
                   setScreen('lobby')
@@ -535,16 +613,12 @@ export function HeistPage() {
           {skinTrial ? <HubSkinLine trial={skinTrial} onDrop={() => navigate('/drop')} /> : null}
           <div className="mt-4 space-y-3">
             {heistLevelCards(progress).map((card) => {
-              const open = !card.locked && card.id
-              const done = (card.id === 'bank' && progress.bankComplete) || (card.id === 'mansion' && Boolean(progress.mansionComplete))
-              const fresh = card.id === 'mansion' && open && justUnlocked
-              const badge = done ? t('heistLevelDone') : card.id === 'mansion' && open ? t('heistLevelUnlocked') : open ? t('heistLevelOpen') : t('heistLevelLocked')
-              const tone =
-                card.tone === 'bank'
-                  ? 'border-amber-400/45 bg-[#1a140c]/95'
-                  : card.tone === 'mansion'
-                    ? 'border-orange-300/40 bg-[#1a1014]/95'
-                    : 'border-white/10 bg-[#101014]/80 opacity-70'
+              const open = !card.locked
+              const done = card.done
+              const fresh = open && justUnlocked === card.id
+              const badge = done ? t('heistLevelDone') : open && card.id !== 'bank' ? t('heistLevelUnlocked') : open ? t('heistLevelOpen') : t('heistLevelLocked')
+              const depth = levelDepth(progress, card.id)
+              const tone = !open ? `${CARD_TONE[card.id]} opacity-60 grayscale-[35%]` : CARD_TONE[card.id]
               return (
                 <div
                   key={card.n}
@@ -555,8 +629,8 @@ export function HeistPage() {
                       <p className="text-[10px] font-extrabold tracking-[0.18em] text-amber-200/80">{t('heistLevelNum', { n: card.n })}</p>
                       <p className="font-display mt-0.5 text-xl font-black text-amber-50">{t(card.nameKey)}</p>
                       <p className="mt-0.5 text-[10px] font-bold tracking-[0.14em] text-zinc-400">
-                        {card.id === 'mansion' && open && !done
-                          ? t('heistMansionZone', { n: Math.min(card.zones, Math.max(1, (progress.mansionDepth ?? 0) + 1)), max: card.zones })
+                        {open && !done && card.id !== 'bank' && depth > 0
+                          ? t('heistLevelZone', { level: t(card.nameKey), n: Math.min(card.zones, depth + 1), max: card.zones })
                           : t('heistZonesN', { n: card.zones })}
                       </p>
                     </div>
@@ -572,14 +646,12 @@ export function HeistPage() {
                       {badge}
                     </span>
                   </div>
-                  {card.id ? <LevelBrief id={card.id} cap={bagCap(progress)} /> : null}
+                  <LevelBrief id={card.id} cap={bagCap(progress)} />
                   {open ? (
                     <button
                       type="button"
                       className="buy-btn mt-3 min-h-12 w-full rounded-xl px-4 py-3 font-display text-lg font-black tracking-[0.12em] text-zinc-950"
-                      onClick={() => {
-                        if (card.id) playLevel(card.id)
-                      }}
+                      onClick={() => playLevel(card.id)}
                     >
                       {t(card.id === 'bank' ? 'hubEnterBank' : 'heistPlay')}
                     </button>
@@ -589,7 +661,7 @@ export function HeistPage() {
                       disabled
                       className="mt-3 min-h-11 w-full rounded-xl border border-white/10 px-4 py-2.5 text-sm font-extrabold tracking-[0.14em] text-zinc-500"
                     >
-                      {t('heistLevelLocked')}
+                      🔒 {card.needs ? t('heistLevelNeeds', { level: t(HEIST_LEVEL_NAME[card.needs]) }) : t('heistLevelLocked')}
                     </button>
                   )}
                 </div>

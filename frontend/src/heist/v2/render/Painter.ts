@@ -31,6 +31,45 @@ export const BANK_PALETTE: Palette = {
   accent: GOLD,
 }
 
+/** PRIVATE BANK: steel, smoked glass and cool light. */
+export const CORPORATE_PALETTE: Palette = {
+  wallTop: 0x2a3440,
+  wallEdge: 0x7890a8,
+  wallFront: 0x10161e,
+  wood: 0x2a2220,
+  woodTop: 0x3a302a,
+  metal: 0x222a34,
+  metalTop: 0x3a4654,
+  fabric: 0x1a2436,
+  accent: 0x8ec8f0,
+}
+
+/** BLACK MARKET: bare concrete, black steel, crimson trim. */
+export const UNDERGROUND_PALETTE: Palette = {
+  wallTop: 0x262224,
+  wallEdge: 0x4a3a3c,
+  wallFront: 0x100c0e,
+  wood: 0x2e1c18,
+  woodTop: 0x42281e,
+  metal: 0x1c1a1c,
+  metalTop: 0x302c2e,
+  fabric: 0x4a1418,
+  accent: 0xc8323a,
+}
+
+/** GRAND VAULT: black marble walls, gold everywhere. */
+export const GRAND_PALETTE: Palette = {
+  wallTop: 0x1a1612,
+  wallEdge: 0x8a6a28,
+  wallFront: 0x0a0806,
+  wood: 0x2a1e12,
+  woodTop: 0x3e2c18,
+  metal: 0x1e1a14,
+  metalTop: 0x3a3020,
+  fabric: 0x3a1a10,
+  accent: 0xffd65a,
+}
+
 export const MANSION_PALETTE: Palette = {
   wallTop: 0x3a281c,
   wallEdge: 0x5a3e2a,

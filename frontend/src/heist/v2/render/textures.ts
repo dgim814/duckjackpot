@@ -259,6 +259,49 @@ function paintFloor(theme: FloorTheme): HTMLCanvasElement {
       grid(ctx, 32, 'rgba(40,80,40,0.8)', 3)
       break
     }
+    case 'glass': {
+      // PRIVATE BANK: large glass-and-steel panels, cool reflections.
+      ctx.fillStyle = '#131a24'
+      ctx.fillRect(0, 0, T, T)
+      for (let y = 0; y < 2; y += 1)
+        for (let x = 0; x < 2; x += 1) {
+          ctx.fillStyle = (x + y) % 2 === 0 ? '#18222f' : '#151e2a'
+          ctx.fillRect(x * 64 + 2, y * 64 + 2, 60, 60)
+        }
+      ctx.strokeStyle = 'rgba(150,200,240,0.08)'
+      ctx.lineWidth = 6
+      ctx.beginPath()
+      ctx.moveTo(-10, 40)
+      ctx.lineTo(60, -10)
+      ctx.moveTo(40, 130)
+      ctx.lineTo(130, 60)
+      ctx.stroke()
+      grid(ctx, 64, 'rgba(160,190,220,0.22)', 2)
+      grid(ctx, 64, 'rgba(0,0,0,0.4)')
+      break
+    }
+    case 'bunker': {
+      // BLACK MARKET underground: cast concrete slabs, bolts and worn hazard paint.
+      ctx.fillStyle = '#1c1b1c'
+      ctx.fillRect(0, 0, T, T)
+      speckle(ctx, 700, 'rgba(255,255,255,0.03)', 1, 71)
+      speckle(ctx, 500, 'rgba(0,0,0,0.3)', 2, 72)
+      grid(ctx, 64, 'rgba(0,0,0,0.55)', 3)
+      ctx.fillStyle = 'rgba(160,30,30,0.16)'
+      for (let i = 0; i < 4; i += 1) ctx.fillRect(i * 32 + 4, 0, 12, 6)
+      ctx.fillStyle = 'rgba(180,170,160,0.12)'
+      for (const [bx, by] of [[6, 6], [58, 6], [6, 58], [58, 58], [70, 70], [122, 70], [70, 122], [122, 122]]) ctx.fillRect(bx, by, 3, 3)
+      break
+    }
+    case 'blackMarble': {
+      // GRAND VAULT: black marble with thin gold veins and gold joints.
+      ctx.fillStyle = '#0e0c0a'
+      ctx.fillRect(0, 0, T, T)
+      veins(ctx, 'rgba(255,214,90,0.13)', 81, 4)
+      veins(ctx, 'rgba(255,255,255,0.04)', 82, 3)
+      grid(ctx, 64, 'rgba(214,170,60,0.28)', 1.5)
+      break
+    }
     case 'mansionStone': {
       ctx.fillStyle = '#231c18'
       ctx.fillRect(0, 0, T, T)
@@ -488,6 +531,9 @@ export const FLOOR_THEMES: FloorTheme[] = [
   'marbleWhite',
   'ballroom',
   'greenhouse',
+  'glass',
+  'bunker',
+  'blackMarble',
 ]
 
 export function floorKey(theme: FloorTheme) {

@@ -38,7 +38,22 @@ export type PlayerProgress = {
   mansionDepth: number
   mansionReachedFinal: boolean
   mansionComplete: boolean
+  /** Persistent LEVEL 3–5 heists (same rules as MANSION), keyed by level. Missing = untouched. */
+  worlds: Partial<Record<WorldId, WorldProgress>>
 }
+
+export type WorldId = 'level3' | 'level4' | 'level5'
+
+export type WorldProgress = {
+  lootTaken: string[]
+  openedSafes: string[]
+  openedDoors: string[]
+  depth: number
+  reachedFinal: boolean
+  complete: boolean
+}
+
+const WORLD_IDS: readonly WorldId[] = ['level3', 'level4', 'level5']
 
 export type HeistRunMods = {
   bagCap: number
@@ -107,6 +122,7 @@ const emptyProgress = (): PlayerProgress => ({
   mansionDepth: 0,
   mansionReachedFinal: false,
   mansionComplete: false,
+  worlds: {},
 })
 
 function readOwned(raw: unknown): OwnedCollection {
@@ -182,6 +198,29 @@ function restoreListedCopies(owned: OwnedCollection): OwnedCollection {
   }
 }
 
+function readWorld(raw: unknown): WorldProgress | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const w = raw as Partial<Record<keyof WorldProgress, unknown>>
+  return {
+    lootTaken: readIdList(w.lootTaken),
+    openedSafes: readIdList(w.openedSafes),
+    openedDoors: readIdList(w.openedDoors),
+    depth: Math.max(0, Math.floor(Number(w.depth) || 0)),
+    reachedFinal: Boolean(w.reachedFinal),
+    complete: Boolean(w.complete),
+  }
+}
+
+function readWorlds(raw: unknown): Partial<Record<WorldId, WorldProgress>> {
+  const out: Partial<Record<WorldId, WorldProgress>> = {}
+  if (!raw || typeof raw !== 'object') return out
+  for (const id of WORLD_IDS) {
+    const w = readWorld((raw as Record<string, unknown>)[id])
+    if (w) out[id] = w
+  }
+  return out
+}
+
 export function loadProgress(): PlayerProgress {
   try {
     const raw = localStorage.getItem(KEY)
@@ -216,6 +255,7 @@ export function loadProgress(): PlayerProgress {
       mansionDepth: Math.max(0, Math.floor(Number((parsed as { mansionDepth?: unknown }).mansionDepth) || 0)),
       mansionReachedFinal: Boolean((parsed as { mansionReachedFinal?: unknown }).mansionReachedFinal),
       mansionComplete: Boolean((parsed as { mansionComplete?: unknown }).mansionComplete),
+      worlds: readWorlds((parsed as { worlds?: unknown }).worlds),
     }
     const before = JSON.stringify(readOwned(parsed.ownedArt))
     if (before !== JSON.stringify(ownedArt)) saveProgress(next)
@@ -262,7 +302,11 @@ export function isGameplayFresh(progress: PlayerProgress) {
     readIdList(progress.mansionOpenedSafes).length === 0 &&
     readIdList(progress.mansionOpenedDoors).length === 0 &&
     Math.max(0, Math.floor(progress.mansionDepth ?? 0)) === 0 &&
-    !progress.mansionComplete
+    !progress.mansionComplete &&
+    WORLD_IDS.every((id) => {
+      const w = progress.worlds?.[id]
+      return !w || (w.lootTaken.length === 0 && w.openedSafes.length === 0 && w.openedDoors.length === 0 && w.depth === 0 && !w.complete)
+    })
   )
 }
 
@@ -355,8 +399,56 @@ export function persistMansionWorld(patch: {
   return next
 }
 
+/** Same rules as the BANK/MANSION saves: ids and depth only grow, completion never resets. */
+export function persistWorld(
+  id: WorldId,
+  patch: {
+    lootTaken?: readonly string[]
+    openedSafes?: readonly string[]
+    openedDoors?: readonly string[]
+    depth?: number
+    reachedFinal?: boolean
+    complete?: boolean
+  },
+) {
+  const live = loadProgress()
+  const cur = live.worlds?.[id] ?? { lootTaken: [], openedSafes: [], openedDoors: [], depth: 0, reachedFinal: false, complete: false }
+  const next: PlayerProgress = {
+    ...live,
+    ...keepWallet(live),
+    worlds: {
+      ...live.worlds,
+      [id]: {
+        lootTaken: mergeIds(cur.lootTaken, patch.lootTaken),
+        openedSafes: mergeIds(cur.openedSafes, patch.openedSafes),
+        openedDoors: mergeIds(cur.openedDoors, patch.openedDoors),
+        depth: Math.max(cur.depth, Math.max(0, Math.floor(patch.depth ?? 0))),
+        reachedFinal: Boolean(cur.reachedFinal || patch.reachedFinal),
+        complete: Boolean(cur.complete || patch.complete),
+      },
+    },
+  }
+  saveProgress(next)
+  return next
+}
+
 export function isMansionUnlocked(progress: PlayerProgress) {
   return Boolean(progress.bankComplete)
+}
+
+/** BANK is always open; every later level opens when the one before it is complete. */
+export function isLevelComplete(progress: PlayerProgress, id: 'bank' | 'mansion' | WorldId) {
+  if (id === 'bank') return Boolean(progress.bankComplete)
+  if (id === 'mansion') return Boolean(progress.mansionComplete)
+  return Boolean(progress.worlds?.[id]?.complete)
+}
+
+export function isLevelUnlocked(progress: PlayerProgress, id: 'bank' | 'mansion' | WorldId) {
+  if (id === 'bank') return true
+  if (id === 'mansion') return isMansionUnlocked(progress)
+  if (id === 'level3') return Boolean(progress.mansionComplete)
+  if (id === 'level4') return isLevelComplete(progress, 'level3')
+  return isLevelComplete(progress, 'level4')
 }
 
 export function bagCap(progress: PlayerProgress) {

@@ -508,7 +508,10 @@ export class GuardSystem {
       return distGoal
     }
     let next = g.path[g.pathI] ?? target
-    while (g.pathI < g.path.length && Math.hypot(next.x - g.box.x, next.y - g.box.y) < 10) {
+    // Anti-stuck levels: arrive closer to each corner so the body is centred before it turns
+    // into a doorway (10 px off-centre can leave the hitbox 1 px inside a door frame).
+    const reach = this.antiStuck ? 4 : 10
+    while (g.pathI < g.path.length && Math.hypot(next.x - g.box.x, next.y - g.box.y) < reach) {
       g.pathI += 1
       next = g.path[g.pathI] ?? target
     }
@@ -519,7 +522,13 @@ export class GuardSystem {
     const turn = Math.atan2(dy, dx)
     g.facing = approachAngle(g.facing, turn, dt * 9)
     const res = world.solids.move(g.box, (dx / d) * stepLen, (dy / d) * stepLen)
-    const moved = Math.hypot(res.dx, res.dy)
+    let moved = Math.hypot(res.dx, res.dy)
+    // Slide assist: blocked on one axis by a frame edge → step sideways towards the corridor line.
+    if (this.antiStuck && moved < stepLen * 0.3 && (res.hitX || res.hitY)) {
+      const side = res.hitY ? { x: Math.sign(next.x - g.box.x) || -Math.sign(g.box.x % 24 - 12), y: 0 } : { x: 0, y: Math.sign(next.y - g.box.y) || -Math.sign(g.box.y % 24 - 12) }
+      const nudge = world.solids.move(g.box, side.x * stepLen, side.y * stepLen)
+      moved += Math.hypot(nudge.dx, nudge.dy)
+    }
     if (moved < stepLen * 0.3) g.stuckT += dt
     else if (g.stuckT > 0) g.stuckT = Math.max(0, g.stuckT - dt)
     if (moved > stepLen * 0.8) g.stuckTries = 0

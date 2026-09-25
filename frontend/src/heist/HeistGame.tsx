@@ -3,7 +3,7 @@ import WebApp from '@twa-dev/sdk'
 import { createHeistGame } from './phaser/createHeistGame'
 import type { HeistEnd } from './types'
 import type { HeistRunMods } from './progress'
-import type { HeistLevelId } from './heistLevel'
+import { isGrandLevel, type HeistLevelId } from './heistLevel'
 import { bindHeistI18n } from './heistI18n'
 import { haltHeistSfx, unlockHeistSfx } from './heistSfx'
 import { useI18n } from '../i18n/LanguageProvider'
@@ -39,7 +39,8 @@ function useLegacyEngine() {
 
 export function HeistGame(props: HeistGameProps) {
   const legacy = useLegacyEngine()
-  return legacy ? <HeistGameV1 {...props} /> : <HeistGameV2 {...props} />
+  // The legacy engine only has BANK and MANSION: LEVELS 3–5 always run on V2.
+  return legacy && !isGrandLevel(props.levelId ?? 'bank') ? <HeistGameV1 {...props} /> : <HeistGameV2 {...props} />
 }
 
 function HeistGameV1({ running, mods, levelId = 'bank', novice = false, onDone }: HeistGameProps) {

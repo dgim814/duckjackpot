@@ -1,5 +1,6 @@
 import { useRef, useSyncExternalStore } from 'react'
 import type { RaidPhase } from '../sim/events'
+import type { HeistLevelId } from '../../heistLevel'
 
 export type Toast = { id: number; kind: 'intro' | 'info' | 'good' | 'warn' | 'danger' | 'safe'; title: string; sub?: string; note?: string; until: number }
 
@@ -17,7 +18,7 @@ export type HudSnapshot = {
   zoneCount: number
   depthBest: number
   zoneName: string
-  level: 'bank' | 'mansion'
+  level: HeistLevelId
   heavy: boolean
   load: number
   showWeight: boolean

@@ -21,6 +21,7 @@ import {
   BANK_ZONES,
 } from '../../phaser/bankLayout'
 import { mansion40 } from './mansion40'
+import { grandLevel } from './grandLevels'
 
 export type Rect = { x: number; y: number; w: number; h: number }
 export type Vec = { x: number; y: number }
@@ -45,6 +46,9 @@ export type FloorTheme =
   | 'marbleWhite'
   | 'ballroom'
   | 'greenhouse'
+  | 'glass'
+  | 'bunker'
+  | 'blackMarble'
 
 export type LightTone = 'warm' | 'cool' | 'blue' | 'dim' | 'gold'
 
@@ -123,6 +127,8 @@ export type LevelDef = {
   finalZone: number
   background: number
   nftVault?: NftVaultDef
+  /** Route runner colours of the tower levels (LEVELS 3–5); MANSION keeps its own. */
+  runner?: { base: number; gold: number; edge: number }
 }
 
 const WALL_T = 40
@@ -211,7 +217,9 @@ function mansionLevel(): LevelDef {
 }
 
 export function levelDef(id: HeistLevelId): LevelDef {
-  return id === 'mansion' ? mansionLevel() : bankLevel()
+  if (id === 'mansion') return mansionLevel()
+  if (id === 'level3' || id === 'level4' || id === 'level5') return grandLevel(id)
+  return bankLevel()
 }
 
 /** Last matching zone wins, so small rooms carved out of a big hall resolve to the room. */

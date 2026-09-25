@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { heistT } from '../../heistI18n'
+import { HEIST_LEVEL_NAME } from '../../heistLevel'
 import type { RaidPhase } from '../sim/events'
 import { useHud, shallowEqual, type HudStore } from './store'
 
@@ -94,7 +95,7 @@ export function TopBar({ hud, onPause }: { hud: HudStore; onPause: () => void })
           </>
         ) : (
           <>
-            <div className="v2-zone-lvl">{heistT('heistMapMansion')}</div>
+            <div className="v2-zone-lvl">{heistT(HEIST_LEVEL_NAME[s.level])}</div>
             <div className="v2-zone-num">
               {s.zone}
               <span>/{s.zoneCount}</span>

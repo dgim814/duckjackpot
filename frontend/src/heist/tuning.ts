@@ -185,6 +185,26 @@ const LEVEL_TUNING: Record<HeistLevelId, TuningPatch> = {
     alert: { phasesEnabled: true },
     escape: { enabled: true, timerS: 150, routeChange: false },
   },
+  // LEVELS 3–5 keep MANSION's feel (same dash, weight and alert rules). The police
+  // countdown is sized to the run back from each level's deepest safe.
+  level3: {
+    player: { dash: 392 },
+    weight: { enabled: true },
+    alert: { phasesEnabled: true },
+    escape: { enabled: true, timerS: 180, routeChange: false },
+  },
+  level4: {
+    player: { dash: 392 },
+    weight: { enabled: true },
+    alert: { phasesEnabled: true },
+    escape: { enabled: true, timerS: 210, routeChange: false },
+  },
+  level5: {
+    player: { dash: 392 },
+    weight: { enabled: true },
+    alert: { phasesEnabled: true },
+    escape: { enabled: true, timerS: 240, routeChange: false },
+  },
 }
 
 export function mergeTuning(base: HeistTuning, patch?: TuningPatch): HeistTuning {
