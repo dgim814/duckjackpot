@@ -1,4 +1,6 @@
 import type { CatalogItem, ItemRarity } from './catalog'
+import { LotVisual } from './art/LotVisual'
+import { VISUALS } from './art/visuals'
 
 export const RARITY_TONE: Record<ItemRarity, string> = {
   COMMON: 'border-white/20 text-zinc-300',
@@ -277,12 +279,19 @@ function InstrumentGlyph({ hue }: { hue: number }) {
 
 export function LotArt({ item, className = '' }: { item: CatalogItem; className?: string }) {
   const kind = lotKind(item)
+  const visual = item.image ? undefined : VISUALS[item.id]
   return (
     <div
       className={`lot-art lot-art-${item.rarity} ${item.image ? 'lot-art-framed' : `lot-art-place lot-art-place-${kind}`} ${className}`.trim()}
       aria-hidden
     >
-      {item.image ? <img src={item.image} alt="" className="lot-art-image" loading="lazy" decoding="async" /> : <LotGlyph item={item} />}
+      {item.image ? (
+        <img src={item.image} alt="" className="lot-art-image" loading="lazy" decoding="async" />
+      ) : visual ? (
+        <LotVisual v={visual} />
+      ) : (
+        <LotGlyph item={item} />
+      )}
     </div>
   )
 }

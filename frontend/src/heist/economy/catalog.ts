@@ -3,7 +3,7 @@
 
 import { COLLECTION_MARKUP } from './config'
 import { RENOIR, TIER_BANDS, type Tier } from './balance'
-import { ACCESSIBLE_LOTS, ART_LOTS, CAR_LOTS, COLLECTIBLE_LOTS, LOT_HISTORY, RARE_OBJECT_LOTS, WATCH_LOTS } from './lots'
+import { ACCESSIBLE_LOTS, ART_LOTS, CAR_LOTS, COLLECTIBLE_LOTS, EXPANSION_LOTS, LOT_HISTORY, LOT_HISTORY_MORE, LOT_HISTORY_MORE2, RARE_OBJECT_LOTS, WATCH_LOTS } from './lots'
 
 export type ItemRarity = 'COMMON' | 'UNCOMMON' | 'LUX' | 'RARE' | 'EPIC' | 'LEGENDARY' | 'ICONIC'
 export type ItemCategory = 'ART' | 'LUXURY' | 'INTERIOR' | 'CARS' | 'SPECIAL'
@@ -374,6 +374,9 @@ function roundNice(n: number) {
  * of a tier costs the band minimum and the dearest the band maximum.
  * Collection value keeps each lot's original value/price ratio. Ids never change.
  */
+/** DuckJackpot's own lore objects that predate the `fictional` flag. */
+const FICTIONAL_IDS = new Set(['special_mystery'])
+
 function rebalance(items: CatalogItem[]): CatalogItem[] {
   const byTier = new Map<Tier, CatalogItem[]>()
   for (const it of items) {
@@ -393,19 +396,20 @@ function rebalance(items: CatalogItem[]): CatalogItem[] {
     }
   }
   return items.map((it) => {
-    const history = LOT_HISTORY[it.id]
+    const history = LOT_HISTORY[it.id] ?? LOT_HISTORY_MORE[it.id] ?? LOT_HISTORY_MORE2[it.id] ?? it.history
+    const fictional = it.fictional || FICTIONAL_IDS.has(it.id) || undefined
     if (it.id === RENOIR.id) {
-      return { ...it, history, purchasePrice: RENOIR.price, duckCoinValue: RENOIR.price, collectionValue: RENOIR.value, tier: RENOIR.tier }
+      return { ...it, history, fictional, purchasePrice: RENOIR.price, duckCoinValue: RENOIR.price, collectionValue: RENOIR.value, tier: RENOIR.tier }
     }
-    if (it.fixedPrice) return { ...it, tier: tierOf(it.rarity) }
+    if (it.fixedPrice) return { ...it, history, fictional, tier: tierOf(it.rarity) }
     const p = price.get(it.id) ?? it.purchasePrice
     const ratio = it.collectionValue / Math.max(1, it.purchasePrice)
-    return { ...it, history, purchasePrice: p, duckCoinValue: p, collectionValue: Math.max(p, Math.round(p * ratio)), tier: tierOf(it.rarity) }
+    return { ...it, history, fictional, purchasePrice: p, duckCoinValue: p, collectionValue: Math.max(p, Math.round(p * ratio)), tier: tierOf(it.rarity) }
   })
 }
 
 export const CATALOG: readonly CatalogItem[] = rebalance([
-  ...[...ART_LOTS, ...WATCH_LOTS, ...CAR_LOTS, ...COLLECTIBLE_LOTS, ...RARE_OBJECT_LOTS, ...ACCESSIBLE_LOTS].map(lot),
+  ...[...ART_LOTS, ...WATCH_LOTS, ...CAR_LOTS, ...COLLECTIBLE_LOTS, ...RARE_OBJECT_LOTS, ...ACCESSIBLE_LOTS, ...EXPANSION_LOTS].map(lot),
   ...LEGACY_LOTS.map((item) => ({ ...item, market: false })),
 ])
 

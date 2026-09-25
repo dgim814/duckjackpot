@@ -2,6 +2,7 @@ import { useI18n } from '../../i18n/LanguageProvider'
 import { goalProgress, type PlayerProgress } from '../progress'
 import { raidsFor } from './balance'
 import { LotArt } from './LotArt'
+import { collectedCount } from './sections'
 
 /**
  * 🎯 MY GOAL — the lot the player chose to save up for. Shown on the HUB and
@@ -13,17 +14,24 @@ export function GoalCard({
   gained,
   onMarket,
   onRaid,
+  collection,
 }: {
   progress: PlayerProgress
   /** DUCK COIN this raid added (result screen). */
   gained?: number
   onMarket: () => void
   onRaid?: () => void
+  /** HUB: show the «🏆 КОЛЛЕКЦИЯ n / total» counter. */
+  collection?: boolean
 }) {
   const { t, lang } = useI18n()
   const g = goalProgress(progress)
   const locale = lang === 'ru' ? 'ru' : 'en'
   const fmt = (n: number) => n.toLocaleString(lang === 'ru' ? 'ru-RU' : 'en-US')
+  const col = collectedCount(progress.ownedArt)
+  const collectionLine = collection ? (
+    <p className="mt-2 text-center text-[11px] font-extrabold tracking-[0.12em] text-[#d4af58]">{t('goalCollection', { n: col.n, total: col.total })}</p>
+  ) : null
   if (!g) {
     return (
       <div className="goal-card mt-3 rounded-2xl p-3 text-center">
@@ -32,6 +40,7 @@ export function GoalCard({
         <button type="button" className="buy-btn mt-3 min-h-11 w-full rounded-xl px-4 py-2 text-sm font-black text-zinc-950" onClick={onMarket}>
           {t('bmOpen')}
         </button>
+        {collectionLine}
       </div>
     )
   }
@@ -69,6 +78,7 @@ export function GoalCard({
           {g.reached ? t('bmBuy') : t('bmMarketBtn')}
         </button>
       </div>
+      {collectionLine}
     </div>
   )
 }

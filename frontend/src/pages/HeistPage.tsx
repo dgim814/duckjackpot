@@ -742,7 +742,7 @@ export function HeistPage() {
           <p className="text-center text-[11px] font-extrabold uppercase tracking-[0.2em] text-amber-200">{t('heistKicker')}</p>
           <h1 className="font-display mt-1 text-center text-3xl font-black text-amber-50">{t('heistTitle')}</h1>
           <Wallet coins={progress.bankedDuckCoin} stars={progress.stars || 0} />
-          <GoalCard progress={progress} onMarket={openMarket} />
+          <GoalCard progress={progress} onMarket={openMarket} collection />
           <div className="mt-1 flex justify-between text-sm text-zinc-300">
             <span>{t('heistBag')}</span>
             <span className="font-mono font-bold text-amber-200">{bagCap(progress)}</span>

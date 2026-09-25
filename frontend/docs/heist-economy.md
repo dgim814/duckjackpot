@@ -108,9 +108,9 @@ Five display tiers, mapped from the existing lot rarities (ids unchanged, owned 
 
 ### Black Market 2.0 — MY GOAL
 - The whole catalog is browsable (no daily rotation), so a chosen goal can always be bought.
-- 202 lots in 8 sections: WATCHES 32, JEWELRY 21, ART 26, ANTIQUES 39, COLLECTIBLES 34,
-  CARS 40, RARE OBJECTS 10; MASTERPIECES (29) collects every MASTERPIECE-tier lot.
-- Cheapest 120 DC, median ≈ 3 700 DC, most expensive 150 000 DC.
+- 236 lots in 8 sections (Black Market 2.1): WATCHES 40, JEWELRY 27, ART 30, ANTIQUES 42,
+  COLLECTIBLES 40, CARS 45, RARE OBJECTS 12; MASTERPIECES (29) collects every MASTERPIECE-tier lot.
+- Cheapest 120 DC, median ≈ 2 900 DC, most expensive 150 000 DC.
 - The goal is chosen **only by the player** (`myGoalId` in the save, `null` for old saves).
   It can be changed or cleared at any time with no penalty; buying the goal item clears it.
 - The goal card shows in the HUB, on every successful raid result (+gained, left, ≈ raids)
@@ -148,3 +148,18 @@ New fields, all defaulted for old saves:
 `src/heist/notify.ts` defines the kinds (raid waits, NFT Drop, upgrade,
 reward, referral), RU/EN texts and a `NotificationSink` interface. Today
 they show in-app (HUB); a Telegram bot sink can be added without touching the rules.
+
+### Black Market 2.1 — full collection
+- 34 new lots (`lots/expansion.ts`, fixed prices, all 202 older prices unchanged):
+  entry watches (Casio F-91W 150, trench 240, railroad 280 … Seiko Astron 2 600),
+  earrings / bracelets / loose stones, coins (Morgan, denarius, Athenian owl), toys, the T206
+  Wagner card, affordable classic cars (2CV 220, Fiat 500 260, Mini 280, Beetle 420, Model T 1 100),
+  public-domain art (Hokusai, Van Gogh «Sunflowers», Turner, Bruegel) and two lore objects.
+- Every lot has «📖 ИСТОРИЯ» (`lots/history.ts`, `historyMore.ts`, `historyMore2.ts`); RU and EN.
+- Every lot has its own vector illustration (`economy/art/`): a recipe per lot in `visuals.ts`
+  (watch case/bezel/dial/strap, stone/cut/setting, painting composition + frame, car body + livery,
+  object form). No two lots share a picture; no network images except Renoir.
+- UI: swipeable categories with counts, per-category header («N предметов», description,
+  «собрано X из N»), «ПОКАЗАТЬ ЕЩЁ · 12 из 40» with a peek of the next lots,
+  «✓ ВСЕ ПРЕДМЕТЫ ПОКАЗАНЫ», VIP «ЗАЛ ШЕДЕВРОВ» for MASTERPIECES, 🎭 badge for fictional lots,
+  «🏆 КОЛЛЕКЦИЯ n / total» in the market and on the HUB goal card.

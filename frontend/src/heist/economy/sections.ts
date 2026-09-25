@@ -18,7 +18,7 @@ export const SECTIONS: Section[] = [
   { id: 'JEWELRY', icon: '💎', name: 'bmSecJewelry', match: (i) => starts(i, 'jewel_') },
   { id: 'ART', icon: '🖼️', name: 'bmSecArt', match: (i) => starts(i, 'art_') },
   { id: 'ANTIQUES', icon: '🏺', name: 'bmSecAntiques', match: (i) => (starts(i, 'antique_', 'sci_', 'book_') && i.id !== 'antique_breguet_pocket') },
-  { id: 'COLLECTIBLES', icon: '👑', name: 'bmSecCollectibles', match: (i) => starts(i, 'tech_', 'music_', 'fashion_') },
+  { id: 'COLLECTIBLES', icon: '👑', name: 'bmSecCollectibles', match: (i) => starts(i, 'tech_', 'music_', 'fashion_', 'coin_', 'toy_', 'sport_') },
   { id: 'CARS', icon: '🚗', name: 'bmSecCars', match: (i) => starts(i, 'car_') },
   { id: 'RARE', icon: '💰', name: 'bmSecRare', match: (i) => starts(i, 'rare_', 'special_') },
   { id: 'MASTERPIECES', icon: '🎨', name: 'bmSecMasterpieces', match: (i) => i.tier === 'MASTERPIECE' },
@@ -35,3 +35,9 @@ export function sectionItems(id: SectionId): CatalogItem[] {
 }
 
 export const TIER_RANK: Record<Tier, number> = { COMMON: 0, RARE: 1, EPIC: 2, LEGENDARY: 3, MASTERPIECE: 4 }
+
+/** Distinct market lots the player owns — the «🏆 КОЛЛЕКЦИЯ n / total» counter. */
+export function collectedCount(owned: Record<string, number> | undefined) {
+  const all = marketItems()
+  return { n: all.filter((i) => (owned?.[i.id] ?? 0) > 0).length, total: all.length }
+}

@@ -4,7 +4,7 @@ import { ScreenHeader } from '../components/ScreenHeader'
 import type { CatalogItem } from '../heist/economy/catalog'
 import { LotArt } from '../heist/economy/LotArt'
 import { raidsFor, type Tier } from '../heist/economy/balance'
-import { SECTIONS, TIER_RANK, marketItems, sectionItems, type SectionId } from '../heist/economy/sections'
+import { SECTIONS, TIER_RANK, collectedCount, marketItems, sectionItems, type SectionId } from '../heist/economy/sections'
 import { heistSfx, unlockHeistSfx } from '../heist/heistSfx'
 import {
   buyCatalogItem,
@@ -64,6 +64,27 @@ function TierBadge({ tier }: { tier: Tier }) {
       {tier}
     </span>
   )
+}
+
+const SECTION_DESC: Record<SectionId, MessageKey> = {
+  WATCHES: 'bmSecDescWatches',
+  JEWELRY: 'bmSecDescJewelry',
+  ART: 'bmSecDescArt',
+  ANTIQUES: 'bmSecDescAntiques',
+  COLLECTIBLES: 'bmSecDescCollectibles',
+  CARS: 'bmSecDescCars',
+  RARE: 'bmSecDescRare',
+  MASTERPIECES: 'bmSecDescMasterpieces',
+}
+
+/** «1 предмет / 2 предмета / 5 предметов». */
+function pluralKey(n: number, lang: string): MessageKey {
+  if (lang !== 'ru') return n === 1 ? 'bmItems1' : 'bmItems5'
+  const d = n % 10
+  const h = n % 100
+  if (d === 1 && h !== 11) return 'bmItems1'
+  if (d >= 2 && d <= 4 && (h < 12 || h > 14)) return 'bmItems2'
+  return 'bmItems5'
 }
 
 export function BlackMarketPage() {
@@ -139,6 +160,19 @@ export function BlackMarketPage() {
     heistSfx.purchase()
   }
 
+  const collected = collectedCount(progress.ownedArt)
+  const sec = SECTIONS.find((x) => x.id === section) ?? SECTIONS[0]
+  const secAll = sectionItems(section)
+  const secOwned = secAll.filter((i) => owned(progress, i.id) > 0).length
+  const vip = section === 'MASTERPIECES'
+  const visible = Math.min(shown, items.length)
+  const itemsWord = (n: number) => t(pluralKey(n, lang))
+
+  const pickSection = (id: SectionId) => {
+    setSection(id)
+    requestAnimationFrame(() => document.getElementById(`bm-sec-${id}`)?.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' }))
+  }
+
   return (
     <div className="black-market overflow-x-hidden px-4 pb-5">
       <ScreenHeader
@@ -149,27 +183,53 @@ export function BlackMarketPage() {
         titleClassName="font-display mt-1 text-[1.7rem] font-black leading-tight tracking-[0.06em] market-gold sm:text-[1.9rem]"
       />
 
-      <section className="market-vault mt-4 rounded-2xl px-3 py-3">
-        <p className="text-center text-[10px] font-extrabold tracking-[0.22em] text-[#d4af58]">💰 {t('heistDuckCoin')}</p>
-        <p className="market-gold font-display text-center text-4xl font-black leading-none">{fmt(progress.bankedDuckCoin)}</p>
-        <p className="mt-2 text-center text-[11px] leading-snug text-zinc-500">{t('marketStarsHint')}</p>
+      <section className="market-vault mt-4 grid grid-cols-2 gap-3 rounded-2xl px-3 py-3">
+        <div className="text-center">
+          <p className="text-[10px] font-extrabold tracking-[0.2em] text-[#d4af58]">💰 {t('heistDuckCoin')}</p>
+          <p className="market-gold font-display text-[1.9rem] font-black leading-tight">{fmt(progress.bankedDuckCoin)}</p>
+        </div>
+        <div className="border-l border-[#d4af58]/20 text-center">
+          <p className="text-[10px] font-extrabold tracking-[0.2em] text-[#d4af58]">{t('bmCollection')}</p>
+          <p className="font-display text-[1.9rem] font-black leading-tight text-[#f3e2b8]">
+            {collected.n}
+            <span className="text-base text-zinc-500"> / {collected.total}</span>
+          </p>
+          <div className="goal-bar goal-bar-thin mx-2 mt-1">
+            <i style={{ width: `${Math.max(2, (collected.n / collected.total) * 100)}%` }} />
+          </div>
+        </div>
+        <p className="col-span-2 text-center text-[11px] leading-snug text-zinc-500">{t('marketStarsHint')}</p>
       </section>
 
       {/* 🎯 the player's own goal — or an invitation to choose one */}
       {goal ? (
-        <button type="button" className={`goal-card goal-tier-${goal.item.tier} mt-3 w-full rounded-2xl p-3 text-left`} onClick={() => setOpen(goal.item)}>
+        <div className={`goal-card goal-tier-${goal.item.tier} mt-3 rounded-2xl p-3`}>
           <p className="text-[10px] font-extrabold tracking-[0.2em] text-amber-200">{t('bmCurrentGoal')}</p>
-          <div className="mt-1 flex items-center justify-between gap-3">
-            <span className="font-display truncate text-[15px] font-black text-amber-50">{goal.item.name[locale]}</span>
-            <span className="shrink-0 text-[11px] font-bold text-amber-200">{goal.reached ? t('bmGoalReached') : t('bmLeft', { n: fmt(goal.left) })}</span>
-          </div>
+          <button type="button" className="mt-2 flex w-full items-center gap-3 text-left" onClick={() => setOpen(goal.item)}>
+            <LotArt item={goal.item} className="goal-art h-14 w-20 shrink-0 overflow-hidden rounded-xl" />
+            <span className="min-w-0 flex-1">
+              <span className="font-display block truncate text-[15px] font-black text-amber-50">{goal.item.name[locale]}</span>
+              <span className="block text-[12px] font-bold text-amber-100">
+                {fmt(goal.have)} / {fmt(goal.price)}
+              </span>
+            </span>
+          </button>
           <div className="goal-bar mt-2">
             <i style={{ width: `${Math.max(2, goal.pct)}%` }} />
           </div>
-          <p className="mt-1 text-[10px] text-zinc-500">
-            {fmt(goal.have)} / {fmt(goal.price)} · {t('bmChangeHint')}
-          </p>
-        </button>
+          <div className="mt-2 flex items-center justify-between gap-2">
+            <span className={`text-[12px] font-extrabold ${goal.reached ? 'text-emerald-300' : 'text-amber-200'}`}>
+              {goal.reached ? t('bmGoalReached') : t('bmLeft', { n: fmt(goal.left) })}
+            </span>
+            <button
+              type="button"
+              className="bm-chip min-h-9 shrink-0 rounded-full px-3 text-[11px] font-extrabold tracking-[0.08em]"
+              onClick={() => document.getElementById('bm-cats')?.scrollIntoView({ block: 'start', behavior: 'smooth' })}
+            >
+              {t('bmChangeGoal')}
+            </button>
+          </div>
+        </div>
       ) : (
         <div className="goal-card mt-3 rounded-2xl p-3 text-center">
           <p className="font-display text-[15px] font-black text-amber-100">{t('bmNoGoal')}</p>
@@ -198,20 +258,41 @@ export function BlackMarketPage() {
         </section>
       ) : null}
 
-      <p className="mt-5 text-[10px] font-extrabold tracking-[0.22em] text-[#d4af58]">{t('bmSectionsTitle')}</p>
-      <div className="mt-2 grid grid-cols-4 gap-2">
-        {SECTIONS.map((s) => (
+      <p id="bm-cats" className="mt-5 scroll-mt-24 text-[10px] font-extrabold tracking-[0.22em] text-[#d4af58]">
+        {t('bmSectionsTitle')} · {marketItems().length} {itemsWord(marketItems().length)}
+      </p>
+      <div className="bm-cat-row -mx-4 mt-2 flex gap-2 overflow-x-auto px-4 pb-2">
+        {SECTIONS.map((x) => (
           <button
-            key={s.id}
+            key={x.id}
+            id={`bm-sec-${x.id}`}
             type="button"
-            onClick={() => setSection(s.id)}
-            className={`bm-section min-h-[64px] rounded-xl px-1 py-2 text-center ${section === s.id ? 'is-on' : ''}`}
+            onClick={() => pickSection(x.id)}
+            className={`bm-section bm-cat shrink-0 rounded-2xl px-3 py-2 text-left ${section === x.id ? 'is-on' : ''} ${x.id === 'MASTERPIECES' ? 'bm-cat-vip' : ''}`}
           >
-            <span className="block text-xl leading-none">{s.icon}</span>
-            <span className="mt-1 block text-[9px] font-extrabold leading-tight tracking-[0.06em]">{t(s.name)}</span>
+            <span className="flex items-center gap-2">
+              <span className="text-xl leading-none">{x.icon}</span>
+              <span>
+                <span className="block text-[10px] font-extrabold tracking-[0.08em]">{t(x.name)}</span>
+                <span className="block text-[11px] font-black text-[#f3e2b8]">{sectionItems(x.id).length}</span>
+              </span>
+            </span>
           </button>
         ))}
       </div>
+
+      <section className={`bm-sec-head mt-2 rounded-2xl p-3 ${vip ? 'bm-sec-head-vip' : ''}`}>
+        <div className="flex items-baseline justify-between gap-2">
+          <p className="font-display text-[20px] font-black tracking-[0.06em] text-[#f3e2b8]">
+            {vip ? t('bmVipTitle') : `${sec.icon} ${t(sec.name)}`}
+          </p>
+          <p className="shrink-0 text-[12px] font-extrabold text-[#d4af58]">
+            {secAll.length} {itemsWord(secAll.length)}
+          </p>
+        </div>
+        <p className="mt-1 text-[12px] leading-snug text-zinc-400">{t(SECTION_DESC[section])}</p>
+        <p className="mt-1 text-[11px] font-bold text-emerald-300/80">{t('bmSecOwned', { n: secOwned, total: secAll.length })}</p>
+      </section>
 
       <div className="-mx-4 mt-3 flex gap-2 overflow-x-auto px-4 pb-1">
         {FILTERS.map((f) => (
@@ -219,20 +300,21 @@ export function BlackMarketPage() {
             {t(f.key)}
           </button>
         ))}
-        {SORTS.map((s) => (
-          <button key={s.id} type="button" onClick={() => setSort(s.id)} className={`bm-chip bm-chip-sort min-h-10 shrink-0 rounded-full px-3 text-[11px] font-extrabold tracking-[0.1em] ${sort === s.id ? 'is-on' : ''}`}>
-            {t(s.key)}
+        {SORTS.map((x) => (
+          <button key={x.id} type="button" onClick={() => setSort(x.id)} className={`bm-chip bm-chip-sort min-h-10 shrink-0 rounded-full px-3 text-[11px] font-extrabold tracking-[0.1em] ${sort === x.id ? 'is-on' : ''}`}>
+            {t(x.key)}
           </button>
         ))}
       </div>
-      <p className="mt-2 text-[11px] text-zinc-500">{t('bmItemsN', { n: items.length })}</p>
+      {filter !== 'ALL' ? <p className="mt-2 text-[11px] text-zinc-500">{t('bmItemsN', { n: items.length })}</p> : null}
 
-      <div className="mt-2 space-y-3">
+      <div className="mt-3 space-y-3">
         {items.length === 0 ? <p className="py-6 text-center text-sm text-zinc-500">{t('bmEmpty')}</p> : null}
         {items.slice(0, shown).map((item) => (
           <LotCard
             key={item.id}
             item={item}
+            vip={vip}
             progress={progress}
             locale={locale}
             fmt={fmt}
@@ -246,9 +328,22 @@ export function BlackMarketPage() {
         ))}
       </div>
       {items.length > shown ? (
-        <button type="button" className="bm-chip mt-3 min-h-12 w-full rounded-2xl text-sm font-extrabold tracking-[0.1em]" onClick={() => setShown((n) => n + PAGE)}>
-          {t('bmMore', { n: items.length - shown })}
+        <button type="button" className="bm-more mt-3 w-full rounded-2xl px-3 py-3 text-left" onClick={() => setShown((n) => n + PAGE)}>
+          <span className="flex items-center justify-between gap-2">
+            <span className="text-[13px] font-extrabold tracking-[0.08em] text-[#f3e2b8]">{t('bmMoreOf', { shown: visible, total: items.length })}</span>
+            <span className="text-lg text-[#d4af58]">↓</span>
+          </span>
+          <span className="mt-2 flex gap-1.5" aria-hidden>
+            {items.slice(shown, shown + 4).map((it) => (
+              <LotArt key={it.id} item={it} className="bm-peek h-10 w-14 shrink-0 overflow-hidden rounded-lg" />
+            ))}
+            {items.length - shown > 4 ? <span className="bm-peek-more flex h-10 items-center rounded-lg px-2 text-[11px] font-black text-[#d4af58]">+{items.length - shown - 4}</span> : null}
+          </span>
         </button>
+      ) : items.length > 0 ? (
+        <p className="mt-3 rounded-2xl border border-emerald-400/20 bg-emerald-400/5 py-3 text-center text-[12px] font-extrabold tracking-[0.08em] text-emerald-200/90">
+          {t('bmAllShown', { total: items.length })}
+        </p>
       ) : null}
 
       <button
@@ -289,9 +384,10 @@ function statusOf(item: CatalogItem, p: PlayerProgress) {
   return { n, isGoal: p.myGoalId === item.id, can: p.bankedDuckCoin >= item.purchasePrice }
 }
 
-/** Compact shelf card: visual, name, rarity, price, status and one clear action. */
+/** Shelf card: compact row (image left) — or the larger VIP frame in MASTERPIECES. */
 function LotCard({
   item,
+  vip,
   progress,
   locale,
   fmt,
@@ -300,6 +396,7 @@ function LotCard({
   onBuy,
 }: {
   item: CatalogItem
+  vip?: boolean
   progress: PlayerProgress
   locale: 'ru' | 'en'
   fmt: (n: number) => string
@@ -311,29 +408,48 @@ function LotCard({
   const s = statusOf(item, progress)
   const tier = item.tier ?? 'COMMON'
   const pct = Math.min(100, Math.floor((progress.bankedDuckCoin / item.purchasePrice) * 100))
+  const badges = (
+    <div className="mt-1 flex flex-wrap items-center gap-1">
+      {vip ? <span className="bm-vip-badge">{t('bmVipBadge')}</span> : <TierBadge tier={tier} />}
+      {s.n > 0 ? <span className="bm-status bm-status-owned">{s.n > 1 ? t('bmOwnedN', { n: s.n }) : t('bmOwned')}</span> : null}
+      {s.isGoal ? <span className="bm-status bm-status-goal">{t('bmGoalBadge')}</span> : null}
+      {!s.n && !s.isGoal && s.can ? <span className="bm-status bm-status-can">{t('bmAvailable')}</span> : null}
+      {item.fictional ? <span className="bm-status bm-status-lore">{t('bmFictionalShort')}</span> : null}
+    </div>
+  )
+  const price = (
+    <p className={`mt-1 font-display font-black text-[#f3e2b8] ${vip ? 'text-[22px]' : 'text-[17px]'}`}>
+      {fmt(item.purchasePrice)} <span className="text-[9px] tracking-[0.14em] text-[#d4af58]">DUCK COIN</span>
+    </p>
+  )
   return (
-    <article className={`bm-card bm-card-${tier} rounded-2xl p-3 ${s.isGoal ? 'is-goal' : ''}`}>
-      <button type="button" className="flex w-full gap-3 text-left" onClick={onOpen}>
-        <LotArt item={item} className="bm-card-art h-[76px] w-[96px] shrink-0 overflow-hidden rounded-xl" />
-        <div className="min-w-0 flex-1">
-          <p className="font-display text-[14px] font-black leading-snug text-[#f6edd4]">{item.name[locale]}</p>
-          {item.maker ? <p className="mt-0.5 truncate text-[10px] font-extrabold tracking-[0.08em] text-[#d4af58]/80">{item.maker[locale]}</p> : null}
-          <div className="mt-1 flex flex-wrap items-center gap-1">
-            <TierBadge tier={tier} />
-            {s.n > 0 ? <span className="bm-status bm-status-owned">{s.n > 1 ? t('bmOwnedN', { n: s.n }) : t('bmOwned')}</span> : null}
-            {s.isGoal ? <span className="bm-status bm-status-goal">{t('bmGoalBadge')}</span> : null}
-            {!s.n && !s.isGoal && s.can ? <span className="bm-status bm-status-can">{t('bmAvailable')}</span> : null}
+    <article className={`bm-card bm-card-${tier} ${vip ? 'bm-card-vip p-3.5' : 'p-3'} rounded-2xl ${s.isGoal ? 'is-goal' : ''}`}>
+      {vip ? (
+        <button type="button" className="block w-full text-left" onClick={onOpen}>
+          <div className="bm-vip-frame">
+            <LotArt item={item} className="bm-card-art aspect-[16/9] w-full overflow-hidden" />
           </div>
-          <p className="mt-1 font-display text-[17px] font-black text-[#f3e2b8]">
-            {fmt(item.purchasePrice)} <span className="text-[9px] tracking-[0.14em] text-[#d4af58]">DUCK COIN</span>
-          </p>
-          {!s.can ? (
-            <div className="goal-bar goal-bar-thin mt-1">
-              <i style={{ width: `${Math.max(2, pct)}%` }} />
-            </div>
-          ) : null}
+          <p className="font-display mt-3 text-[17px] font-black leading-snug text-[#f6edd4]">{item.name[locale]}</p>
+          {item.maker ? <p className="mt-0.5 truncate text-[11px] font-extrabold tracking-[0.08em] text-[#d4af58]/80">{item.maker[locale]}</p> : null}
+          {badges}
+          {price}
+        </button>
+      ) : (
+        <button type="button" className="flex w-full gap-3 text-left" onClick={onOpen}>
+          <LotArt item={item} className="bm-card-art h-[76px] w-[96px] shrink-0 overflow-hidden rounded-xl" />
+          <div className="min-w-0 flex-1">
+            <p className="font-display text-[14px] font-black leading-snug text-[#f6edd4]">{item.name[locale]}</p>
+            {item.maker ? <p className="mt-0.5 truncate text-[10px] font-extrabold tracking-[0.08em] text-[#d4af58]/80">{item.maker[locale]}</p> : null}
+            {badges}
+            {price}
+          </div>
+        </button>
+      )}
+      {!s.can ? (
+        <div className="goal-bar goal-bar-thin mt-2">
+          <i style={{ width: `${Math.max(2, pct)}%` }} />
         </div>
-      </button>
+      ) : null}
       <div className="mt-3 grid grid-cols-2 gap-2">
         <button type="button" className="bm-chip min-h-11 rounded-xl text-[12px] font-extrabold tracking-[0.08em]" onClick={onOpen}>
           {t('bmDetails')}
@@ -356,7 +472,7 @@ function LotCard({
   )
 }
 
-/** The educational lot sheet: short → did you know → why valuable → (details: history) → progress → action. */
+/** The educational lot sheet: image → name → rarity → price → short → did you know → why valuable → history → goal progress → action. */
 function LotSheet({
   item,
   progress,
@@ -381,7 +497,6 @@ function LotSheet({
   onClose: () => void
 }) {
   const { t } = useI18n()
-  const [more, setMore] = useState(false)
   const s = statusOf(item, progress)
   const tier = item.tier ?? 'COMMON'
   const have = progress.bankedDuckCoin
@@ -391,18 +506,22 @@ function LotSheet({
     <div className="bm-sheet-layer" role="dialog" aria-modal="true" aria-label={item.name[locale]}>
       <div className="bm-sheet-scroll">
         <div className={`bm-sheet bm-card-${tier} rounded-3xl p-4`}>
-          <div className="flex items-start justify-between gap-3">
-            <p className="font-display text-xl font-black leading-tight text-[#f6edd4]">{item.name[locale]}</p>
+          <LotArt item={item} className={`${tier === 'MASTERPIECE' ? 'bm-vip-frame' : ''} aspect-[16/10] h-auto w-full overflow-hidden rounded-2xl`} />
+          <p className="font-display mt-3 text-xl font-black leading-tight text-[#f6edd4]">{item.name[locale]}</p>
+          {item.maker ? <p className="mt-0.5 text-[11px] font-extrabold tracking-[0.08em] text-[#d4af58]/80">{item.maker[locale]}</p> : null}
+          <div className="mt-2 flex flex-wrap items-center gap-2">
             <TierBadge tier={tier} />
+            <span className={`bm-status ${item.fictional ? 'bm-status-lore' : 'bm-status-real'}`}>{item.fictional ? t('bmFictional') : t('bmReal')}</span>
           </div>
-          {item.fictional ? <p className="mt-1 text-[10px] font-extrabold tracking-[0.12em] text-sky-200/80">{t('bmLore')}</p> : null}
-          <LotArt item={item} className="mt-3 aspect-[16/10] h-auto w-full" />
-          <p className="mt-3 font-display text-2xl font-black text-[#f3e2b8]">
+          <p className="mt-2 font-display text-2xl font-black text-[#f3e2b8]">
             {fmt(item.purchasePrice)} <span className="text-[11px] tracking-[0.14em] text-[#d4af58]">DUCK COIN</span>
           </p>
-          <p className="mt-2 text-[13px] leading-snug text-zinc-300">{item.blurb[locale]}</p>
+          <div className="bm-block mt-3">
+            <p className="bm-block-title">{t('bmShort')}</p>
+            <p>{item.blurb[locale]}</p>
+          </div>
           {item.fact ? (
-            <div className="bm-block mt-3">
+            <div className="bm-block mt-2">
               <p className="bm-block-title">{t('bmDidYouKnow')}</p>
               <p>{item.fact[locale]}</p>
             </div>
@@ -413,22 +532,17 @@ function LotSheet({
               <p>{item.significance[locale]}</p>
             </div>
           ) : null}
-          {more ? (
-            <div className="bm-block mt-2">
-              <p className="bm-block-title">{t('bmHistory')}</p>
-              {item.maker && item.year ? <p className="text-[11px] font-bold text-[#d4af58]">{t('bmMakerYear', { maker: item.maker[locale], year: item.year[locale] })}</p> : null}
-              {item.history ? <p className="mt-1">{item.history[locale]}</p> : null}
-              {item.engine ? <p className="mt-1 text-zinc-400">{item.engine[locale]}</p> : null}
-            </div>
-          ) : (
-            <button type="button" className="mt-2 text-[12px] font-extrabold tracking-[0.1em] text-[#d4af58] underline" onClick={() => setMore(true)}>
-              {t('bmDetails')} →
-            </button>
-          )}
+          <div className="bm-block mt-2">
+            <p className="bm-block-title">{t('bmHistory')}</p>
+            {item.maker && item.year ? <p className="text-[11px] font-bold text-[#d4af58]">{t('bmMakerYear', { maker: item.maker[locale], year: item.year[locale] })}</p> : null}
+            {item.history ? <p className="mt-1">{item.history[locale]}</p> : null}
+            {item.engine ? <p className="mt-1 text-zinc-400">{item.engine[locale]}</p> : null}
+            {!item.fictional ? <p className="mt-2 text-[11px] text-zinc-500">{t('bmRealNote')}</p> : null}
+          </div>
 
           {done ? null : (
           <div className="bm-block mt-3">
-            <p className="bm-block-title">{t('bmYourProgress')}</p>
+            <p className="bm-block-title">{s.isGoal ? t('bmMyGoalTitle') : t('bmYourProgress')}</p>
             <div className="goal-bar mt-1">
               <i style={{ width: `${Math.max(2, pct)}%` }} />
             </div>
