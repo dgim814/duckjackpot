@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { HeistDuck } from '../heist/HeistDuck'
 import { HeistGame, type HeistEnd } from '../heist/HeistGame'
@@ -24,11 +24,12 @@ import {
   subscribeGameplayReset,
   type LabStat,
 } from '../heist/progress'
-import { CATALOG } from '../heist/economy/catalog'
 import { STAR_ITEMS, type StarItemId } from '../heist/economy/balance'
 import type { MessageKey } from '../i18n/messages'
 import { discardSuspendedRaid, suspendedRaid } from '../heist/v2/ui/HeistGameV2'
 import { pendingNotifications } from '../heist/notify'
+import { GoalCard } from '../heist/economy/GoalCard'
+import { goalProgress } from '../heist/progress'
 import { requestStarsPurchase, STAR_PACKS } from '../heist/economy/stars'
 import { heistSfx, unlockHeistSfx } from '../heist/heistSfx'
 import { BANK_ZONE_COUNT, bankCollectedPotential, bankTotalPotential } from '../heist/phaser/bankLayout'
@@ -99,7 +100,8 @@ function Wallet({ coins, stars }: { coins: number; stars: number }) {
 /** The whole loop in six lines: steal → get out → upgrade → buy → go deeper → NFT Drop. */
 function Onboarding({ onOk }: { onOk: () => void }) {
   const { t } = useI18n()
-  const steps: MessageKey[] = ['heistOnb1', 'heistOnb2', 'heistOnb3', 'heistOnb4', 'heistOnb5', 'heistOnb6']
+  // Steal → get out → pick YOUR goal → buy → upgrade → go deeper → collect → NFT Drop.
+  const steps: MessageKey[] = ['heistOnb1', 'heistOnb2', 'heistOnb7', 'heistOnb4', 'heistOnb3', 'heistOnb5', 'heistOnb8', 'heistOnb6']
   return (
     <div className="mt-3 rounded-2xl border border-amber-300/40 bg-gradient-to-b from-amber-400/10 to-transparent p-3">
       <p className="text-center text-[10px] font-extrabold tracking-[0.2em] text-amber-200">{t('heistOnbTitle')}</p>
@@ -223,7 +225,11 @@ export function HeistPage() {
     [],
   )
   // First goal: the cheapest lot actually on sale (Renoir is now a long-term goal, see balance.ts).
-  const firstLotPrice = useMemo(() => Math.min(...CATALOG.filter((i) => i.market !== false).map((i) => i.purchasePrice)), [])
+  /** Black Market; a reached goal opens straight on its lot. */
+  const openMarket = () => {
+    const g = goalProgress(loadProgress())
+    navigate('/market', g?.reached ? { state: { open: g.item.id } } : undefined)
+  }
 
   const onDone = (next: HeistEnd) => {
     if (next.verdict === 'aborted') {
@@ -490,7 +496,6 @@ export function HeistPage() {
     const grandDone = isGrandLevel(levelId) && win && end.levelCompleted
     const bankRun = levelId === 'bank'
     const gained = end.coins + end.bonus + end.objBonus
-    const need = Math.max(0, firstLotPrice - end.banked)
     return (
       <section className="relative flex h-[calc(100dvh-4.75rem-env(safe-area-inset-bottom))] items-center justify-center overflow-hidden bg-[#120c10] px-5">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_20%,rgba(255,193,7,0.22),transparent_55%)]" />
@@ -510,6 +515,7 @@ export function HeistPage() {
                 <span className="text-[11px] font-extrabold tracking-[0.16em] text-zinc-500">{t('heistThiefScore')}</span>
                 <span className="font-display text-2xl font-black text-amber-200">{end.banked}</span>
               </div>
+              <GoalCard progress={progress} gained={gained} onMarket={openMarket} />
               <NextLevelBox id="level3" onPlay={() => playLevel('level3')} />
               <button
                 type="button"
@@ -547,6 +553,7 @@ export function HeistPage() {
                 <span className="text-[11px] font-extrabold tracking-[0.16em] text-zinc-500">{t('heistThiefScore')}</span>
                 <span className="font-display text-2xl font-black text-amber-200">{end.banked}</span>
               </div>
+              <GoalCard progress={progress} gained={gained} onMarket={openMarket} />
               {nextHeistLevel(levelId) ? (
                 <NextLevelBox id={nextHeistLevel(levelId)!} onPlay={() => playLevel(nextHeistLevel(levelId)!)} />
               ) : (
@@ -584,6 +591,7 @@ export function HeistPage() {
                 <span className="text-[11px] font-extrabold tracking-[0.16em] text-zinc-500">{t('heistThiefScore')}</span>
                 <span className="font-display text-2xl font-black text-amber-200">{end.banked}</span>
               </div>
+              <GoalCard progress={progress} gained={gained} onMarket={openMarket} />
               <div className="mt-5 rounded-2xl border border-orange-300/50 bg-orange-400/10 px-4 py-3">
                 <p className="text-[10px] font-extrabold tracking-[0.18em] text-orange-200">{t('heistMansionUnlocked')}</p>
                 <p className="font-display mt-1 text-lg font-black text-orange-100">{t('heistBankDoneNext')}</p>
@@ -622,35 +630,12 @@ export function HeistPage() {
                 </p>
               )}
               {progress.bankComplete ? (
-                <button type="button" className="buy-btn mt-6 w-full rounded-2xl px-4 py-3 text-zinc-950" onClick={() => playLevel('mansion')}>
+                <button type="button" className="buy-btn mt-5 w-full rounded-2xl px-4 py-3 text-zinc-950" onClick={() => playLevel('mansion')}>
                   {t('heistPlayMansion')}
                 </button>
-              ) : end.banked >= firstLotPrice ? (
-                <>
-                  <p className="mt-5 text-sm font-semibold text-amber-100">{t('heistEnoughRenoir')}</p>
-                  <button
-                    type="button"
-                    className="buy-btn mt-6 w-full rounded-2xl px-4 py-3 text-zinc-950"
-                    onClick={() => navigate('/market')}
-                  >
-                    {t('heistBuyOnMarket')}
-                  </button>
-                  <button
-                    type="button"
-                    className="mt-3 w-full rounded-2xl border border-amber-400/40 px-4 py-3 text-sm font-bold text-amber-100"
-                    onClick={() => playLevel('bank')}
-                  >
-                    {t('heistAgainBank')}
-                  </button>
-                </>
-              ) : (
-                <>
-                  <p className="mt-5 text-sm font-semibold text-amber-100">{t('heistNeedFirstLot', { n: need })}</p>
-                  <button type="button" className="buy-btn mt-6 w-full rounded-2xl px-4 py-3 text-zinc-950" onClick={() => playLevel('bank')}>
-                    {t('heistAgainBank')}
-                  </button>
-                </>
-              )}
+              ) : null}
+              {/* The player's own goal — never one the game picked for them. */}
+              <GoalCard progress={progress} gained={gained} onMarket={openMarket} onRaid={() => playLevel('bank')} />
             </>
           ) : bankRun ? (
             <>
@@ -666,7 +651,7 @@ export function HeistPage() {
             </>
           ) : (
             <>
-              <p className="font-display text-3xl font-black text-amber-300">{win ? t('heistEscaped') : t('heistCaught')}</p>
+              <p className="font-display text-3xl font-black text-amber-300">{win ? t('resRaidDone') : t('heistCaught')}</p>
               {win ? (
                 <>
                   <p className="mt-5 font-display text-5xl font-black text-white">+{gained}</p>
@@ -720,9 +705,13 @@ export function HeistPage() {
                   </p>
                 </>
               )}
-              <button type="button" className="buy-btn mt-6 w-full rounded-2xl px-4 py-3 text-zinc-950" onClick={() => playLevel(levelId)}>
-                {win ? t('heistAgain') : t('heistTryAgain')}
-              </button>
+              {win ? (
+                <GoalCard progress={progress} gained={gained} onMarket={openMarket} onRaid={() => playLevel(levelId)} />
+              ) : (
+                <button type="button" className="buy-btn mt-6 w-full rounded-2xl px-4 py-3 text-zinc-950" onClick={() => playLevel(levelId)}>
+                  {t('heistTryAgain')}
+                </button>
+              )}
               <button
                 type="button"
                 className="mt-3 w-full rounded-2xl border border-amber-400/40 px-4 py-3 text-sm font-bold text-amber-100"
@@ -753,6 +742,7 @@ export function HeistPage() {
           <p className="text-center text-[11px] font-extrabold uppercase tracking-[0.2em] text-amber-200">{t('heistKicker')}</p>
           <h1 className="font-display mt-1 text-center text-3xl font-black text-amber-50">{t('heistTitle')}</h1>
           <Wallet coins={progress.bankedDuckCoin} stars={progress.stars || 0} />
+          <GoalCard progress={progress} onMarket={openMarket} />
           <div className="mt-1 flex justify-between text-sm text-zinc-300">
             <span>{t('heistBag')}</span>
             <span className="font-mono font-bold text-amber-200">{bagCap(progress)}</span>

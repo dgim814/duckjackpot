@@ -51,11 +51,12 @@ export const TIER_BANDS: Record<Tier, { min: number; max: number; bag: number }>
 }
 
 /**
- * Renoir — «Bal du moulin de la Galette»: the flagship long-term goal.
- * 3 000 DUCK COIN ≈ 10 successful raids on the 250 bag, ≈ 6 on the 500 bag.
- * Never reachable from one raid (the biggest single raid is capped by the bag).
+ * Renoir — «Bal du moulin de la Galette»: one of the main long-term goals the
+ * player can choose. 50 000 DUCK COIN ≈ 73 successful raids on the 1000 bag
+ * (≈ 138 on the 500 bag), i.e. many evenings of play — but finite: the game
+ * holds ≈ 490k DUCK COIN in total. One line to rebalance.
  */
-export const RENOIR = { id: 'art_sketch', price: 3000, value: 3600, tier: 'EPIC' as Tier }
+export const RENOIR = { id: 'art_sketch', price: 50000, value: 57500, tier: 'MASTERPIECE' as Tier }
 
 /** First goal shown to new players after their first raids (a cheap COMMON lot). */
 export const FIRST_LOT_ID = 'lux_lighter'

@@ -3,7 +3,7 @@
 
 import { COLLECTION_MARKUP } from './config'
 import { RENOIR, TIER_BANDS, type Tier } from './balance'
-import { ART_LOTS, CAR_LOTS, COLLECTIBLE_LOTS, WATCH_LOTS } from './lots'
+import { ACCESSIBLE_LOTS, ART_LOTS, CAR_LOTS, COLLECTIBLE_LOTS, LOT_HISTORY, RARE_OBJECT_LOTS, WATCH_LOTS } from './lots'
 
 export type ItemRarity = 'COMMON' | 'UNCOMMON' | 'LUX' | 'RARE' | 'EPIC' | 'LEGENDARY' | 'ICONIC'
 export type ItemCategory = 'ART' | 'LUXURY' | 'INTERIOR' | 'CARS' | 'SPECIAL'
@@ -36,6 +36,12 @@ export type CatalogItem = {
   duckCoinValue: number
   /** Display rarity (COMMON → MASTERPIECE), set by the economy rebalance. */
   tier?: Tier
+  /** «ИСТОРИЯ»: documented background for well-known works (see lots/history.ts). */
+  history?: LocaleText
+  /** DuckJackpot's own lore object, not a real historical item. */
+  fictional?: boolean
+  /** Priced directly in DUCK COIN (skips the tier mapping). */
+  fixedPrice?: boolean
 }
 
 export type LotDraft = Omit<CatalogItem, 'collectionValue' | 'tradable' | 'duckCoinValue'> & {
@@ -371,7 +377,7 @@ function roundNice(n: number) {
 function rebalance(items: CatalogItem[]): CatalogItem[] {
   const byTier = new Map<Tier, CatalogItem[]>()
   for (const it of items) {
-    if (it.id === RENOIR.id) continue
+    if (it.id === RENOIR.id || it.fixedPrice) continue
     const tier = tierOf(it.rarity)
     byTier.set(tier, [...(byTier.get(tier) ?? []), it])
   }
@@ -387,17 +393,19 @@ function rebalance(items: CatalogItem[]): CatalogItem[] {
     }
   }
   return items.map((it) => {
+    const history = LOT_HISTORY[it.id]
     if (it.id === RENOIR.id) {
-      return { ...it, purchasePrice: RENOIR.price, duckCoinValue: RENOIR.price, collectionValue: RENOIR.value, tier: RENOIR.tier }
+      return { ...it, history, purchasePrice: RENOIR.price, duckCoinValue: RENOIR.price, collectionValue: RENOIR.value, tier: RENOIR.tier }
     }
+    if (it.fixedPrice) return { ...it, tier: tierOf(it.rarity) }
     const p = price.get(it.id) ?? it.purchasePrice
     const ratio = it.collectionValue / Math.max(1, it.purchasePrice)
-    return { ...it, purchasePrice: p, duckCoinValue: p, collectionValue: Math.max(p, Math.round(p * ratio)), tier: tierOf(it.rarity) }
+    return { ...it, history, purchasePrice: p, duckCoinValue: p, collectionValue: Math.max(p, Math.round(p * ratio)), tier: tierOf(it.rarity) }
   })
 }
 
 export const CATALOG: readonly CatalogItem[] = rebalance([
-  ...[...ART_LOTS, ...WATCH_LOTS, ...CAR_LOTS, ...COLLECTIBLE_LOTS].map(lot),
+  ...[...ART_LOTS, ...WATCH_LOTS, ...CAR_LOTS, ...COLLECTIBLE_LOTS, ...RARE_OBJECT_LOTS, ...ACCESSIBLE_LOTS].map(lot),
   ...LEGACY_LOTS.map((item) => ({ ...item, market: false })),
 ])
 

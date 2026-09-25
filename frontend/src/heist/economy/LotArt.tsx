@@ -30,7 +30,7 @@ function LotGlyph({ item }: { item: CatalogItem }) {
   if (item.id === 'rare_cameo') return <CameoGlyph />
   if (item.id === 'lux_lighter') return <LighterGlyph />
   if (item.id === 'special_faberge_egg') return <JewelGlyph hue={hue} rare />
-  if (item.id === 'special_mystery') return <TokenGlyph hue={hue} />
+  if (item.id === 'special_mystery' || item.id.startsWith('rare_')) return <TokenGlyph hue={hue} />
   if (item.id.startsWith('watch_')) return <WatchGlyph hue={hue} />
   if (item.id.startsWith('car_')) return <CarGlyph hue={hue} />
   if (item.id.startsWith('fashion_')) return <FashionGlyph hue={hue} />
@@ -282,7 +282,7 @@ export function LotArt({ item, className = '' }: { item: CatalogItem; className?
       className={`lot-art lot-art-${item.rarity} ${item.image ? 'lot-art-framed' : `lot-art-place lot-art-place-${kind}`} ${className}`.trim()}
       aria-hidden
     >
-      {item.image ? <img src={item.image} alt="" className="lot-art-image" /> : <LotGlyph item={item} />}
+      {item.image ? <img src={item.image} alt="" className="lot-art-image" loading="lazy" decoding="async" /> : <LotGlyph item={item} />}
     </div>
   )
 }

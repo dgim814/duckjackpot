@@ -99,9 +99,25 @@ Five display tiers, mapped from the existing lot rarities (ids unchanged, owned 
 | MASTERPIECE | 25 000–150 000 | 1000 | 37–217 |
 
 - Each lot keeps its place inside its tier: prices are mapped log-linearly into the band.
-- **Renoir — «Bal du moulin de la Galette»: 3 000 DC** (EPIC): ≈ 15 raids on the 250 bag, ≈ 9 on the 500 bag.
-- The onboarding "first lot" is now the cheapest lot on sale.
+- **Renoir — «Bal du moulin de la Galette»: 50 000 DC** (MASTERPIECE, `RENOIR` in `balance.ts`):
+  ≈ 73 successful raids on the 1000 bag, ≈ 138 on the 500 bag. A main long-term goal.
+- New lots (`lots/accessible.ts`, `lots/rareObjects.ts`) have fixed prices (`fixedPrice`), so
+  existing lot prices are not re-mapped. Rare Objects are fictional DuckJackpot lore and are
+  labelled as such in the card.
 - The **fence** buys special loot for its full value.
+
+### Black Market 2.0 — MY GOAL
+- The whole catalog is browsable (no daily rotation), so a chosen goal can always be bought.
+- 202 lots in 8 sections: WATCHES 32, JEWELRY 21, ART 26, ANTIQUES 39, COLLECTIBLES 34,
+  CARS 40, RARE OBJECTS 10; MASTERPIECES (29) collects every MASTERPIECE-tier lot.
+- Cheapest 120 DC, median ≈ 3 700 DC, most expensive 150 000 DC.
+- The goal is chosen **only by the player** (`myGoalId` in the save, `null` for old saves).
+  It can be changed or cleared at any time with no penalty; buying the goal item clears it.
+- The goal card shows in the HUB, on every successful raid result (+gained, left, ≈ raids)
+  and at the top of the Black Market.
+- Lot cards: name, art, price/tier, blurb, «ЗНАЕШЬ ЛИ ТЫ?», «ПОЧЕМУ ЭТО ЦЕННО», «ИСТОРИЯ»
+  (`lots/history.ts`, verified facts only; no invented auction records), progress, goal/buy.
+- Filters ALL / AFFORDABLE / MY GOAL / OWNED; sort by price ↑↓ and rarity; 12 per page.
 
 Loot is persistent per level: the whole game holds ≈ 492k DC, so
 masterpieces are real long-term goals, not a treadmill.
@@ -120,6 +136,7 @@ one. EXIT banking and CAUGHT loss are unchanged.
 
 ## Save (`duckjackpot.heist.progress.v1`, backward compatible)
 New fields, all defaulted for old saves:
+- `myGoalId` (null)
 - `worlds.level6..8`
 - `starItems`
 - `valuables`

@@ -49,6 +49,8 @@ export type PlayerProgress = {
   nftCtaAt: number
   /** The short "how the game works" card was dismissed. */
   onboardingSeen: boolean
+  /** 🎯 MY GOAL: the Black Market lot the player chose to save up for. null = none chosen. */
+  myGoalId: string | null
 }
 
 export type ValuableKind = 'watch' | 'jewel' | 'art' | 'relic' | 'crown'
@@ -151,6 +153,7 @@ const emptyProgress = (): PlayerProgress => ({
   valuables: [],
   nftCtaAt: 0,
   onboardingSeen: false,
+  myGoalId: null,
 })
 
 function readOwned(raw: unknown): OwnedCollection {
@@ -224,6 +227,13 @@ function restoreListedCopies(owned: OwnedCollection): OwnedCollection {
   } catch {
     return owned
   }
+}
+
+/** A goal must still be a lot on sale; anything else reads as "no goal". */
+function readGoal(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null
+  const item = catalogItem(raw)
+  return item && item.market !== false ? raw : null
 }
 
 function readStarItems(raw: unknown): Partial<Record<StarItemId, number>> {
@@ -314,6 +324,7 @@ export function loadProgress(): PlayerProgress {
       valuables: readValuables((parsed as { valuables?: unknown }).valuables),
       nftCtaAt: Math.max(0, Number((parsed as { nftCtaAt?: unknown }).nftCtaAt) || 0),
       onboardingSeen: Boolean((parsed as { onboardingSeen?: unknown }).onboardingSeen),
+      myGoalId: readGoal((parsed as { myGoalId?: unknown }).myGoalId),
     }
     const before = JSON.stringify(readOwned(parsed.ownedArt))
     if (before !== JSON.stringify(ownedArt)) saveProgress(next)
@@ -697,19 +708,41 @@ export function bankCoins(progress: PlayerProgress, gained: number, objectives?:
   return next
 }
 
-export function buyCatalogItem(progress: PlayerProgress, itemId: string) {
+export function buyCatalogItem(_progress: PlayerProgress, itemId: string) {
+  const live = loadProgress()
   const item = catalogItem(itemId)
-  if (!item) return { ok: false as const, reason: 'missing' as const, next: progress }
-  if (progress.bankedDuckCoin < item.purchasePrice) return { ok: false as const, reason: 'poor' as const, next: progress }
+  if (!item) return { ok: false as const, reason: 'missing' as const, next: live, goalReached: false }
+  if (live.bankedDuckCoin < item.purchasePrice) return { ok: false as const, reason: 'poor' as const, next: live, goalReached: false }
+  // Buying the goal completes it: the player then picks a new one themselves.
+  const goalReached = live.myGoalId === itemId
   const next: PlayerProgress = {
-    ...progress,
-    ...keepWallet(progress),
-    bankedDuckCoin: progress.bankedDuckCoin - item.purchasePrice,
-    ownedArt: addToCollection(progress.ownedArt ?? {}, itemId),
-    ownedMeta: { ...(progress.ownedMeta ?? {}), [itemId]: { acquiredAt: Date.now() } },
+    ...live,
+    ...keepWallet(live),
+    bankedDuckCoin: live.bankedDuckCoin - item.purchasePrice,
+    ownedArt: addToCollection(live.ownedArt ?? {}, itemId),
+    ownedMeta: { ...(live.ownedMeta ?? {}), [itemId]: { acquiredAt: Date.now() } },
+    myGoalId: goalReached ? null : live.myGoalId,
   }
   saveProgress(next)
-  return { ok: true as const, reason: 'ok' as const, next }
+  return { ok: true as const, reason: 'ok' as const, next, goalReached }
+}
+
+/** 🎯 The player — never the game — picks the goal. Replacing it costs nothing. */
+export function setMyGoal(itemId: string | null) {
+  const live = loadProgress()
+  const id = itemId && catalogItem(itemId)?.market !== false ? itemId : null
+  const next: PlayerProgress = { ...live, ...keepWallet(live), myGoalId: id }
+  saveProgress(next)
+  return next
+}
+
+/** Progress towards the chosen goal (null when none is chosen). */
+export function goalProgress(p: PlayerProgress) {
+  const item = p.myGoalId ? catalogItem(p.myGoalId) : null
+  if (!item) return null
+  const have = Math.max(0, p.bankedDuckCoin)
+  const price = item.purchasePrice
+  return { item, have, price, left: Math.max(0, price - have), pct: Math.min(100, Math.floor((have / price) * 100)), reached: have >= price }
 }
 
 export function listOwnedItem(progress: PlayerProgress, itemId: string, priceDuckCoin: number) {
