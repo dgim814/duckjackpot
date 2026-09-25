@@ -1,4 +1,5 @@
 import type { MessageKey } from '../../i18n/messages'
+import { RANK_THRESHOLDS } from './balance'
 
 /** Price bands for Black Market lots. UI and stock use these; tweak here, not in pages. */
 export const RARITY_BANDS = {
@@ -12,15 +13,9 @@ export const RARITY_BANDS = {
 } as const
 
 /** Collection-value ranks. Score is collection value only, never banked DUCK COIN. */
-export const COLLECTION_RANKS: { nameKey: MessageKey; from: number }[] = [
-  { nameKey: 'hubRank1', from: 0 },
-  { nameKey: 'hubRank2', from: 10_000 },
-  { nameKey: 'hubRank3', from: 100_000 },
-  { nameKey: 'hubRank4', from: 500_000 },
-  { nameKey: 'hubRank5', from: 1_000_000 },
-  { nameKey: 'hubRank6', from: 10_000_000 },
-  { nameKey: 'hubRank7', from: 100_000_000 },
-]
+export const COLLECTION_RANKS: { nameKey: MessageKey; from: number }[] = (
+  ['hubRank1', 'hubRank2', 'hubRank3', 'hubRank4', 'hubRank5', 'hubRank6', 'hubRank7'] as const
+).map((nameKey, i) => ({ nameKey, from: RANK_THRESHOLDS[i] }))
 
 export const STOCK_RULES = {
   dailyEntry: 4,

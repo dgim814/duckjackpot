@@ -82,10 +82,10 @@ export class LootField {
     }
   }
 
-  nearestPickable(x: number, y: number, time: number): Coin | null {
+  nearestPickable(x: number, y: number, time: number, radius = PICKUP_R): Coin | null {
     let best: Coin | null = null
-    let bestD = PICKUP_R
-    this.forEachNear(x - PICKUP_R, y - PICKUP_R, x + PICKUP_R, y + PICKUP_R, (c) => {
+    let bestD = radius
+    this.forEachNear(x - radius, y - radius, x + radius, y + radius, (c) => {
       if (c.taken || time < c.lockedUntil) return
       const d = Math.hypot(c.x - x, c.y - y)
       if (d <= bestD) {

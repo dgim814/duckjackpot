@@ -17,6 +17,8 @@ type HeistGameProps = {
   levelId?: HeistLevelId
   novice?: boolean
   onDone: (end: HeistEnd) => void
+  resume?: boolean
+  onSuspend?: () => void
 }
 
 function telegramApp() {

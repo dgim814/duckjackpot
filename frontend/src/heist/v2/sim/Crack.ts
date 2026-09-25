@@ -21,10 +21,12 @@ export class CrackGame {
     readonly kind: CrackKind,
     readonly targetId: string,
     readonly need: number,
+    /** LOCKPICK gear widens the window (1 = stock). */
+    readonly widthMul = 1,
   ) {}
 
   get zoneWidth() {
-    return Math.max(0.12, 0.22 - this.hits * 0.035)
+    return Math.max(0.12, 0.22 - this.hits * 0.035) * this.widthMul
   }
 
   get zoneCenter() {

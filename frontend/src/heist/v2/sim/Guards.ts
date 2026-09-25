@@ -125,6 +125,17 @@ export class GuardSystem {
     })
   }
 
+  /** CONTINUE after CAUGHT: guards near the duck lose it and walk back to their route. */
+  calmNear(x: number, y: number, radius: number, world: GuardWorld) {
+    for (const g of this.guards) {
+      if (Math.hypot(g.box.x - x, g.box.y - y) > radius) continue
+      g.detect = 0
+      g.sees = false
+      g.wi = this.nearestWaypoint(g)
+      this.setState(g, 'RETURN', world)
+    }
+  }
+
   anyChase() {
     return this.guards.some((g) => g.state === 'CHASE')
   }

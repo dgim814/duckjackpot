@@ -621,6 +621,78 @@ export const heistSfx = {
     osc(ac, g2, 784, 'sine', t + 0.06, t + 0.2)
   },
 
+  /** Lift: soft two-tone chime. */
+  elevator() {
+    const ac = audio()
+    if (!ac) return
+    const dest = shotGain ?? ac.destination
+    const t = ac.currentTime
+    osc(ac, env(ac, dest, t, 0.035, 0.01, 0.35), 880, 'sine', t, t + 0.4)
+    osc(ac, env(ac, dest, t + 0.18, 0.03, 0.01, 0.45), 659, 'sine', t + 0.18, t + 0.65)
+  },
+
+  /** Escalator: short low mechanical hum. */
+  escalator() {
+    const ac = audio()
+    if (!ac) return
+    const dest = shotGain ?? ac.destination
+    const t = ac.currentTime
+    osc(ac, env(ac, dest, t, 0.02, 0.04, 0.25), 110, 'sawtooth', t, t + 0.3)
+  },
+
+  /** Laser tripped: sharp falling zap. */
+  laser() {
+    const ac = audio()
+    if (!ac) return
+    const dest = shotGain ?? ac.destination
+    const t = ac.currentTime
+    const g = env(ac, dest, t, 0.05, 0.005, 0.22)
+    const o = ac.createOscillator()
+    o.type = 'square'
+    o.frequency.setValueAtTime(1800, t)
+    o.frequency.exponentialRampToValueAtTime(220, t + 0.22)
+    o.connect(g)
+    o.start(t)
+    o.stop(t + 0.25)
+  },
+
+  /** Security panel switched off: descending blip. */
+  panel() {
+    const ac = audio()
+    if (!ac) return
+    const dest = shotGain ?? ac.destination
+    const t = ac.currentTime
+    osc(ac, env(ac, dest, t, 0.03, 0.005, 0.1), 660, 'triangle', t, t + 0.1)
+    osc(ac, env(ac, dest, t + 0.1, 0.03, 0.005, 0.14), 440, 'triangle', t + 0.1, t + 0.25)
+  },
+
+  /** Rare loot: bright rising arpeggio. */
+  rareLoot() {
+    const ac = audio()
+    if (!ac) return
+    const dest = shotGain ?? ac.destination
+    const t = ac.currentTime
+    ;[784, 988, 1175, 1568].forEach((f, i) => osc(ac, env(ac, dest, t + i * 0.07, 0.035, 0.005, 0.16), f, 'triangle', t + i * 0.07, t + i * 0.07 + 0.18))
+  },
+
+  /** Gear upgrade bought: warm major chord. */
+  upgrade() {
+    const ac = audio()
+    if (!ac) return
+    const dest = shotGain ?? ac.destination
+    const t = ac.currentTime
+    for (const f of [523, 659, 784]) osc(ac, env(ac, dest, t, 0.025, 0.01, 0.4), f, 'sine', t, t + 0.45)
+  },
+
+  /** ⭐ purchase: sparkle, distinct from the DUCK COIN purchase cue. */
+  starPurchase() {
+    const ac = audio()
+    if (!ac) return
+    const dest = shotGain ?? ac.destination
+    const t = ac.currentTime
+    ;[1319, 1760, 2093].forEach((f, i) => osc(ac, env(ac, dest, t + i * 0.05, 0.025, 0.004, 0.12), f, 'sine', t + i * 0.05, t + i * 0.05 + 0.14))
+  },
+
   sync(mood: HeistSfxMood) {
     const ac = audio()
     if (!ac || !safeGain || !chaseGain || !tensionGain) return

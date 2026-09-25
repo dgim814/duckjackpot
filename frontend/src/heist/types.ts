@@ -21,4 +21,8 @@ export type HeistEnd = {
   mansionCompleted?: boolean
   /** This raid completed its level for the first time (any level). */
   levelCompleted?: boolean
+  /** Special loot carried out through EXIT (goes to the Black Market fence). */
+  valuables?: { id: string; kind: 'watch' | 'jewel' | 'art' | 'relic' | 'crown'; value: number; level: string }[]
+  /** A PREVIEW PASS raid (first floor only, no completion). */
+  preview?: boolean
 }

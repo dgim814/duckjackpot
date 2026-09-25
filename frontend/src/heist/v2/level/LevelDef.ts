@@ -49,6 +49,9 @@ export type FloorTheme =
   | 'glass'
   | 'bunker'
   | 'blackMarble'
+  | 'skyline'
+  | 'neon'
+  | 'obsidian'
 
 export type LightTone = 'warm' | 'cool' | 'blue' | 'dim' | 'gold'
 
@@ -105,6 +108,17 @@ export type NftVaultDef = {
   cards: { raffle: 'classic' | 'fast200' | 'fast100'; x: number; y: number }[]
 }
 
+/** SKYLINE lift cabin: one per floor, in the floor's entrance hall. */
+export type LiftDef = Rect & { id: string; floor: number; zone: number }
+/** Conveyor strip: pushes the duck along (dx, dy) at `speed`; guards ignore it. */
+export type EscalatorDef = Rect & { id: string; dx: number; dy: number; speed: number; premium: boolean }
+/** Timed beam: on for `on` s out of every `period` s (offset by `phase`). Tripping it raises the alarm. */
+export type LaserDef = Rect & { id: string; period: number; on: number; phase: number; group: string }
+/** Wall panel that switches a laser group off for a while. */
+export type PanelDef = { id: string; x: number; y: number; group: string }
+/** Physical special loot (watch, jewel, art…): carried out through EXIT, sold at the Black Market fence. */
+export type ValuableDef = { id: string; x: number; y: number; kind: 'watch' | 'jewel' | 'art' | 'relic' | 'crown'; value: number }
+
 export type LevelDef = {
   id: HeistLevelId
   w: number
@@ -129,6 +143,16 @@ export type LevelDef = {
   nftVault?: NftVaultDef
   /** Route runner colours of the tower levels (LEVELS 3–5); MANSION keeps its own. */
   runner?: { base: number; gold: number; edge: number }
+  /** LEVELS 6–8 mechanics (all optional: older levels have none). */
+  lifts?: LiftDef[]
+  escalators?: EscalatorDef[]
+  lasers?: LaserDef[]
+  panels?: PanelDef[]
+  valuables?: ValuableDef[]
+  /** Floor of each locked door (PREVIEW raids can only open floor-0 doors). */
+  doorFloor?: Record<string, number>
+  /** Doors that open only with a ⭐ pass (never lockpicked, never saved). */
+  passDoors?: Record<string, 'escalator'>
 }
 
 const WALL_T = 40
@@ -218,7 +242,7 @@ function mansionLevel(): LevelDef {
 
 export function levelDef(id: HeistLevelId): LevelDef {
   if (id === 'mansion') return mansionLevel()
-  if (id === 'level3' || id === 'level4' || id === 'level5') return grandLevel(id)
+  if (id !== 'bank') return grandLevel(id)
   return bankLevel()
 }
 

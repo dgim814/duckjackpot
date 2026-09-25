@@ -196,7 +196,7 @@ export function CrackPanel({ hud }: { hud: HudStore }) {
   )
 }
 
-export function PauseMenu({ hud, onResume, onAbort }: { hud: HudStore; onResume: () => void; onAbort: () => void }) {
+export function PauseMenu({ hud, onResume, onAbort, onToHub }: { hud: HudStore; onResume: () => void; onAbort: () => void; onToHub?: () => void }) {
   const paused = useHud(hud, (h) => h.paused)
   if (!paused) return null
   return (
@@ -206,6 +206,11 @@ export function PauseMenu({ hud, onResume, onAbort }: { hud: HudStore; onResume:
         <button type="button" className="v2-pause-resume" onClick={onResume}>
           {heistT('heistResume')}
         </button>
+        {onToHub ? (
+          <button type="button" className="v2-pause-abort" onClick={onToHub}>
+            {heistT('heistPauseToHub')}
+          </button>
+        ) : null}
         <button type="button" className="v2-pause-abort" onClick={onAbort}>
           {heistT('heistAbortRaid')}
         </button>
@@ -249,6 +254,24 @@ export function SafeFlyLayer({ hud }: { hud: HudStore }) {
           />
         )
       })}
+    </div>
+  )
+}
+
+/** Special loot carried (up to 2) and the PREVIEW badge, under the top bar. */
+export function ExtrasChip({ hud }: { hud: HudStore }) {
+  const s = useHud(hud, (h) => ({ v: h.valuables, preview: h.preview }), shallowEqual)
+  const icons: Record<string, string> = { watch: '⌚', jewel: '💎', art: '🖼️', relic: '🏺', crown: '👑' }
+  const kinds = s.v ? s.v.split(',') : []
+  if (!kinds.length && !s.preview) return null
+  return (
+    <div className="v2-extras">
+      {s.preview ? <span className="is-preview">{heistT('heistPreviewBadge')}</span> : null}
+      {kinds.length ? (
+        <span>
+          {kinds.map((k) => icons[k] ?? '💎').join(' ')} {kinds.length}/2
+        </span>
+      ) : null}
     </div>
   )
 }

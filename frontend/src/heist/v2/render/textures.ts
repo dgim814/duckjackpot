@@ -302,6 +302,56 @@ function paintFloor(theme: FloorTheme): HTMLCanvasElement {
       grid(ctx, 64, 'rgba(214,170,60,0.28)', 1.5)
       break
     }
+    case 'skyline': {
+      // SKYLINE TOWER: pale polished stone with window light falling across it.
+      ctx.fillStyle = '#2a3038'
+      ctx.fillRect(0, 0, T, T)
+      veins(ctx, 'rgba(230,240,255,0.06)', 91, 3)
+      ctx.fillStyle = 'rgba(190,225,255,0.07)'
+      for (let i = 0; i < 3; i += 1) {
+        ctx.beginPath()
+        ctx.moveTo(i * 48, 0)
+        ctx.lineTo(i * 48 + 22, 0)
+        ctx.lineTo(i * 48 - 18, T)
+        ctx.lineTo(i * 48 - 40, T)
+        ctx.closePath()
+        ctx.fill()
+      }
+      grid(ctx, 64, 'rgba(200,220,240,0.14)', 1.5)
+      break
+    }
+    case 'neon': {
+      // UNDERGROUND CITY: wet dark asphalt with magenta/cyan neon reflections.
+      ctx.fillStyle = '#121016'
+      ctx.fillRect(0, 0, T, T)
+      speckle(ctx, 600, 'rgba(255,255,255,0.025)', 1, 93)
+      ctx.strokeStyle = 'rgba(255,60,180,0.22)'
+      ctx.lineWidth = 2
+      ctx.strokeRect(4, 4, 56, 56)
+      ctx.strokeStyle = 'rgba(60,220,255,0.18)'
+      ctx.strokeRect(68, 68, 56, 56)
+      ctx.fillStyle = 'rgba(255,60,180,0.05)'
+      ctx.fillRect(0, 88, T, 10)
+      grid(ctx, 64, 'rgba(0,0,0,0.5)', 2)
+      break
+    }
+    case 'obsidian': {
+      // GRAND COLLECTION: obsidian tiles, diamond inlay, thin red-gold joints.
+      ctx.fillStyle = '#0b0a0d'
+      ctx.fillRect(0, 0, T, T)
+      veins(ctx, 'rgba(160,140,255,0.06)', 95, 3)
+      ctx.strokeStyle = 'rgba(214,170,60,0.3)'
+      ctx.lineWidth = 1.5
+      ctx.beginPath()
+      ctx.moveTo(64, 20)
+      ctx.lineTo(108, 64)
+      ctx.lineTo(64, 108)
+      ctx.lineTo(20, 64)
+      ctx.closePath()
+      ctx.stroke()
+      grid(ctx, 64, 'rgba(200,40,50,0.18)', 1)
+      break
+    }
     case 'mansionStone': {
       ctx.fillStyle = '#231c18'
       ctx.fillRect(0, 0, T, T)
@@ -534,6 +584,9 @@ export const FLOOR_THEMES: FloorTheme[] = [
   'glass',
   'bunker',
   'blackMarble',
+  'skyline',
+  'neon',
+  'obsidian',
 ]
 
 export function floorKey(theme: FloorTheme) {
@@ -569,4 +622,52 @@ export function buildTextures(scene: Phaser.Scene, guardFov: number, camFov: num
   add(scene, 'v2_spark', radial(16, [[0, 'rgba(255,240,190,1)'], [0.5, 'rgba(255,214,90,0.8)'], [1, 'rgba(255,214,90,0)']]))
   add(scene, 'v2_pixel', radial(4, [[0, '#ffffff'], [1, '#ffffff']]))
   add(scene, 'v2_crown', crown())
+  // LEVELS 6–8: escalator steps and special-loot icons.
+  add(scene, 'v2_steps', steps())
+  for (const [kind, glyph, ring] of [
+    ['watch', '⌚', '#ffd65a'],
+    ['jewel', '💎', '#9fe8ff'],
+    ['art', '🖼️', '#ffb37a'],
+    ['relic', '🏺', '#e8c08a'],
+    ['crown', '👑', '#ffd65a'],
+  ] as const) {
+    add(scene, `v2_val_${kind}`, valuableIcon(glyph, ring))
+  }
+}
+
+/** Escalator tread strip: tiles vertically and scrolls. */
+function steps() {
+  const [c, ctx] = canvas(64, 32)
+  ctx.fillStyle = '#1c1e24'
+  ctx.fillRect(0, 0, 64, 32)
+  ctx.fillStyle = '#3a3e48'
+  ctx.fillRect(0, 0, 64, 5)
+  for (let x = 4; x < 64; x += 8) {
+    ctx.fillStyle = 'rgba(255,255,255,0.08)'
+    ctx.fillRect(x, 7, 2, 22)
+  }
+  ctx.fillStyle = 'rgba(0,0,0,0.45)'
+  ctx.fillRect(0, 29, 64, 3)
+  return c
+}
+
+/** Round badge with the object glyph: readable at game zoom, no art asset needed. */
+function valuableIcon(glyph: string, ring: string) {
+  const S = 96
+  const [c, ctx] = canvas(S, S)
+  const g = ctx.createRadialGradient(S / 2, S / 2, 6, S / 2, S / 2, S / 2)
+  g.addColorStop(0, 'rgba(40,28,10,0.95)')
+  g.addColorStop(1, 'rgba(12,8,4,0.95)')
+  ctx.fillStyle = g
+  ctx.beginPath()
+  ctx.arc(S / 2, S / 2, S / 2 - 4, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.lineWidth = 5
+  ctx.strokeStyle = ring
+  ctx.stroke()
+  ctx.font = `${Math.round(S * 0.52)}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif`
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillText(glyph, S / 2, S / 2 + 3)
+  return c
 }

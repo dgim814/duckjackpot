@@ -31,6 +31,11 @@ export class Alert {
     this.value = Math.max(0, Math.min(1, this.value + delta))
   }
 
+  /** CONTINUE after CAUGHT: the alarm settles to at most `max` (never used by normal play). */
+  settleTo(max: number) {
+    this.value = Math.max(0, Math.min(this.value, max))
+  }
+
   raiseTo(min: number) {
     this.quietT = 0
     this.value = Math.max(0, Math.min(1, Math.max(this.value, min)))

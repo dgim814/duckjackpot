@@ -17,6 +17,7 @@ import { FxLayer } from './Fx'
 import { CamView, CoinLayer, DEPTH, DoorView, ExitView, FoliageLayer, NftVaultView, SafeView, buildGround, buildLabels, nftTextureKey } from './Props'
 import { buildTextures } from './textures'
 import { WorldBaker } from './WorldBaker'
+import { MechanicsLayer } from './Mechanics'
 
 const MAX_STEPS = 5
 const END_DELAY = 0.9
@@ -34,6 +35,9 @@ export type SceneDeps = {
   /** Active 24h NFT try-on look, or null. Cosmetic only. */
   skin?: NftSkinDef | null
   onNftView?: () => void
+  /** LEVELS 6–8: the lift panel and the ⭐ pass offer are React panels. */
+  onLiftOpen?: () => void
+  onNeedPass?: () => void
 }
 
 /** Zones (1-based) where deep levels suggest heading back, once per raid each: 15, 25, 35… */
@@ -74,6 +78,7 @@ export class HeistV2Scene extends Phaser.Scene {
   private lastSnap: HudSnapshot | null = null
   private depthAtStart = 0
   private nftView: NftVaultView | null = null
+  private mechanics: MechanicsLayer | null = null
   private farShown = new Set<number>()
   private farHints: number[] = []
   /** Big maps (LEVELS 3–5): ground tiles, lamps and labels drawn only near the camera. */
@@ -138,6 +143,7 @@ export class HeistV2Scene extends Phaser.Scene {
     if (L.nftVault) this.nftView = new NftVaultView(this, L.nftVault)
     this.guardViews = raid.guards.guards.map(() => new GuardView(this, v.guardDist * raid.mods.disguiseMul))
     this.foliage = new FoliageLayer(this, L)
+    if (L.lifts || L.escalators || L.lasers || L.valuables) this.mechanics = new MechanicsLayer(this, L)
     this.fx = new FxLayer(this)
 
     // The camera may look past the walls (onto the street) so the duck is never framed under the thumbs.
@@ -172,6 +178,12 @@ export class HeistV2Scene extends Phaser.Scene {
       if (this.deps.skin === skin) this.duck?.setSkin(skin)
     })
     this.load.start()
+  }
+
+  /** After a paid CONTINUE the same raid runs on: deliver its (new) end later. */
+  rearm() {
+    this.endAt = -1
+    this.delivered = false
   }
 
   /** A banner from outside the simulation (e.g. the NFT try-on confirmation). */
@@ -249,6 +261,7 @@ export class HeistV2Scene extends Phaser.Scene {
     this.coins.update(raid, view, t)
     this.foliage.update(this.duck.x, this.duck.y)
     this.nftView?.update(this.clock)
+    this.mechanics?.update(raid, view, this.clock, dt)
     this.fx.update(dt)
     this.publishHud(view)
   }
@@ -347,6 +360,42 @@ export class HeistV2Scene extends Phaser.Scene {
       }
       case 'nftView':
         this.deps.onNftView?.()
+        break
+      case 'liftOpen':
+        this.deps.onLiftOpen?.()
+        break
+      case 'lift':
+        this.toast('good', heistT('heistLiftRide', { n: e.floor + 1 }), undefined, 1.6)
+        break
+      case 'laserTrip':
+        this.rig.shake(0.25, 12)
+        this.fx.burst(e.x, e.y - 20, 10)
+        this.toast('danger', heistT('heistLaserTrip'), heistT('heistLaserTripSub'), 2)
+        break
+      case 'panelOff':
+        this.toast('good', heistT('heistPanelOff'), heistT('heistPanelOffSub', { n: e.seconds }), 2.2)
+        break
+      case 'valuable': {
+        const names: Record<string, MessageKey> = { watch: 'heistValWatch', jewel: 'heistValJewel', art: 'heistValArt', relic: 'heistValRelic', crown: 'heistValCrown' }
+        this.fx.burst(e.x, e.y, 26, 280)
+        this.safeFlash(e.x, e.y)
+        this.toast('safe', heistT('heistValuableTitle'), heistT('heistValuableSub', { name: heistT(names[e.kind] ?? 'heistValRelic'), n: e.value }), 2.6)
+        break
+      }
+      case 'valuableFull':
+        this.toast('warn', heistT('heistValuableFull'), heistT('heistValuableFullSub'), 2)
+        break
+      case 'gateOpen':
+        this.toast('good', heistT('heistGateOpen'), undefined, 1.8)
+        break
+      case 'needPass':
+        this.deps.onNeedPass?.()
+        break
+      case 'previewLocked':
+        this.toast('warn', heistT('heistPreviewLocked'), heistT('heistPreviewLockedSub'), 2.4)
+        break
+      case 'revived':
+        this.toast('safe', heistT('heistRevived'), heistT('heistRevivedSub', { n: e.kept }), 2.8)
         break
       case 'ended':
         if (e.verdict === 'caught') this.rig.shake(0.3, 16)
@@ -476,6 +525,8 @@ export class HeistV2Scene extends Phaser.Scene {
       sneaking: p.gait === 'sneak',
       hidden: raid.hidden,
       exitHold: Math.round(Math.min(1, raid.exitHold / 0.6) * 20) / 20,
+      valuables: raid.carriedValuables.map((v) => v.kind).join(','),
+      preview: Boolean(raid.mods.preview),
       escapeLeft: raid.escapeUntil > 0 ? Math.max(0, Math.ceil(raid.escapeUntil - raid.time)) : null,
       escapeBySafe: raid.escapeUntil > 0 && this.sirenBySafe,
       escapeIntro: raid.escapeUntil > 0 && this.sirenBySafe && this.clock - this.sirenAt < SIREN_INTRO_S,
@@ -515,8 +566,8 @@ function zoneLabel(raid: Raid, n: number) {
 /** New floor banner: MANSION counts floors, LEVELS 3–5 name their sections. */
 function sectionTitle(raid: Raid, floor: number) {
   if (isGrandLevel(raid.levelId)) {
-    const lv = raid.levelId === 'level3' ? 'L3' : raid.levelId === 'level4' ? 'L4' : 'L5'
-    return heistT(`heist${lv}s${floor + 1}` as MessageKey)
+    // level6 → heistL6s1…: every tower level names its sections the same way.
+    return heistT(`heistL${raid.levelId.slice('level'.length)}s${floor + 1}` as MessageKey)
   }
   return heistT('heistV2Floor', { n: floor + 1 })
 }

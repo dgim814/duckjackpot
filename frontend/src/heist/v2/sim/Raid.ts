@@ -4,7 +4,8 @@ import { heistLevelObjectives, type HeistLevelId } from '../../heistLevel'
 import { resolveTuning } from '../../debugConfig'
 import type { HeistTuning } from '../../tuning'
 import type { DuckCoinKind } from '../../coinAssets'
-import { levelDef, zoneAt, type DoorDef, type LevelDef, type Rect, type SafeDef } from '../level/LevelDef'
+import { levelDef, zoneAt, type DoorDef, type LaserDef, type LevelDef, type LiftDef, type Rect, type SafeDef, type ValuableDef } from '../level/LevelDef'
+import { CONTINUE_KEEP } from '../../economy/balance'
 import { persistenceFor, type BankWorldSave, type WorldPersistence } from '../persist/BankPersistence'
 import { Alert } from './Alert'
 import { SolidGrid, distToRect, pointInRect, type Solid } from './Collision'
@@ -12,7 +13,7 @@ import { CrackGame, DOOR_HITS, SAFE_HITS } from './Crack'
 import type { RaidEvent, RaidPhase } from './events'
 import { GuardSystem, type GuardWorld } from './Guards'
 import type { InputSample } from './Input'
-import { LootField } from './Loot'
+import { LootField, PICKUP_R } from './Loot'
 import { Nav } from './Nav'
 import { Player } from './Player'
 import { CamSystem } from './SecurityCams'
@@ -29,7 +30,16 @@ export type DoorState = 'CLOSED' | 'HACKING' | 'OPEN'
 export type Door = DoorDef & { state: DoorState; solid: Solid; openedAt: number }
 export type Safe = SafeDef & { opened: boolean; openedAt: number }
 type Carried = { kind: DuckCoinKind; value: number; weight: number; persistId?: string }
-export type Prompt = { kind: 'door' | 'safe' | 'nft'; x: number; y: number } | null
+export type Prompt = { kind: 'door' | 'safe' | 'nft' | 'lift' | 'panel' | 'gate' | 'preview'; x: number; y: number } | null
+
+/** A lift destination offered in the lift panel. */
+export type LiftOption = { id: string; floor: number; free: boolean; premium: boolean; reached: boolean }
+
+const LASER_TRIP_COOLDOWN = 1.4
+const PANEL_OFF_S = 20
+const VALUABLE_SLOTS = 2
+const VALUABLE_WEIGHT = 3
+const REVIVE_GRACE_S = 3
 
 export class Raid {
   readonly level: LevelDef
@@ -77,6 +87,16 @@ export class Raid {
   private runLootIds: string[] = []
   private runSafes: string[] = []
   private caughtFlag = false
+  /** LEVELS 6–8 state. */
+  valuablesOnFloor: ValuableDef[] = []
+  carriedValuables: ValuableDef[] = []
+  elevatorPass = false
+  escalatorPass = false
+  revived = false
+  private graceUntil = -1
+  private laserOffUntil = new Map<string, number>()
+  private laserTripAt = new Map<string, number>()
+  private onEscalator = false
 
   constructor(
     readonly levelId: HeistLevelId,
@@ -84,7 +104,12 @@ export class Raid {
     readonly novice: boolean,
   ) {
     this.level = levelDef(levelId)
-    this.cfg = resolveTuning(levelId)
+    // Gear: DASH track shortens the cooldown and adds a little distance. Stock gear = stock tuning.
+    const base = resolveTuning(levelId)
+    this.cfg = {
+      ...base,
+      player: { ...base.player, dash: base.player.dash * (mods.dashMul ?? 1), dashCd: base.player.dashCd * (mods.dashCdMul ?? 1) },
+    }
     // BANK and MANSION persist the same way, each in its own fields.
     this.store = persistenceFor(levelId)
     this.save = this.store.load()
@@ -120,6 +145,8 @@ export class Raid {
       this.loot.spawn(s.extra.x, s.extra.y, s.extra.kind, { persistId: s.extra.id, weight: this.itemWeight(s.extra.kind) })
     }
 
+    this.valuablesOnFloor = (L.valuables ?? []).filter((v) => !taken?.has(v.id))
+
     this.depthBest = this.save?.depth ?? 0
     this.reachedFinal = this.save?.reachedFinal ?? false
     if (novice && levelId === 'bank') this.introUntil = INTRO_S
@@ -147,7 +174,7 @@ export class Raid {
   }
 
   carriedWeight() {
-    let w = 0
+    let w = this.carriedValuables.length * VALUABLE_WEIGHT
     for (const c of this.carried) w += c.weight
     return w
   }
@@ -215,7 +242,7 @@ export class Raid {
         cfg: this.cfg.player,
         speedMul: this.mods.speedMul,
         weightMul: 1 - this.cfg.weight.maxSpeedPenalty * over,
-        noiseMul: 1 + this.cfg.weight.maxNoiseBonus * over,
+        noiseMul: (1 + this.cfg.weight.maxNoiseBonus * over) * (this.mods.noiseMul ?? 1),
         silentShoes: this.mods.silentShoes,
         walkCut: this.levelId === 'bank' ? 0.28 : 0.55,
         hidden: this.hidden,
@@ -226,10 +253,13 @@ export class Raid {
       if (this.player.dashed) ev.push({ t: 'dash' })
       if (this.player.sneakStarted) ev.push({ t: 'sneakStart' })
       if (this.player.stepped) ev.push({ t: 'step', sneak: this.player.anim === 'sneak' })
+      this.rideEscalators(dt)
     }
 
     if (!this.crack) {
       this.collectLoot()
+      this.collectValuables()
+      this.checkLasers()
       this.updateExit(dt)
       if (this.ended) return
     }
@@ -245,8 +275,12 @@ export class Raid {
 
     if (!frozen) this.guards.step(dt, this.guardWorld())
     if (this.caughtFlag) {
-      this.finish('caught')
-      return
+      this.caughtFlag = false
+      // Right after a paid CONTINUE the duck gets a short grace window to slip away.
+      if (this.time >= this.graceUntil) {
+        this.finish('caught')
+        return
+      }
     }
 
     const gw = this.guardWorld()
@@ -291,7 +325,7 @@ export class Raid {
 
   private collectLoot() {
     const room = this.mods.bagCap - this.bag
-    const coin = this.loot.nearestPickable(this.player.x, this.player.y, this.time)
+    const coin = this.loot.nearestPickable(this.player.x, this.player.y, this.time, PICKUP_R + (this.mods.pickupBonus ?? 0))
     if (!coin) return
     if (room <= 0) {
       if (this.time - this.bagFullAt > 1.2) {
@@ -376,7 +410,28 @@ export class Raid {
     }
     const door = this.nearestDoor()
     if (door) {
-      this.prompt = { kind: 'door', x: door.x + door.w / 2, y: door.y + door.h / 2 }
+      const c = { x: door.x + door.w / 2, y: door.y + door.h / 2 }
+      if (this.level.passDoors?.[door.id]) {
+        // ⭐ express gate: only from its upper side, only to floors already reached.
+        const above = this.player.y < door.y
+        this.prompt = above && this.gateReachable(door) ? { kind: 'gate', ...c } : null
+        if (this.prompt) return
+      } else if (this.mods.preview && (this.level.doorFloor?.[door.id] ?? 0) >= 1) {
+        this.prompt = { kind: 'preview', ...c }
+        return
+      } else {
+        this.prompt = { kind: 'door', ...c }
+        return
+      }
+    }
+    const lift = this.liftHere()
+    if (lift) {
+      this.prompt = { kind: 'lift', x: lift.x + lift.w / 2, y: lift.y + lift.h / 2 }
+      return
+    }
+    const panel = this.nearPanel()
+    if (panel) {
+      this.prompt = { kind: 'panel', x: panel.x, y: panel.y }
       return
     }
     const safe = this.nearestSafe()
@@ -395,16 +450,43 @@ export class Raid {
       this.events.push({ t: 'nftView' })
       return
     }
+    if (this.prompt?.kind === 'lift') {
+      this.events.push({ t: 'liftOpen' })
+      return
+    }
+    if (this.prompt?.kind === 'panel') {
+      const panel = this.nearPanel()
+      if (panel) {
+        this.laserOffUntil.set(panel.group, this.time + PANEL_OFF_S)
+        this.events.push({ t: 'panelOff', seconds: PANEL_OFF_S })
+      }
+      return
+    }
+    if (this.prompt?.kind === 'preview') {
+      this.events.push({ t: 'previewLocked' })
+      return
+    }
+    if (this.prompt?.kind === 'gate') {
+      const gate = this.nearestDoor()
+      if (!gate) return
+      if (!this.escalatorPass) {
+        this.events.push({ t: 'needPass' })
+        return
+      }
+      this.openDoor(gate.id)
+      this.events.push({ t: 'gateOpen' })
+      return
+    }
     const door = this.nearestDoor()
     if (door) {
       door.state = 'HACKING'
-      this.crack = new CrackGame('door', door.id, DOOR_HITS)
+      this.crack = new CrackGame('door', door.id, DOOR_HITS, this.mods.lockWidthMul ?? 1)
       this.events.push({ t: 'crackStart', kind: 'door' })
       return
     }
     const safe = this.nearestSafe()
     if (safe) {
-      this.crack = new CrackGame('safe', safe.id, SAFE_HITS)
+      this.crack = new CrackGame('safe', safe.id, SAFE_HITS, this.mods.lockWidthMul ?? 1)
       this.events.push({ t: 'crackStart', kind: 'safe' })
     }
   }
@@ -445,8 +527,11 @@ export class Raid {
     this.nav.rebuildArea(door)
     this.guards.invalidatePaths()
     this.lastDoorOpenedAt = this.time
-    this.store.saveDoor(id)
-    this.events.push({ t: 'doorOpened', id })
+    // ⭐ pass gates open for this raid only; lockpicked doors are world progress.
+    if (!this.level.passDoors?.[id]) {
+      this.store.saveDoor(id)
+      this.events.push({ t: 'doorOpened', id })
+    }
   }
 
   private openSafe(id: string) {
@@ -531,6 +616,161 @@ export class Raid {
     }
   }
 
+  // ---------- LEVELS 6–8 mechanics ----------
+
+  /** Floor of a zone index (10 zones per floor in the tower levels). */
+  private floorOfZone(i: number) {
+    return Math.floor(i / 10)
+  }
+
+  private liftHere(): LiftDef | null {
+    for (const l of this.level.lifts ?? []) if (pointInRect(this.player.x, this.player.y, l)) return l
+    return null
+  }
+
+  private nearPanel() {
+    for (const p of this.level.panels ?? []) if (Math.hypot(this.player.x - p.x, this.player.y - p.y) < 70) return p
+    return null
+  }
+
+  /** An express gate leads to the floor above; it only works once that floor has been reached. */
+  private gateReachable(door: DoorDef) {
+    const floor = this.level.doorFloor?.[door.id] ?? 0
+    return this.floorOfZone(Math.max(this.depthBest, this.zoneMax)) >= floor
+  }
+
+  /**
+   * SKYLINE lifts. Free: one floor up or down, to floors already reached.
+   * ⭐ Elevator Pass (for this raid): lobby ↔ any floor already reached.
+   * A floor never reached is never offered — lifts are convenience, not a skip.
+   */
+  liftOptions(): LiftOption[] {
+    const here = this.liftHere()
+    if (!here) return []
+    const reachedFloor = this.floorOfZone(Math.max(this.depthBest, this.zoneMax))
+    return (this.level.lifts ?? [])
+      .filter((l) => l.id !== here.id)
+      .map((l) => {
+        const reached = l.floor <= reachedFloor
+        const free = reached && Math.abs(l.floor - here.floor) === 1
+        const premium = reached && !free && (l.floor === 0 || here.floor === 0)
+        return { id: l.id, floor: l.floor, free, premium, reached }
+      })
+  }
+
+  /** Ride a lift (the UI checks the pass). Returns false if that ride is not allowed. */
+  useLift(id: string, withPass: boolean) {
+    const opt = this.liftOptions().find((o) => o.id === id)
+    const target = (this.level.lifts ?? []).find((l) => l.id === id)
+    if (!opt || !target) return false
+    if (!opt.free && !(opt.premium && (withPass || this.elevatorPass))) return false
+    if (!opt.free) this.elevatorPass = true
+    const x = target.x + target.w / 2
+    const y = target.y + target.h / 2
+    const b = this.player.box
+    b.x = x
+    b.y = y
+    this.player.prevX = x
+    this.player.prevY = y
+    this.events.push({ t: 'lift', floor: target.floor, premium: !opt.free })
+    this.updateZone()
+    return true
+  }
+
+  /** UNDERGROUND CITY escalators push the duck along; walking against them is slow on purpose. */
+  private rideEscalators(dt: number) {
+    let on = false
+    for (const e of this.level.escalators ?? []) {
+      if (!pointInRect(this.player.x, this.player.y, e)) continue
+      on = true
+      this.solids.move(this.player.box, e.dx * e.speed * dt, e.dy * e.speed * dt)
+      break
+    }
+    if (on && !this.onEscalator) this.events.push({ t: 'escalator' })
+    this.onEscalator = on
+  }
+
+  /** Special loot: up to two pieces per raid, picked up by walking over them. */
+  private collectValuables() {
+    for (let i = 0; i < this.valuablesOnFloor.length; i += 1) {
+      const v = this.valuablesOnFloor[i]
+      if (Math.hypot(this.player.x - v.x, this.player.y - v.y) > 40) continue
+      if (this.carriedValuables.length >= VALUABLE_SLOTS) {
+        if (this.time - this.bagFullAt > 1.2) {
+          this.bagFullAt = this.time
+          this.events.push({ t: 'valuableFull' })
+        }
+        return
+      }
+      this.valuablesOnFloor.splice(i, 1)
+      this.carriedValuables.push(v)
+      this.events.push({ t: 'valuable', kind: v.kind, value: v.value, x: v.x, y: v.y })
+      return
+    }
+  }
+
+  laserActive(l: LaserDef) {
+    if (this.time < (this.laserOffUntil.get(l.group) ?? -1)) return false
+    const t = (this.time + l.phase) % l.period
+    return t < l.on
+  }
+
+  laserGroupOffLeft(group: string) {
+    return Math.max(0, (this.laserOffUntil.get(group) ?? -1) - this.time)
+  }
+
+  /** GRAND COLLECTION lasers: crossing a live beam raises the alarm and pulls guards in. Never an instant CAUGHT. */
+  private checkLasers() {
+    const lasers = this.level.lasers
+    if (!lasers) return
+    const b = this.player.box
+    for (const l of lasers) {
+      if (!this.laserActive(l)) continue
+      if (b.x + b.hw < l.x || b.x - b.hw > l.x + l.w || b.y + b.hh < l.y || b.y - b.hh > l.y + l.h) continue
+      if (this.time - (this.laserTripAt.get(l.id) ?? -99) < LASER_TRIP_COOLDOWN) continue
+      this.laserTripAt.set(l.id, this.time)
+      this.stealthBroken = true
+      this.alert.raiseTo(Math.max(this.alert.value, this.cfg.alert.bandDanger))
+      this.alert.updatePhase(this.guards.anyChase())
+      this.guards.lure(this.player.x, this.player.y, 900, this.guardWorld(), false)
+      this.events.push({ t: 'laserTrip', x: this.player.x, y: this.player.y })
+    }
+  }
+
+  /**
+   * ⭐ CONTINUE after CAUGHT (once per raid): keeps half of the bag's value,
+   * nearby guards lose the duck and walk back, a short grace window follows.
+   * The raid is the same raid: position, zone, doors, safes, alarm timer.
+   */
+  revive() {
+    if (this.verdict !== 'caught' || this.revived) return false
+    this.revived = true
+    this.verdict = null
+    this.result = null
+    const keep = Math.floor(this.bag * CONTINUE_KEEP)
+    // Keep exactly the promised share: the most valuable pieces first; the last one is
+    // split (like a coin that only partly fits a full bag). Everything else is lost.
+    const sorted = [...this.carried].sort((a, b) => b.value - a.value)
+    const kept: typeof this.carried = []
+    let total = 0
+    for (const c of sorted) {
+      if (total >= keep) break
+      const take = Math.min(c.value, keep - total)
+      kept.push(take === c.value ? c : { ...c, value: take, weight: c.weight * (take / c.value) })
+      total += take
+    }
+    this.carried = kept
+    this.bag = total
+    this.runLootIds = this.runLootIds.filter((id) => this.carried.some((c) => c.persistId === id) || this.carriedValuables.some((v) => v.id === id))
+    this.graceUntil = this.time + REVIVE_GRACE_S
+    this.caughtFlag = false
+    this.guards.calmNear(this.player.x, this.player.y, 700, this.guardWorld())
+    this.alert.settleTo(this.cfg.alert.bandSuspicious)
+    this.alert.updatePhase(false)
+    this.events.push({ t: 'revived', kept: this.bag })
+    return true
+  }
+
   exitRect(): Rect {
     return this.level.exit
   }
@@ -547,7 +787,10 @@ export class Raid {
       const taken = this.save?.lootTaken ?? new Set<string>()
       const tookFinal =
         finalIds.some((id) => this.runLootIds.includes(id)) || finalIds.every((id) => taken.has(id) || this.runLootIds.includes(id))
-      const complete = this.zoneMax >= this.level.finalZone && tookFinal
+      // PREVIEW raids never complete a level (they cannot reach it anyway).
+      const complete = !this.mods.preview && this.zoneMax >= this.level.finalZone && tookFinal
+      // Special loot carried out is gone from the level for good, like coins.
+      for (const v of this.carriedValuables) if (!this.runLootIds.includes(v.id)) this.runLootIds.push(v.id)
       levelCompleted = complete && !this.save?.complete
       this.store.saveEscape({
         lootTaken: this.runLootIds,
@@ -580,6 +823,8 @@ export class Raid {
       bankCompleted: this.levelId === 'bank' && levelCompleted,
       mansionCompleted: this.levelId === 'mansion' && levelCompleted,
       levelCompleted,
+      preview: Boolean(this.mods.preview),
+      valuables: verdict === 'escaped' ? this.carriedValuables.map((v) => ({ id: v.id, kind: v.kind, value: v.value, level: this.levelId })) : [],
     }
     this.events.push({ t: 'ended', verdict })
   }

@@ -29,4 +29,15 @@ export type RaidEvent =
   | { t: 'firstLoot' }
   | { t: 'exitHold'; progress: number }
   | { t: 'nftView' }
+  | { t: 'liftOpen' }
+  | { t: 'lift'; floor: number; premium: boolean }
+  | { t: 'escalator' }
+  | { t: 'laserTrip'; x: number; y: number }
+  | { t: 'panelOff'; seconds: number }
+  | { t: 'valuable'; kind: string; value: number; x: number; y: number }
+  | { t: 'valuableFull' }
+  | { t: 'gateOpen' }
+  | { t: 'needPass' }
+  | { t: 'previewLocked' }
+  | { t: 'revived'; kept: number }
   | { t: 'ended'; verdict: 'escaped' | 'caught' | 'aborted' }

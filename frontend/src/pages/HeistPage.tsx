@@ -14,11 +14,21 @@ import {
   labNextPrice,
   loadProgress,
   noteBankEscape,
+  bankValuables,
+  buyStarItem,
+  consumeStarItem,
+  markOnboardingSeen,
   runMods,
+  type Currency,
+  type HeistRunMods,
   subscribeGameplayReset,
   type LabStat,
 } from '../heist/progress'
-import { catalogItem } from '../heist/economy/catalog'
+import { CATALOG } from '../heist/economy/catalog'
+import { STAR_ITEMS, type StarItemId } from '../heist/economy/balance'
+import type { MessageKey } from '../i18n/messages'
+import { discardSuspendedRaid, suspendedRaid } from '../heist/v2/ui/HeistGameV2'
+import { pendingNotifications } from '../heist/notify'
 import { requestStarsPurchase, STAR_PACKS } from '../heist/economy/stars'
 import { heistSfx, unlockHeistSfx } from '../heist/heistSfx'
 import { BANK_ZONE_COUNT, bankCollectedPotential, bankTotalPotential } from '../heist/phaser/bankLayout'
@@ -50,6 +60,64 @@ function LevelBrief({ id, cap }: { id: HeistLevelId; cap: number }) {
   )
 }
 
+/** Deeper level = better reward: the loot line on each card. */
+const REWARD_KEY: Record<HeistLevelId, MessageKey> = {
+  bank: 'heistReward1',
+  mansion: 'heistReward2',
+  level3: 'heistReward3',
+  level4: 'heistReward4',
+  level5: 'heistReward5',
+  level6: 'heistReward6',
+  level7: 'heistReward7',
+  level8: 'heistReward8',
+}
+
+/** Each deep level brings its own mechanic. */
+const FEATURE_KEY: Partial<Record<HeistLevelId, MessageKey>> = {
+  level6: 'heistFeatLifts',
+  level7: 'heistFeatEscalators',
+  level8: 'heistFeatLasers',
+}
+
+/** 💰 DUCK COIN and ⭐ Stars side by side, never mixed. */
+function Wallet({ coins, stars }: { coins: number; stars: number }) {
+  const { t } = useI18n()
+  return (
+    <div className="mt-3 grid grid-cols-2 gap-2">
+      <div className="rounded-xl border border-amber-400/30 bg-black/30 px-3 py-2 text-center">
+        <p className="text-[9px] font-extrabold tracking-[0.16em] text-amber-200/80">💰 DUCK COIN</p>
+        <p className="font-display text-lg font-black text-amber-100">{coins.toLocaleString()}</p>
+      </div>
+      <div className="rounded-xl border border-sky-300/30 bg-black/30 px-3 py-2 text-center">
+        <p className="text-[9px] font-extrabold tracking-[0.16em] text-sky-200/80">⭐ {t('heistWalletStars')}</p>
+        <p className="font-display text-lg font-black text-sky-100">{stars.toLocaleString()}</p>
+      </div>
+    </div>
+  )
+}
+
+/** The whole loop in six lines: steal → get out → upgrade → buy → go deeper → NFT Drop. */
+function Onboarding({ onOk }: { onOk: () => void }) {
+  const { t } = useI18n()
+  const steps: MessageKey[] = ['heistOnb1', 'heistOnb2', 'heistOnb3', 'heistOnb4', 'heistOnb5', 'heistOnb6']
+  return (
+    <div className="mt-3 rounded-2xl border border-amber-300/40 bg-gradient-to-b from-amber-400/10 to-transparent p-3">
+      <p className="text-center text-[10px] font-extrabold tracking-[0.2em] text-amber-200">{t('heistOnbTitle')}</p>
+      <ol className="mt-2 space-y-1.5">
+        {steps.map((k, i) => (
+          <li key={k} className="flex items-start gap-2 text-[12px] font-semibold leading-snug text-amber-50">
+            <span className="mt-0.5 shrink-0 text-[10px] font-black text-amber-300">{i + 1}</span>
+            <span>{t(k)}</span>
+          </li>
+        ))}
+      </ol>
+      <button type="button" className="buy-btn mt-3 min-h-11 w-full rounded-xl px-4 py-2 text-sm font-black text-zinc-950" onClick={onOk}>
+        {t('heistOnbOk')}
+      </button>
+    </div>
+  )
+}
+
 /** Card colours: each building reads as its own place, locked ones as the next goal. */
 const CARD_TONE: Record<HeistLevelId, string> = {
   bank: 'border-amber-400/45 bg-[#1a140c]/95',
@@ -57,6 +125,9 @@ const CARD_TONE: Record<HeistLevelId, string> = {
   level3: 'border-sky-300/40 bg-[#0e1622]/95',
   level4: 'border-red-400/40 bg-[#1a0c0e]/95',
   level5: 'border-yellow-300/60 bg-[#14100a]/95 shadow-[0_0_24px_rgba(255,214,90,0.12)]',
+  level6: 'border-cyan-200/50 bg-[#0c141c]/95',
+  level7: 'border-fuchsia-400/50 bg-[#140a16]/95 shadow-[0_0_22px_rgba(255,60,180,0.12)]',
+  level8: 'border-red-400/50 bg-[#0e080a]/95 shadow-[0_0_24px_rgba(255,58,58,0.12)]',
 }
 
 /** Deepest zone reached so far (0-based) for the card's progress line. */
@@ -127,8 +198,16 @@ export function HeistPage() {
   /** Set by the raid that just finished the BANK: the HUB highlights MANSION once. */
   const [justUnlocked, setJustUnlocked] = useState<HeistLevelId | null>(null)
   const [screen, setScreen] = useState<Screen>(() => (isHeistNovice(loadProgress()) ? 'play' : 'lobby'))
-  const mods = useMemo(() => runMods(progress), [progress])
+  const [raidMods, setRaidMods] = useState<HeistRunMods>(() => runMods(loadProgress()))
+  const [resumeRun, setResumeRun] = useState(false)
+  const [showOnb, setShowOnb] = useState(false)
   const novice = isHeistNovice(progress)
+  const levelCards = heistLevelCards(progress)
+  /** The first locked level: shown as the next goal (with its brief and a ⭐ preview). */
+  const nextLocked = levelCards.find((c) => c.locked)?.id ?? null
+  const parked = screen === 'lobby' ? suspendedRaid() : null
+  // One in-app notification at most (the park card and the loot banner cover the others).
+  const topNote = pendingNotifications(progress, { raidParked: Boolean(parked) })[0] ?? null
   // Re-read on every HUB render so an expired try-on disappears on its own.
   const skinTrial = screen === 'lobby' ? loadNftTrial() : null
 
@@ -143,8 +222,8 @@ export function HeistPage() {
       }),
     [],
   )
-  const firstLot = catalogItem('art_sketch')
-  const firstLotPrice = firstLot?.purchasePrice ?? 40
+  // First goal: the cheapest lot actually on sale (Renoir is now a long-term goal, see balance.ts).
+  const firstLotPrice = useMemo(() => Math.min(...CATALOG.filter((i) => i.market !== false).map((i) => i.purchasePrice)), [])
 
   const onDone = (next: HeistEnd) => {
     if (next.verdict === 'aborted') {
@@ -157,6 +236,8 @@ export function HeistPage() {
       const gained = next.coins + next.bonus + next.objBonus
       let updated = bankCoins(progress, gained, next.objectives)
       if (levelId === 'bank') updated = noteBankEscape(updated)
+      // Special loot carried out goes to the Black Market fence inventory.
+      if (next.valuables?.length) bankValuables(next.valuables)
       updated = loadProgress()
       setProgress(updated)
       if (next.levelCompleted) setJustUnlocked(nextHeistLevel(levelId))
@@ -169,30 +250,63 @@ export function HeistPage() {
     setScreen('result')
   }
 
-  const playLevel = (id: HeistLevelId) => {
+  const playLevel = (id: HeistLevelId, opts: { preview?: boolean; resume?: boolean } = {}) => {
     setJustUnlocked(null)
     unlockHeistSfx()
     heistSfx.uiTap()
+    if (!opts.resume) discardSuspendedRaid()
+    // Gear + one-raid boosts: owned boosts are used up by this raid.
+    const live = loadProgress()
+    setRaidMods(opts.resume ? raidMods : { ...runMods(live, true), preview: Boolean(opts.preview) })
+    setResumeRun(Boolean(opts.resume))
+    setProgress(loadProgress())
     setLevelId(id)
     setEnd(null)
     setRunKey((n) => n + 1)
     setScreen('play')
   }
 
-  const buyLab = (stat: LabStat) => {
-    const result = buyLabUpgrade(progress, stat)
+  const buyLab = (stat: LabStat, currency: Currency) => {
+    const result = buyLabUpgrade(progress, stat, currency)
     if (result.reason === 'max') {
       setShopMsg(t('heistLabMax'))
       return
     }
     if (result.reason === 'poor') {
-            setShopMsg(t('heistNotEnoughStars'))
+      setShopMsg(currency === 'stars' ? t('heistNotEnoughStars') : t('heistNotEnoughCoins'))
       return
     }
     setProgress(result.next)
-    setShopMsg(null)
+    // Clear feedback in the currency that was actually spent.
+    setShopMsg(currency === 'stars' ? t('heistSpentStars', { n: result.price }) : t('heistSpentCoins', { n: result.price.toLocaleString() }))
     unlockHeistSfx()
-    heistSfx.purchase()
+    if (currency === 'stars') heistSfx.starPurchase()
+    heistSfx.upgrade()
+  }
+
+  const buyItem = (id: StarItemId) => {
+    const result = buyStarItem(id)
+    if (!result.ok) {
+      setShopMsg(t('heistNotEnoughStars'))
+      return
+    }
+    setProgress(result.next)
+    setShopMsg(t('heistSpentStars', { n: result.price }))
+    unlockHeistSfx()
+    heistSfx.starPurchase()
+  }
+
+  /** PREVIEW of the next locked level: first floor only, never completes it. Stars only. */
+  const playPreview = (id: HeistLevelId) => {
+    if (!consumeStarItem('previewPass')) {
+      const bought = buyStarItem('previewPass')
+      if (!bought.ok || !consumeStarItem('previewPass')) {
+        setShopMsg(t('heistNotEnoughStars'))
+        return
+      }
+      heistSfx.starPurchase()
+    }
+    playLevel(id, { preview: true })
   }
 
   if (screen === 'play') {
@@ -201,18 +315,26 @@ export function HeistPage() {
         className="relative h-[calc(100dvh-4.75rem-env(safe-area-inset-bottom))] overflow-hidden overscroll-none bg-[#120c10]"
         style={{ touchAction: 'none', overscrollBehavior: 'none' }}
       >
-        <HeistGame key={`${levelId}-${runKey}`} running mods={mods} levelId={levelId} novice={novice} onDone={onDone} />
+        <HeistGame
+          key={`${levelId}-${runKey}`}
+          running
+          mods={raidMods}
+          levelId={levelId}
+          novice={novice}
+          onDone={onDone}
+          resume={resumeRun}
+          onSuspend={() => {
+            setResumeRun(false)
+            setProgress(loadProgress())
+            setScreen('lobby')
+          }}
+        />
       </section>
     )
   }
 
   if (screen === 'shop') {
-    const tracks: {
-      stat: LabStat
-      title: string
-      names: string[]
-      hints: string[]
-    }[] = [
+    const tracks: { stat: LabStat; title: string; names: string[]; hints: string[] }[] = [
       {
         stat: 'bagLevel',
         title: t('heistLabBag'),
@@ -231,24 +353,42 @@ export function HeistPage() {
         names: [t('heistShoesLv0'), t('heistShoesLv1'), t('heistShoesLv2'), t('heistShoesLv3')],
         hints: [t('heistShoesLv0Hint'), t('heistShoesLv1Hint'), t('heistShoesLv2Hint'), t('heistShoesLv3Hint')],
       },
+      {
+        stat: 'dashLevel',
+        title: t('heistLabDash'),
+        names: [t('heistDashLv0'), t('heistDashLv1'), t('heistDashLv2'), t('heistDashLv3')],
+        hints: [t('heistDashLv0Hint'), t('heistDashLv1Hint'), t('heistDashLv2Hint'), t('heistDashLv3Hint')],
+      },
+      {
+        stat: 'lockpickLevel',
+        title: t('heistLabLock'),
+        names: [t('heistLockLv0'), t('heistLockLv1'), t('heistLockLv2'), t('heistLockLv3')],
+        hints: [t('heistLockLv0Hint'), t('heistLockLv1Hint'), t('heistLockLv2Hint'), t('heistLockLv3Hint')],
+      },
+      {
+        stat: 'magnetLevel',
+        title: t('heistLabMagnet'),
+        names: [t('heistMagnetLv0'), t('heistMagnetLv1'), t('heistMagnetLv2'), t('heistMagnetLv3')],
+        hints: [t('heistMagnetLv0Hint'), t('heistMagnetLv1Hint'), t('heistMagnetLv2Hint'), t('heistMagnetLv3Hint')],
+      },
     ]
-    const soon = [
-      t('heistLabNightVision'),
-      t('heistLabFasterDash'),
-      t('heistLabMoneyMagnet'),
-      t('heistLabLockpick'),
+    const starItems: { id: StarItemId; name: MessageKey }[] = [
+      { id: 'continueRaid', name: 'heistItemContinueRaid' },
+      { id: 'boostBag', name: 'heistItemBoostBag' },
+      { id: 'boostStealth', name: 'heistItemBoostStealth' },
+      { id: 'boostSpeed', name: 'heistItemBoostSpeed' },
+      { id: 'boostSilent', name: 'heistItemBoostSilent' },
+      { id: 'elevatorPass', name: 'heistItemElevatorPass' },
+      { id: 'escalatorPass', name: 'heistItemEscalatorPass' },
+      { id: 'previewPass', name: 'heistItemPreviewPass' },
     ]
     return (
       <section className="relative h-[calc(100dvh-4.75rem-env(safe-area-inset-bottom))] overflow-y-auto bg-[#120c10] px-5 py-6">
         <div className="mx-auto w-full max-w-sm">
           <p className="text-center text-[11px] font-extrabold tracking-[0.2em] text-amber-200">{t('heistLab')}</p>
           <p className="mt-1 text-center text-[10px] font-extrabold tracking-[0.18em] text-amber-100/70">{t('heistUpgrades')}</p>
-          <p className="mt-3 text-center font-display text-4xl font-black text-amber-300">{progress.stars || 0}</p>
-          <p className="text-center text-xs font-extrabold tracking-[0.18em] text-amber-100/80">{t('heistStars')}</p>
-          <p className="mt-1 text-center text-xs text-zinc-400">
-            {t('heistBag')} {bagCap(progress)}
-          </p>
-          <p className="mt-1 text-center text-[11px] text-zinc-500">{t('heistStarsHint')}</p>
+          <Wallet coins={progress.bankedDuckCoin} stars={progress.stars || 0} />
+          <p className="mt-2 text-center text-[11px] text-zinc-500">{t('heistStarsHint')}</p>
           <button
             type="button"
             className="mt-3 min-h-12 w-full rounded-xl border border-amber-400/30 px-4 py-3 text-sm font-bold text-amber-100"
@@ -266,48 +406,69 @@ export function HeistPage() {
               const current = track.names[level] ?? track.names[0]
               const nextName = track.names[level + 1]
               const hint = track.hints[Math.min(level + (nextName ? 1 : 0), track.hints.length - 1)]
-              const price = labNextPrice(progress, track.stat)
-              const maxed = price == null
+              const coinPrice = labNextPrice(progress, track.stat, 'coin')
+              const starPrice = labNextPrice(progress, track.stat, 'stars')
+              const maxed = coinPrice == null
               return (
                 <div key={track.stat} className="rounded-2xl border border-amber-400/30 bg-[#101014]/90 p-4">
                   <div className="flex items-start justify-between gap-3">
                     <p className="font-display text-lg font-black text-amber-100">{track.title}</p>
-                    <p className="shrink-0 text-[11px] font-extrabold tracking-[0.12em] text-amber-200">
-                      {t('heistLabLevel', { n: level + 1, max: 4 })}
-                    </p>
+                    <p className="shrink-0 text-[11px] font-extrabold tracking-[0.12em] text-amber-200">{t('heistLabLevel', { n: level + 1, max: 4 })}</p>
                   </div>
                   <p className="mt-2 text-sm font-semibold text-amber-50">{t('heistLabCurrent', { name: current })}</p>
                   <p className="mt-1 text-sm text-zinc-400">{t('heistLabNext', { name: maxed ? t('heistLabMax') : nextName })}</p>
                   <p className="mt-1 text-sm text-zinc-500">{hint}</p>
-                  <p className="mt-2 font-mono text-sm font-bold text-amber-200">
-                    {maxed ? t('heistLabMax') : `${price} ${t('heistStars')}`}
-                  </p>
+                  {maxed ? (
+                    <p className="mt-3 text-center font-mono text-sm font-bold text-amber-200">{t('heistLabMax')}</p>
+                  ) : (
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        disabled={progress.bankedDuckCoin < (coinPrice ?? 0)}
+                        className="min-h-12 rounded-xl border border-amber-400/50 bg-amber-400/10 px-3 py-2 text-sm font-black text-amber-100 disabled:opacity-45"
+                        onClick={() => buyLab(track.stat, 'coin')}
+                      >
+                        {t('heistBuyCoins', { n: (coinPrice ?? 0).toLocaleString() })}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={(progress.stars || 0) < (starPrice ?? 0)}
+                        className="buy-btn min-h-12 rounded-xl px-3 py-2 text-sm font-black text-zinc-950 disabled:opacity-45"
+                        onClick={() => buyLab(track.stat, 'stars')}
+                      >
+                        {t('heistBuyStars', { n: starPrice ?? 0 })}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+          <p className="mt-6 text-center text-[10px] font-extrabold tracking-[0.2em] text-amber-200">{t('heistStarShop')}</p>
+          <p className="mt-1 text-center text-[11px] text-zinc-500">{t('heistStarShopHint')}</p>
+          <div className="mt-3 space-y-2">
+            {starItems.map((it) => {
+              const price = STAR_ITEMS[it.id].stars
+              const owned = progress.starItems?.[it.id] ?? 0
+              return (
+                <div key={it.id} className="flex items-center justify-between gap-3 rounded-2xl border border-amber-400/20 bg-[#101014]/80 p-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-bold text-amber-50">{t(it.name)}</p>
+                    {owned > 0 ? <p className="text-[11px] text-emerald-300">{t('heistItemOwned', { n: owned })}</p> : null}
+                  </div>
                   <button
                     type="button"
-                    disabled={maxed}
-                    className="buy-btn mt-3 min-h-12 w-full rounded-xl px-4 py-3 text-sm font-black text-zinc-950 disabled:opacity-50"
-                    onClick={() => buyLab(track.stat)}
+                    disabled={(progress.stars || 0) < price}
+                    className="buy-btn min-h-11 shrink-0 rounded-xl px-3 text-sm font-black text-zinc-950 disabled:opacity-45"
+                    onClick={() => buyItem(it.id)}
                   >
-                    {maxed ? t('heistLabMax') : t('heistBuy')}
+                    ⭐ {price}
                   </button>
                 </div>
               )
             })}
           </div>
-          <p className="mt-6 text-center text-[10px] font-extrabold tracking-[0.2em] text-amber-200/70">{t('heistLabSoon')}</p>
-          <div className="mt-3 space-y-2">
-            {soon.map((name) => (
-              <div key={name} className="rounded-2xl border border-white/10 bg-[#101014]/70 p-4 opacity-80">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="font-display text-base font-black text-amber-100/80">{name}</p>
-                  <span className="rounded-full border border-amber-400/30 px-2 py-1 text-[10px] font-extrabold tracking-[0.14em] text-amber-200/80">
-                    {t('heistLabSoon')}
-                  </span>
-                </div>
-                <p className="mt-1 text-sm text-zinc-500">{t('heistLabSoonHint')}</p>
-              </div>
-            ))}
-          </div>
+          <p className="mt-6 text-center text-[11px] text-zinc-500">{t('heistNightVisionSoon')}</p>
           <button
             type="button"
             className="mt-5 min-h-12 w-full rounded-2xl border border-white/15 px-4 py-3 text-sm font-bold text-zinc-200"
@@ -591,10 +752,7 @@ export function HeistPage() {
           </div>
           <p className="text-center text-[11px] font-extrabold uppercase tracking-[0.2em] text-amber-200">{t('heistKicker')}</p>
           <h1 className="font-display mt-1 text-center text-3xl font-black text-amber-50">{t('heistTitle')}</h1>
-          <div className="mt-3 flex justify-between text-sm text-zinc-300">
-            <span>{t('heistBanked')}</span>
-            <span className="font-mono font-bold text-amber-200">{progress.bankedDuckCoin}</span>
-          </div>
+          <Wallet coins={progress.bankedDuckCoin} stars={progress.stars || 0} />
           <div className="mt-1 flex justify-between text-sm text-zinc-300">
             <span>{t('heistBag')}</span>
             <span className="font-mono font-bold text-amber-200">{bagCap(progress)}</span>
@@ -611,14 +769,55 @@ export function HeistPage() {
             })}
           </p>
           {skinTrial ? <HubSkinLine trial={skinTrial} onDrop={() => navigate('/drop')} /> : null}
+          {!progress.onboardingSeen || showOnb ? (
+            <Onboarding
+              onOk={() => {
+                markOnboardingSeen()
+                setShowOnb(false)
+                setProgress(loadProgress())
+              }}
+            />
+          ) : (
+            <button type="button" className="mt-2 w-full text-center text-[11px] font-bold text-amber-200/80 underline" onClick={() => setShowOnb(true)}>
+              {t('heistOnbAgain')}
+            </button>
+          )}
+          {parked ? (
+            <button
+              type="button"
+              className="buy-btn mt-3 w-full rounded-2xl px-4 py-3 text-left text-zinc-950"
+              onClick={() => playLevel(parked.levelId, { resume: true })}
+            >
+              <span className="block font-display text-base font-black">▶ {t('heistContinueRaid')}</span>
+              <span className="block text-[11px] font-bold">
+                {t('heistSuspendedHint', { level: t(HEIST_LEVEL_NAME[parked.levelId]), n: parked.zone, bag: parked.bag })}
+              </span>
+            </button>
+          ) : null}
+          {progress.valuables.length ? (
+            <div className="mt-3 rounded-2xl border border-amber-300/40 bg-amber-300/10 px-3 py-2 text-center">
+              <p className="text-[12px] font-bold text-amber-100">
+                {t('heistValuablesHub', { n: progress.valuables.length, v: progress.valuables.reduce((a, v) => a + v.value, 0).toLocaleString() })}
+              </p>
+              <button type="button" className="mt-1 text-[11px] font-extrabold tracking-[0.12em] text-amber-200 underline" onClick={() => navigate('/market')}>
+                {t('heistOpenMarket')}
+              </button>
+            </div>
+          ) : null}
+          {shopMsg ? <p className="mt-2 text-center text-sm font-bold text-orange-300">{shopMsg}</p> : null}
+          {topNote && topNote.kind === 'upgrade' ? (
+            <button type="button" className="mt-2 w-full rounded-xl border border-sky-300/30 bg-sky-300/5 px-3 py-2 text-[12px] font-bold text-sky-100" onClick={() => setScreen('shop')}>
+              {t(topNote.key)}
+            </button>
+          ) : null}
           <div className="mt-4 space-y-3">
-            {heistLevelCards(progress).map((card) => {
+            {levelCards.map((card) => {
               const open = !card.locked
               const done = card.done
               const fresh = open && justUnlocked === card.id
               const badge = done ? t('heistLevelDone') : open && card.id !== 'bank' ? t('heistLevelUnlocked') : open ? t('heistLevelOpen') : t('heistLevelLocked')
               const depth = levelDepth(progress, card.id)
-              const tone = !open ? `${CARD_TONE[card.id]} opacity-60 grayscale-[35%]` : CARD_TONE[card.id]
+              const tone = open ? CARD_TONE[card.id] : card.id === nextLocked ? `${CARD_TONE[card.id]} opacity-90` : `${CARD_TONE[card.id]} opacity-60 grayscale-[35%]`
               return (
                 <div
                   key={card.n}
@@ -646,7 +845,21 @@ export function HeistPage() {
                       {badge}
                     </span>
                   </div>
-                  <LevelBrief id={card.id} cap={bagCap(progress)} />
+                  <p className="mt-1 text-[11px] font-bold text-amber-100/80">
+                    {t('heistRewardTier', { tier: t(REWARD_KEY[card.id]) })}
+                    {FEATURE_KEY[card.id] ? ` · ${t(FEATURE_KEY[card.id]!)}` : ''}
+                  </p>
+                  {open || card.id === nextLocked ? <LevelBrief id={card.id} cap={bagCap(progress)} /> : null}
+                  {!open && card.id === nextLocked ? (
+                    <button
+                      type="button"
+                      className="mt-3 min-h-11 w-full rounded-xl border border-sky-300/50 bg-sky-300/10 px-4 py-2.5 text-sm font-extrabold tracking-[0.12em] text-sky-100"
+                      onClick={() => playPreview(card.id)}
+                    >
+                      {(progress.starItems?.previewPass ?? 0) > 0 ? t('heistPreviewUse') : t('heistPreviewPlay', { n: STAR_ITEMS.previewPass.stars })}
+                      <span className="block text-[10px] font-bold text-sky-200/80">{t('heistPreviewHint')}</span>
+                    </button>
+                  ) : null}
                   {open ? (
                     <button
                       type="button"

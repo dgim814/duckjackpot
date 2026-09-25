@@ -205,6 +205,24 @@ const LEVEL_TUNING: Record<HeistLevelId, TuningPatch> = {
     alert: { phasesEnabled: true },
     escape: { enabled: true, timerS: 240, routeChange: false },
   },
+  level6: {
+    player: { dash: 392 },
+    weight: { enabled: true },
+    alert: { phasesEnabled: true },
+    escape: { enabled: true, timerS: 270, routeChange: false },
+  },
+  level7: {
+    player: { dash: 392 },
+    weight: { enabled: true },
+    alert: { phasesEnabled: true },
+    escape: { enabled: true, timerS: 300, routeChange: false },
+  },
+  level8: {
+    player: { dash: 392 },
+    weight: { enabled: true },
+    alert: { phasesEnabled: true },
+    escape: { enabled: true, timerS: 330, routeChange: false },
+  },
 }
 
 export function mergeTuning(base: HeistTuning, patch?: TuningPatch): HeistTuning {

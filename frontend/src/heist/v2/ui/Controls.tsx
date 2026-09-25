@@ -146,7 +146,21 @@ export function ActionButtons({ input, hud }: { input: InputController; hud: Hud
   )
   if (s.paused) return null
   const showAction = s.cracking || s.prompt !== null
-  const actionLabel = s.cracking ? heistT('heistHit') : s.prompt === 'door' ? heistT('heistLockpick') : s.prompt === 'nft' ? heistT('heistNftLook') : heistT('heistOpen')
+  const actionLabel = s.cracking
+    ? heistT('heistHit')
+    : s.prompt === 'door'
+      ? heistT('heistLockpick')
+      : s.prompt === 'nft'
+        ? heistT('heistNftLook')
+        : s.prompt === 'lift'
+          ? heistT('heistActLift')
+          : s.prompt === 'panel'
+            ? heistT('heistActPanel')
+            : s.prompt === 'gate'
+              ? heistT('heistActGate')
+              : s.prompt === 'preview'
+                ? heistT('heistActPreview')
+                : heistT('heistOpen')
   const ring = s.dashCd > 0 ? `conic-gradient(rgba(255,214,90,0.9) ${(1 - s.dashCd) * 360}deg, rgba(0,0,0,0) 0)` : undefined
   return (
     <div className="v2-buttons">

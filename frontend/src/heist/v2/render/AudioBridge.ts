@@ -40,6 +40,21 @@ export class AudioBridge {
       case 'safeOpened':
         heistSfx.safeUnlock()
         break
+      case 'lift':
+        heistSfx.elevator()
+        break
+      case 'escalator':
+        heistSfx.escalator()
+        break
+      case 'laserTrip':
+        heistSfx.laser()
+        break
+      case 'panelOff':
+        heistSfx.panel()
+        break
+      case 'valuable':
+        heistSfx.rareLoot()
+        break
       case 'siren':
         heistSfx.siren()
         break

@@ -1,6 +1,7 @@
 import type { OwnedCollection } from './economy/catalog'
 import { catalogItem } from './economy/catalog'
 import { addToCollection } from './economy/collection'
+import { BOOSTS, CONTINUE_KEEP, FENCE_RATE, STAR_ITEMS, UPGRADES, UPGRADE_EFFECTS, type StarItemId, type UpgradeId } from './economy/balance'
 import { adoptOrphanListings, cancelListing, listItem, loadListings, localPlayerId } from './economy/marketStore'
 
 export type OwnedMeta = Record<string, { acquiredAt: number }>
@@ -38,11 +39,22 @@ export type PlayerProgress = {
   mansionDepth: number
   mansionReachedFinal: boolean
   mansionComplete: boolean
-  /** Persistent LEVEL 3–5 heists (same rules as MANSION), keyed by level. Missing = untouched. */
+  /** Persistent LEVEL 3–8 heists (same rules as MANSION), keyed by level. Missing = untouched. */
   worlds: Partial<Record<WorldId, WorldProgress>>
+  /** ⭐ one-off items owned (passes, boosts, continues). Never DUCK COIN, never NFT. */
+  starItems: Partial<Record<StarItemId, number>>
+  /** Special loot carried out of raids, waiting for the Black Market fence. */
+  valuables: Valuable[]
+  /** Last time the in-raid NFT Drop offer was shown (ms). 0 = never. */
+  nftCtaAt: number
+  /** The short "how the game works" card was dismissed. */
+  onboardingSeen: boolean
 }
 
-export type WorldId = 'level3' | 'level4' | 'level5'
+export type ValuableKind = 'watch' | 'jewel' | 'art' | 'relic' | 'crown'
+export type Valuable = { id: string; kind: ValuableKind; value: number; level: string }
+
+export type WorldId = 'level3' | 'level4' | 'level5' | 'level6' | 'level7' | 'level8'
 
 export type WorldProgress = {
   lootTaken: string[]
@@ -53,7 +65,7 @@ export type WorldProgress = {
   complete: boolean
 }
 
-const WORLD_IDS: readonly WorldId[] = ['level3', 'level4', 'level5']
+const WORLD_IDS: readonly WorldId[] = ['level3', 'level4', 'level5', 'level6', 'level7', 'level8']
 
 export type HeistRunMods = {
   bagCap: number
@@ -61,9 +73,21 @@ export type HeistRunMods = {
   disguiseMul: number
   silentShoes: boolean
   speedMul: number
+  /** Gear + boosts (optional so older callers/tests keep working; missing = 1 / 0). */
+  noiseMul?: number
+  dashCdMul?: number
+  dashMul?: number
+  lockWidthMul?: number
+  pickupBonus?: number
+  /** Star items owned at raid start that the raid may use (passes, continue). */
+  passes?: { elevator: boolean; escalator: boolean; continues: number }
+  /** A PREVIEW PASS raid: only the first floor, no completion. */
+  preview?: boolean
+  /** One-raid boosts consumed for this raid (for the HUD/summary). */
+  boosts?: string[]
 }
 
-export type LabStat = 'bagLevel' | 'disguiseLevel' | 'shoesLevel'
+export type LabStat = UpgradeId
 
 const KEY = 'duckjackpot.heist.progress.v1'
 const LAB_MAX = 3
@@ -123,6 +147,10 @@ const emptyProgress = (): PlayerProgress => ({
   mansionReachedFinal: false,
   mansionComplete: false,
   worlds: {},
+  starItems: {},
+  valuables: [],
+  nftCtaAt: 0,
+  onboardingSeen: false,
 })
 
 function readOwned(raw: unknown): OwnedCollection {
@@ -198,6 +226,32 @@ function restoreListedCopies(owned: OwnedCollection): OwnedCollection {
   }
 }
 
+function readStarItems(raw: unknown): Partial<Record<StarItemId, number>> {
+  const out: Partial<Record<StarItemId, number>> = {}
+  if (!raw || typeof raw !== 'object') return out
+  for (const id of Object.keys(STAR_ITEMS) as StarItemId[]) {
+    const n = Math.max(0, Math.floor(Number((raw as Record<string, unknown>)[id]) || 0))
+    if (n > 0) out[id] = n
+  }
+  return out
+}
+
+const VALUABLE_KINDS: readonly ValuableKind[] = ['watch', 'jewel', 'art', 'relic', 'crown']
+
+function readValuables(raw: unknown): Valuable[] {
+  if (!Array.isArray(raw)) return []
+  const out: Valuable[] = []
+  for (const v of raw) {
+    if (!v || typeof v !== 'object') continue
+    const r = v as Record<string, unknown>
+    const kind = VALUABLE_KINDS.find((k) => k === r.kind)
+    const value = Math.max(0, Math.floor(Number(r.value) || 0))
+    if (typeof r.id !== 'string' || !kind || value <= 0) continue
+    out.push({ id: r.id, kind, value, level: typeof r.level === 'string' ? r.level : '' })
+  }
+  return out
+}
+
 function readWorld(raw: unknown): WorldProgress | undefined {
   if (!raw || typeof raw !== 'object') return undefined
   const w = raw as Partial<Record<keyof WorldProgress, unknown>>
@@ -233,9 +287,9 @@ export function loadProgress(): PlayerProgress {
       disguiseLevel: clampLevel(parsed.disguiseLevel),
       shoesLevel: clampLevel(parsed.shoesLevel),
       nightVisionLevel: clampLevel(parsed.nightVisionLevel, 1),
-      dashLevel: clampLevel(parsed.dashLevel, 1),
-      magnetLevel: clampLevel(parsed.magnetLevel, 1),
-      lockpickLevel: clampLevel(parsed.lockpickLevel, 1),
+      dashLevel: clampLevel(parsed.dashLevel),
+      magnetLevel: clampLevel(parsed.magnetLevel),
+      lockpickLevel: clampLevel(parsed.lockpickLevel),
       objLoot: Boolean(parsed.objLoot),
       objStealth: Boolean(parsed.objStealth),
       objSpeed: Boolean(parsed.objSpeed),
@@ -256,6 +310,10 @@ export function loadProgress(): PlayerProgress {
       mansionReachedFinal: Boolean((parsed as { mansionReachedFinal?: unknown }).mansionReachedFinal),
       mansionComplete: Boolean((parsed as { mansionComplete?: unknown }).mansionComplete),
       worlds: readWorlds((parsed as { worlds?: unknown }).worlds),
+      starItems: readStarItems((parsed as { starItems?: unknown }).starItems),
+      valuables: readValuables((parsed as { valuables?: unknown }).valuables),
+      nftCtaAt: Math.max(0, Number((parsed as { nftCtaAt?: unknown }).nftCtaAt) || 0),
+      onboardingSeen: Boolean((parsed as { onboardingSeen?: unknown }).onboardingSeen),
     }
     const before = JSON.stringify(readOwned(parsed.ownedArt))
     if (before !== JSON.stringify(ownedArt)) saveProgress(next)
@@ -443,59 +501,173 @@ export function isLevelComplete(progress: PlayerProgress, id: 'bank' | 'mansion'
   return Boolean(progress.worlds?.[id]?.complete)
 }
 
+const PREVIOUS: Record<WorldId, 'mansion' | WorldId> = {
+  level3: 'mansion',
+  level4: 'level3',
+  level5: 'level4',
+  level6: 'level5',
+  level7: 'level6',
+  level8: 'level7',
+}
+
 export function isLevelUnlocked(progress: PlayerProgress, id: 'bank' | 'mansion' | WorldId) {
   if (id === 'bank') return true
   if (id === 'mansion') return isMansionUnlocked(progress)
-  if (id === 'level3') return Boolean(progress.mansionComplete)
-  if (id === 'level4') return isLevelComplete(progress, 'level3')
-  return isLevelComplete(progress, 'level4')
+  return isLevelComplete(progress, PREVIOUS[id])
 }
 
 export function bagCap(progress: PlayerProgress) {
   return BAG_CAPS[clampLevel(progress.bagLevel)] ?? BAG_BASIC
 }
 
-export function labPrices(stat: LabStat): readonly number[] {
-  if (stat === 'bagLevel') return BAG_STAR_PRICES
-  if (stat === 'disguiseLevel') return DISGUISE_STAR_PRICES
-  return SHOES_STAR_PRICES
+export function labPrices(stat: LabStat, currency: Currency = 'stars'): readonly number[] {
+  return currency === 'coin' ? UPGRADES[stat].coin : UPGRADES[stat].stars
 }
 
-export function labNextPrice(progress: PlayerProgress, stat: LabStat) {
+export type Currency = 'stars' | 'coin'
+
+export function labNextPrice(progress: PlayerProgress, stat: LabStat, currency: Currency = 'stars') {
   const level = clampLevel(progress[stat])
-  const prices = labPrices(stat)
+  const prices = labPrices(stat, currency)
   if (level >= prices.length) return null
   return prices[level]
 }
 
-export function buyLabUpgrade(progress: PlayerProgress, stat: LabStat) {
-  const price = labNextPrice(progress, stat)
-  if (price == null) return { ok: false as const, reason: 'max' as const, next: progress }
-  const stars = Math.max(0, Math.floor(progress.stars || 0))
-  if (stars < price) return { ok: false as const, reason: 'poor' as const, next: progress }
+/**
+ * Gear upgrade with ⭐ Stars (fast) or DUCK COIN (the long way). The two
+ * balances never mix: a Stars purchase never touches DUCK COIN and vice versa.
+ */
+export function buyLabUpgrade(_progress: PlayerProgress, stat: LabStat, currency: Currency = 'stars') {
+  const live = loadProgress()
+  const price = labNextPrice(live, stat, currency)
+  if (price == null) return { ok: false as const, reason: 'max' as const, next: live, price: 0 }
+  const stars = Math.max(0, Math.floor(live.stars || 0))
+  if (currency === 'stars' ? stars < price : live.bankedDuckCoin < price) return { ok: false as const, reason: 'poor' as const, next: live, price }
   const next: PlayerProgress = {
-    ...progress,
-    stars: stars - price,
-    ownedArt: progress.ownedArt ?? {},
-    ownedMeta: progress.ownedMeta ?? {},
-    [stat]: clampLevel(progress[stat] + 1),
+    ...live,
+    ...keepWallet(live),
+    stars: currency === 'stars' ? stars - price : stars,
+    bankedDuckCoin: currency === 'coin' ? live.bankedDuckCoin - price : live.bankedDuckCoin,
+    [stat]: clampLevel(live[stat] + 1),
   }
   saveProgress(next)
-  return { ok: true as const, reason: 'ok' as const, next }
+  return { ok: true as const, reason: 'ok' as const, next, price }
 }
 
-export function runMods(progress: PlayerProgress): HeistRunMods {
+/** Buy one ⭐ item (pass, boost, continue). Stars only. */
+export function buyStarItem(id: StarItemId) {
+  const live = loadProgress()
+  const price = STAR_ITEMS[id].stars
+  const stars = Math.max(0, Math.floor(live.stars || 0))
+  if (stars < price) return { ok: false as const, reason: 'poor' as const, next: live, price }
+  const next: PlayerProgress = {
+    ...live,
+    ...keepWallet(live),
+    stars: stars - price,
+    starItems: { ...live.starItems, [id]: (live.starItems?.[id] ?? 0) + 1 },
+  }
+  saveProgress(next)
+  return { ok: true as const, reason: 'ok' as const, next, price }
+}
+
+/** Use up one owned ⭐ item. Returns false when none is owned. */
+export function consumeStarItem(id: StarItemId) {
+  const live = loadProgress()
+  const have = live.starItems?.[id] ?? 0
+  if (have <= 0) return false
+  saveProgress({ ...live, ...keepWallet(live), starItems: { ...live.starItems, [id]: have - 1 } })
+  return true
+}
+
+/** Special loot carried out through EXIT goes to the fence inventory. */
+export function bankValuables(list: readonly Valuable[]) {
+  const live = loadProgress()
+  if (list.length === 0) return live
+  const have = new Set(live.valuables.map((v) => v.id))
+  const next: PlayerProgress = { ...live, ...keepWallet(live), valuables: [...live.valuables, ...list.filter((v) => !have.has(v.id))] }
+  saveProgress(next)
+  return next
+}
+
+/** Sell one special loot item to the Black Market fence for DUCK COIN. */
+export function sellValuable(id: string) {
+  const live = loadProgress()
+  const item = live.valuables.find((v) => v.id === id)
+  if (!item) return { ok: false as const, next: live, coins: 0 }
+  const coins = Math.floor(item.value * FENCE_RATE)
+  const next: PlayerProgress = {
+    ...live,
+    ...keepWallet(live),
+    bankedDuckCoin: live.bankedDuckCoin + coins,
+    valuables: live.valuables.filter((v) => v.id !== id),
+  }
+  saveProgress(next)
+  return { ok: true as const, next, coins }
+}
+
+export function markNftCta(now = Date.now()) {
+  const live = loadProgress()
+  saveProgress({ ...live, ...keepWallet(live), nftCtaAt: now })
+}
+
+export function markOnboardingSeen() {
+  const live = loadProgress()
+  saveProgress({ ...live, ...keepWallet(live), onboardingSeen: true })
+}
+
+/**
+ * Raid modifiers from gear, plus the one-raid boosts the player owns (each
+ * owned boost is used up when `consume` is true, i.e. when a raid starts).
+ */
+export function runMods(progress: PlayerProgress, consume = false): HeistRunMods {
   const bag = clampLevel(progress.bagLevel)
   const disguise = clampLevel(progress.disguiseLevel)
   const shoes = clampLevel(progress.shoesLevel)
+  const dash = clampLevel(progress.dashLevel)
+  const lock = clampLevel(progress.lockpickLevel)
+  const magnet = clampLevel(progress.magnetLevel)
+  const E = UPGRADE_EFFECTS
+  const items = progress.starItems ?? {}
+  const boosts: StarItemId[] = []
+  let speedMul: number = E.shoesSpeedMul[shoes] ?? 1
+  let disguiseMul: number = E.disguiseMul[disguise] ?? 1
+  let bagCap: number = E.bagCap[bag] ?? BAG_BASIC
+  let noiseMul: number = E.shoesNoiseMul[shoes] ?? 1
+  if ((items.boostSpeed ?? 0) > 0) {
+    speedMul *= BOOSTS.boostSpeed.speedMul
+    boosts.push('boostSpeed')
+  }
+  if ((items.boostStealth ?? 0) > 0) {
+    disguiseMul *= BOOSTS.boostStealth.disguiseMul
+    boosts.push('boostStealth')
+  }
+  if ((items.boostBag ?? 0) > 0) {
+    bagCap = Math.round(bagCap * BOOSTS.boostBag.bagMul)
+    boosts.push('boostBag')
+  }
+  if ((items.boostSilent ?? 0) > 0) {
+    noiseMul *= BOOSTS.boostSilent.noiseMul
+    boosts.push('boostSilent')
+  }
+  if (consume) for (const b of boosts) consumeStarItem(b)
   return {
-    bagCap: BAG_CAPS[bag] ?? BAG_BASIC,
+    bagCap,
     bagLevel: bag,
-    disguiseMul: DISGUISE_MUL[disguise] ?? 1,
-    silentShoes: shoes === 1,
-    speedMul: SPEED_MUL[shoes] ?? 1,
+    disguiseMul,
+    // Shoes quiet the step on every tier through noiseMul; the old tier-1-only flag stays off.
+    silentShoes: false,
+    speedMul,
+    noiseMul,
+    dashCdMul: E.dashCdMul[dash] ?? 1,
+    dashMul: E.dashMul[dash] ?? 1,
+    lockWidthMul: E.lockWidthMul[lock] ?? 1,
+    pickupBonus: E.magnetPx[magnet] ?? 0,
+    passes: { elevator: (items.elevatorPass ?? 0) > 0, escalator: (items.escalatorPass ?? 0) > 0, continues: items.continueRaid ?? 0 },
+    boosts,
   }
 }
+
+export { CONTINUE_KEEP }
 
 export function raidObjectiveBonus(escaped: boolean, loot: boolean, stealth: boolean, speed: boolean) {
   if (!escaped) return 0

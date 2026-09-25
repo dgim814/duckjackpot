@@ -16,8 +16,11 @@ import { InputController } from '../sim/Input'
 import { Raid } from '../sim/Raid'
 import { HeistV2Scene } from '../render/HeistV2Scene'
 import { ActionButtons, Joystick } from './Controls'
-import { CrackPanel, ExitArrow, PauseMenu, SafeFlyLayer, StatusLayer, Toasts, TopBar } from './Hud'
+import { CrackPanel, ExitArrow, ExtrasChip, PauseMenu, SafeFlyLayer, StatusLayer, Toasts, TopBar } from './Hud'
 import { NftVaultPanel } from './NftVault'
+import { ContinuePanel, LiftPanel, NftCtaPanel, PassPanel } from './RaidPanels'
+import { CONTINUE_KEEP, NFT_CTA, STAR_ITEMS } from '../../economy/balance'
+import { buyStarItem, consumeStarItem, loadProgress, markNftCta } from '../../progress'
 import { HudStore } from './store'
 import './v2.css'
 
@@ -27,6 +30,25 @@ type Props = {
   levelId?: HeistLevelId
   novice?: boolean
   onDone: (end: HeistEnd) => void
+  /** Continue a raid that was left through PAUSE → HUB (same Raid object, same state). */
+  resume?: boolean
+  onSuspend?: () => void
+}
+
+type Panel = 'nft' | 'lift' | 'pass' | 'continue' | 'cta' | null
+
+/** A raid parked through PAUSE → HUB. Kept in memory for this session only. */
+let suspended: { raid: Raid; levelId: HeistLevelId } | null = null
+
+export function suspendedRaid() {
+  const s = suspended
+  if (!s || s.raid.ended) return null
+  return { levelId: s.levelId, zone: s.raid.zoneNow + 1, bag: s.raid.bag }
+}
+
+/** Starting another raid drops the parked one (its unbanked bag is lost, like an abort). */
+export function discardSuspendedRaid() {
+  suspended = null
 }
 
 /** Crisp on retina without paying for 3× fill on the phone GPU. */
@@ -49,7 +71,7 @@ function destroyLive() {
   l.game.destroy(true)
 }
 
-export function HeistGameV2({ running, mods, levelId = 'bank', novice = false, onDone }: Props) {
+export function HeistGameV2({ running, mods, levelId = 'bank', novice = false, onDone, resume = false, onSuspend }: Props) {
   const rootRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
   const onDoneRef = useRef(onDone)
@@ -63,9 +85,18 @@ export function HeistGameV2({ running, mods, levelId = 'bank', novice = false, o
   const { cardArt } = useAdmin()
   const { setRaffleId } = useCards()
   const navigate = useNavigate()
-  const [nftOpen, setNftOpen] = useState(false)
-  const nftOpenRef = useRef(false)
-  nftOpenRef.current = nftOpen
+  const [panel, setPanelState] = useState<Panel>(null)
+  const panelRef = useRef<Panel>(null)
+  const setPanel = (p: Panel) => {
+    panelRef.current = p
+    setPanelState(p)
+  }
+  const nftOpen = panel === 'nft'
+  const pendingEndRef = useRef<HeistEnd | null>(null)
+  const endedRef = useRef(false)
+  const onSuspendRef = useRef(onSuspend)
+  onSuspendRef.current = onSuspend
+  const [liftTick, setLiftTick] = useState(0)
   const [trial, setTrial] = useState<NftTrial | null>(() => loadNftTrial())
   const cardArtRef = useRef(cardArt)
   cardArtRef.current = cardArt
@@ -76,11 +107,17 @@ export function HeistGameV2({ running, mods, levelId = 'bank', novice = false, o
     if (!host || !root || !running) return
     destroyLive()
 
-    const raid = new Raid(levelId, mods, novice)
+    // PAUSE → HUB parked this raid: pick it up exactly where it was.
+    const parked = resume && suspended?.levelId === levelId && !suspended.raid.ended ? suspended.raid : null
+    suspended = null
+    const raid = parked ?? new Raid(levelId, mods, novice)
+    if (parked) raid.setPaused(false)
     raidRef.current = raid
+    endedRef.current = false
+    let ctaShown = false
     input.attachKeyboard()
     const togglePause = () => {
-      if (raid.ended || nftOpenRef.current) return
+      if (raid.ended || panelRef.current) return
       raid.setPaused(!raid.paused)
       input.releaseAll()
       if (raid.paused) heistSfx.pause()
@@ -90,7 +127,12 @@ export function HeistGameV2({ running, mods, levelId = 'bank', novice = false, o
     const res = Math.max(1, Math.min(MAX_RES, window.devicePixelRatio || 1))
     const w = Math.max(1, host.clientWidth || 390)
     const h = Math.max(1, host.clientHeight || 700)
-    let ended = false
+    const openPanel = (p: Panel) => {
+      if (raid.ended) return
+      if (!raid.paused) raid.setPaused(true)
+      input.releaseAll()
+      setPanel(p)
+    }
     const scene = new HeistV2Scene({
       raid,
       input,
@@ -101,15 +143,25 @@ export function HeistGameV2({ running, mods, levelId = 'bank', novice = false, o
         const tr = loadNftTrial()
         return tr ? nftSkin(tr.nftId) : null
       })(),
-      onNftView: () => {
-        if (raid.ended) return
-        if (!raid.paused) raid.setPaused(true)
-        input.releaseAll()
-        setNftOpen(true)
+      onNftView: () => openPanel('nft'),
+      onLiftOpen: () => {
+        setLiftTick((n) => n + 1)
+        openPanel('lift')
       },
+      onNeedPass: () => openPanel('pass'),
       onEnd: (end) => {
-        if (ended) return
-        ended = true
+        if (endedRef.current) return
+        // CAUGHT: offer the ⭐ continue once per raid, if the player can afford it.
+        if (end.verdict === 'caught' && !raid.revived && !raid.mods.preview) {
+          const p = loadProgress()
+          const canContinue = (p.starItems?.continueRaid ?? 0) > 0 || (p.stars || 0) >= STAR_ITEMS.continueRaid.stars
+          if (canContinue) {
+            pendingEndRef.current = end
+            setPanel('continue')
+            return
+          }
+        }
+        endedRef.current = true
         onDoneRef.current(end)
       },
     })
@@ -128,6 +180,19 @@ export function HeistGameV2({ running, mods, levelId = 'bank', novice = false, o
     })
     live = { game, raid, scene, input }
     sceneRef.current = scene
+
+    // NFT Drop offer: after a good stretch of active play, at most once per 24 h, never mid-panel.
+    const cta = window.setInterval(() => {
+      if (ctaShown || raid.ended || raid.paused || panelRef.current || raid.time < NFT_CTA.afterActiveS) return
+      const now = Date.now()
+      if (now - (loadProgress().nftCtaAt || 0) < NFT_CTA.everyMs) {
+        ctaShown = true
+        return
+      }
+      ctaShown = true
+      markNftCta(now)
+      openPanel('cta')
+    }, 1000)
 
     const ro = new ResizeObserver(() => {
       const cw = Math.max(1, host.clientWidth)
@@ -162,6 +227,7 @@ export function HeistGameV2({ running, mods, levelId = 'bank', novice = false, o
     if (import.meta.env.DEV) (window as Window & { __v2?: unknown }).__v2 = { raid, scene, game, input, hud }
 
     return () => {
+      window.clearInterval(cta)
       ro.disconnect()
       document.removeEventListener('visibilitychange', onVis)
       root.removeEventListener('touchmove', stop)
@@ -175,7 +241,7 @@ export function HeistGameV2({ running, mods, levelId = 'bank', novice = false, o
       }
       raidRef.current = null
       sceneRef.current = null
-      setNftOpen(false)
+      setPanel(null)
       try {
         ;(telegramApp() as { enableVerticalSwipes?: () => void }).enableVerticalSwipes?.()
       } catch {
@@ -183,11 +249,11 @@ export function HeistGameV2({ running, mods, levelId = 'bank', novice = false, o
       }
       if (import.meta.env.DEV) delete (window as Window & { __v2?: unknown }).__v2
     }
-  }, [running, mods, levelId, novice, hud, input])
+  }, [running, mods, levelId, novice, hud, input, resume])
 
   const pause = () => {
     const raid = raidRef.current
-    if (!raid || raid.ended || nftOpenRef.current) return
+    if (!raid || raid.ended || panelRef.current) return
     raid.setPaused(!raid.paused)
     input.releaseAll()
     if (raid.paused) heistSfx.pause()
@@ -210,11 +276,66 @@ export function HeistGameV2({ running, mods, levelId = 'bank', novice = false, o
     return () => window.clearTimeout(id)
   }, [trial])
 
-  const closeNft = () => {
-    setNftOpen(false)
+  const closePanel = () => {
+    setPanel(null)
     const raid = raidRef.current
     if (raid && !raid.ended && raid.paused) raid.setPaused(false)
     input.releaseAll()
+  }
+  const closeNft = closePanel
+  /** PAUSE → HUB: park the raid in memory; the HUB offers to continue it. */
+  const toHub = () => {
+    const raid = raidRef.current
+    if (!raid || raid.ended) return
+    raid.setPaused(true)
+    suspended = { raid, levelId }
+    onSuspendRef.current?.()
+  }
+  /** Use an owned ⭐ item, or buy one with Stars and use it. */
+  const spendStarItem = (id: 'elevatorPass' | 'escalatorPass' | 'continueRaid') => {
+    if (consumeStarItem(id)) return true
+    const bought = buyStarItem(id)
+    if (!bought.ok) return false
+    heistSfx.starPurchase()
+    return consumeStarItem(id)
+  }
+  const rideLift = (id: string, premium: boolean) => {
+    const raid = raidRef.current
+    if (!raid) return
+    if (premium && !raid.elevatorPass) {
+      if (!spendStarItem('elevatorPass')) return
+      raid.elevatorPass = true
+    }
+    if (raid.useLift(id, premium)) closePanel()
+  }
+  const useEscalatorPass = () => {
+    const raid = raidRef.current
+    if (!raid) return
+    if (!spendStarItem('escalatorPass')) return
+    raid.escalatorPass = true
+    closePanel()
+  }
+  const continueRaid = () => {
+    const raid = raidRef.current
+    if (!raid || !spendStarItem('continueRaid')) return
+    if (raid.revive()) {
+      pendingEndRef.current = null
+      sceneRef.current?.rearm()
+      setPanel(null)
+      input.releaseAll()
+    }
+  }
+  const endAfterCaught = () => {
+    const end = pendingEndRef.current
+    pendingEndRef.current = null
+    setPanel(null)
+    if (!end || endedRef.current) return
+    endedRef.current = true
+    onDoneRef.current(end)
+  }
+  const ctaOpenDrop = () => {
+    setPanel(null)
+    navigate('/drop')
   }
   /** Try-on keeps the raid: skin on, viewer closed, the same run continues where it paused. */
   const tryNft = (id: RaffleId) => {
@@ -227,7 +348,7 @@ export function HeistGameV2({ running, mods, levelId = 'bank', novice = false, o
   }
   const openDrop = (id: RaffleId) => {
     setRaffleId(id)
-    setNftOpen(false)
+    setPanel(null)
     // Leaving unmounts the raid: the unbanked bag is lost, opened doors stay open.
     navigate('/drop')
   }
@@ -246,8 +367,22 @@ export function HeistGameV2({ running, mods, levelId = 'bank', novice = false, o
         {/* Over the banners, under the bag chip: the coins read as dropping into the bag. */}
         <SafeFlyLayer hud={hud} />
         <TopBar hud={hud} onPause={pause} />
-        {!nftOpen && <PauseMenu hud={hud} onResume={pause} onAbort={abort} />}
+        <ExtrasChip hud={hud} />
+        {!panel && <PauseMenu hud={hud} onResume={pause} onAbort={abort} onToHub={onSuspend ? toHub : undefined} />}
         {nftOpen && <NftVaultPanel ids={vaultIds} trial={trial} onTry={tryNft} onOpenDrop={openDrop} onClose={closeNft} />}
+        {panel === 'lift' && raidRef.current && (
+          <LiftPanel
+            key={liftTick}
+            floor={Math.floor(raidRef.current.zoneNow / 10)}
+            options={raidRef.current.liftOptions()}
+            passActive={raidRef.current.elevatorPass}
+            onRide={rideLift}
+            onClose={closePanel}
+          />
+        )}
+        {panel === 'pass' && <PassPanel onUse={useEscalatorPass} onClose={closePanel} />}
+        {panel === 'continue' && <ContinuePanel keep={Math.floor((raidRef.current?.bag ?? 0) * CONTINUE_KEEP)} onContinue={continueRaid} onEnd={endAfterCaught} />}
+        {panel === 'cta' && <NftCtaPanel onOpen={ctaOpenDrop} onContinue={closePanel} />}
       </div>
     </div>
   )

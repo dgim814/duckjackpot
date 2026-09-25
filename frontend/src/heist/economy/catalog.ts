@@ -2,6 +2,7 @@
  *  Famous-painting lots are in-game collectibles, not real-world sales. */
 
 import { COLLECTION_MARKUP } from './config'
+import { RENOIR, TIER_BANDS, type Tier } from './balance'
 import { ART_LOTS, CAR_LOTS, COLLECTIBLE_LOTS, WATCH_LOTS } from './lots'
 
 export type ItemRarity = 'COMMON' | 'UNCOMMON' | 'LUX' | 'RARE' | 'EPIC' | 'LEGENDARY' | 'ICONIC'
@@ -33,6 +34,8 @@ export type CatalogItem = {
   image?: string
   /** Same as purchasePrice. Kept so older call sites keep compiling. */
   duckCoinValue: number
+  /** Display rarity (COMMON → MASTERPIECE), set by the economy rebalance. */
+  tier?: Tier
 }
 
 export type LotDraft = Omit<CatalogItem, 'collectionValue' | 'tradable' | 'duckCoinValue'> & {
@@ -308,7 +311,7 @@ export const LEGACY_LOTS: CatalogItem[] = [
   lot({
     id: 'car_super',
     name: { ru: 'SUPER CAR', en: 'SUPER CAR' },
-    blurb: { ru: 'Миллион DUCK COIN. Символ, а не покупка на вечер.', en: 'A million DUCK COIN. A symbol, not an evening buy.' },
+    blurb: { ru: 'Символ, а не покупка на вечер.', en: 'A symbol, not an evening buy.' },
     rarity: 'ICONIC',
     category: 'CARS',
     purchasePrice: 1_000_000,
@@ -328,7 +331,7 @@ export const LEGACY_LOTS: CatalogItem[] = [
   lot({
     id: 'car_iconic',
     name: { ru: 'ICONIC COLLECTION', en: 'ICONIC COLLECTION' },
-    blurb: { ru: 'Десять миллионов. Ради этого играют месяцами.', en: 'Ten million. The reason to keep raiding.' },
+    blurb: { ru: 'Ради этого играют месяцами.', en: 'The reason to keep raiding.' },
     rarity: 'ICONIC',
     category: 'CARS',
     purchasePrice: 10_000_000,
@@ -347,10 +350,56 @@ export const LEGACY_LOTS: CatalogItem[] = [
   }),
 ]
 
-export const CATALOG: readonly CatalogItem[] = [
+/** Internal lot rarity → the five display tiers players see. */
+export function tierOf(rarity: ItemRarity): Tier {
+  if (rarity === 'COMMON' || rarity === 'UNCOMMON' || rarity === 'LUX') return 'COMMON'
+  if (rarity === 'ICONIC') return 'MASTERPIECE'
+  return rarity
+}
+
+function roundNice(n: number) {
+  const mag = 10 ** Math.max(0, Math.floor(Math.log10(n)) - 1)
+  return Math.max(1, Math.round(n / mag) * mag)
+}
+
+/**
+ * Economy rebalance (see balance.ts): each lot keeps its place inside its tier,
+ * but prices are mapped log-linearly into the tier's band, so the cheapest lot
+ * of a tier costs the band minimum and the dearest the band maximum.
+ * Collection value keeps each lot's original value/price ratio. Ids never change.
+ */
+function rebalance(items: CatalogItem[]): CatalogItem[] {
+  const byTier = new Map<Tier, CatalogItem[]>()
+  for (const it of items) {
+    if (it.id === RENOIR.id) continue
+    const tier = tierOf(it.rarity)
+    byTier.set(tier, [...(byTier.get(tier) ?? []), it])
+  }
+  const price = new Map<string, number>()
+  for (const [tier, list] of byTier) {
+    const band = TIER_BANDS[tier]
+    const logs = list.map((it) => Math.log(it.purchasePrice))
+    const lo = Math.min(...logs)
+    const hi = Math.max(...logs)
+    for (const it of list) {
+      const t = hi > lo ? (Math.log(it.purchasePrice) - lo) / (hi - lo) : 0.5
+      price.set(it.id, roundNice(Math.exp(Math.log(band.min) + t * (Math.log(band.max) - Math.log(band.min)))))
+    }
+  }
+  return items.map((it) => {
+    if (it.id === RENOIR.id) {
+      return { ...it, purchasePrice: RENOIR.price, duckCoinValue: RENOIR.price, collectionValue: RENOIR.value, tier: RENOIR.tier }
+    }
+    const p = price.get(it.id) ?? it.purchasePrice
+    const ratio = it.collectionValue / Math.max(1, it.purchasePrice)
+    return { ...it, purchasePrice: p, duckCoinValue: p, collectionValue: Math.max(p, Math.round(p * ratio)), tier: tierOf(it.rarity) }
+  })
+}
+
+export const CATALOG: readonly CatalogItem[] = rebalance([
   ...[...ART_LOTS, ...WATCH_LOTS, ...CAR_LOTS, ...COLLECTIBLE_LOTS].map(lot),
   ...LEGACY_LOTS.map((item) => ({ ...item, market: false })),
-]
+])
 
 export function catalogItem(id: string) {
   return CATALOG.find((item) => item.id === id) ?? null

@@ -23,7 +23,7 @@ export type HudSnapshot = {
   load: number
   showWeight: boolean
   canDrop: boolean
-  prompt: 'door' | 'safe' | 'nft' | null
+  prompt: 'door' | 'safe' | 'nft' | 'lift' | 'panel' | 'gate' | 'preview' | null
   cracking: boolean
   crack: { kind: 'door' | 'safe'; marker: number; center: number; width: number; hits: number; need: number; miss: boolean } | null
   dashCd: number
@@ -31,6 +31,9 @@ export type HudSnapshot = {
   sneaking: boolean
   hidden: boolean
   exitHold: number
+  /** Kinds of special loot carried, comma-separated (cheap to compare). */
+  valuables: string
+  preview: boolean
   escapeLeft: number | null
   /** The police countdown was started by a cracked safe. */
   escapeBySafe: boolean
@@ -69,6 +72,8 @@ export const EMPTY_HUD: HudSnapshot = {
   sneaking: false,
   hidden: false,
   exitHold: 0,
+  valuables: '',
+  preview: false,
   escapeLeft: null,
   escapeBySafe: false,
   escapeIntro: false,

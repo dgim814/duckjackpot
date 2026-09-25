@@ -70,6 +70,45 @@ export const GRAND_PALETTE: Palette = {
   accent: 0xffd65a,
 }
 
+/** SKYLINE TOWER: white steel, glass edges, cool light. */
+export const SKYLINE_PALETTE: Palette = {
+  wallTop: 0x3a4652,
+  wallEdge: 0xb8d8f0,
+  wallFront: 0x18202a,
+  wood: 0x3a3430,
+  woodTop: 0x524840,
+  metal: 0x2e3844,
+  metalTop: 0x4c5c6c,
+  fabric: 0x24344a,
+  accent: 0xbfe8ff,
+}
+
+/** UNDERGROUND CITY: black concrete, neon magenta trim. */
+export const NEON_PALETTE: Palette = {
+  wallTop: 0x221e28,
+  wallEdge: 0xff3cb4,
+  wallFront: 0x0c0a10,
+  wood: 0x2a1c20,
+  woodTop: 0x3c2830,
+  metal: 0x1a1a22,
+  metalTop: 0x2c2c38,
+  fabric: 0x3a1438,
+  accent: 0x3cdcff,
+}
+
+/** GRAND COLLECTION: obsidian, gold and security red. */
+export const OBSIDIAN_PALETTE: Palette = {
+  wallTop: 0x16141a,
+  wallEdge: 0xc9a227,
+  wallFront: 0x060508,
+  wood: 0x241a14,
+  woodTop: 0x382818,
+  metal: 0x18161c,
+  metalTop: 0x2e2a34,
+  fabric: 0x40141a,
+  accent: 0xff3a3a,
+}
+
 export const MANSION_PALETTE: Palette = {
   wallTop: 0x3a281c,
   wallEdge: 0x5a3e2a,

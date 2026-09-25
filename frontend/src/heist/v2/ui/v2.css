@@ -925,3 +925,54 @@
   font-size: 11px;
   color: #cbbd9c;
 }
+
+/* ---------- LEVELS 6–8 panels ---------- */
+.v2-btn-star {
+  background: linear-gradient(180deg, #ffe38a, #f2b73a);
+}
+.v2-btn-star small {
+  font-size: 11px;
+  font-weight: 800;
+}
+.v2-pause-resume:disabled,
+.v2-pause-abort:disabled {
+  opacity: 0.45;
+}
+.v2-cta-arrow {
+  font-size: 34px;
+  font-weight: 900;
+  color: var(--gold);
+  animation: v2-cta-nudge 0.9s ease-in-out infinite;
+}
+@keyframes v2-cta-nudge {
+  0%,
+  100% {
+    transform: translateX(-8px);
+    opacity: 0.6;
+  }
+  50% {
+    transform: translateX(8px);
+    opacity: 1;
+  }
+}
+.v2-extras {
+  position: absolute;
+  top: calc(var(--safe-top) + 62px);
+  left: 12px;
+  display: flex;
+  gap: 6px;
+  pointer-events: none !important;
+}
+.v2-extras span {
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--glass);
+  border: 1px solid var(--gold-dim);
+  color: #ffe08a;
+  font-size: 11px;
+  font-weight: 800;
+}
+.v2-extras .is-preview {
+  border-color: #8ec8f0;
+  color: #cfe9ff;
+}

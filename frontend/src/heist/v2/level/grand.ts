@@ -5,15 +5,20 @@ import type {
   CamDef,
   DecorDef,
   DoorDef,
+  EscalatorDef,
   FloorTheme,
   FurnitureKind,
   LampDef,
+  LaserDef,
   LevelDef,
+  LiftDef,
   LightTone,
   LootDef,
+  PanelDef,
   Rect,
   SafeDef,
   SolidDef,
+  ValuableDef,
   Vec,
   ZoneDef,
 } from './LevelDef'
@@ -104,7 +109,20 @@ export type GrandSpec = {
   guardsPerBand: (floor: number, k: number) => number
   background: number
   runner: { base: number; gold: number; edge: number }
+  /** LEVELS 6–8: each level adds its own mechanic set on top of the building grammar. */
+  features?: {
+    /** SKYLINE: a lift cabin in every floor's entrance hall. */
+    lifts?: boolean
+    /** UNDERGROUND CITY: free down-escalators in side arches + ⭐ express escalators between floors. */
+    escalators?: { free: boolean; express: boolean }
+    /** GRAND COLLECTION: timed beams across the column corridor from `fromFloor`, and laser vault rooms. */
+    lasers?: { fromFloor: number; doubleFromFloor: number; vaultZones: number[] }
+    /** Special loot rooms: value rises with depth. */
+    valuables?: { zones: number[]; min: number; max: number }
+  }
 }
+
+const VALUABLE_KINDS: ValuableDef['kind'][] = ['watch', 'jewel', 'art', 'relic', 'crown']
 
 function hash(x: number, y: number, seed: number) {
   let h = (Math.floor(x) * 73856093) ^ (Math.floor(y) * 19349663) ^ (seed * 83492791)
@@ -152,12 +170,26 @@ export function buildGrandLevel(spec: GrandSpec): LevelDef {
   )
   keepClear.push({ x: PATH[0], y: 0, w: PATH[1] - PATH[0], h: H })
 
+  const doorFloor: Record<string, number> = {}
+  const passDoors: Record<string, 'escalator'> = {}
+  const escalators: EscalatorDef[] = []
+  const F = spec.features ?? {}
+
   // ---- horizontal dividers (between band g and g+1) ----
   for (let g = 0; g < BANDS - 1; g += 1) {
     const floor = Math.floor(g / 5)
     const k = g % 5
     const y = bandTop(g)
     const gaps: [number, number][] = [[COL_X0, COL_X1]]
+    // ⭐ Express escalator between floors: an extra east opening, gated by a pass door.
+    if (k === 4 && F.escalators?.express) {
+      gaps.push([SIDE_ARCH_E[0], SIDE_ARCH_E[1]])
+      const id = `${P}Express${g}`
+      doors.push({ id, x: SIDE_ARCH_E[0], y, w: SIDE_ARCH_E[1] - SIDE_ARCH_E[0], h: WH })
+      passDoors[id] = 'escalator'
+      doorFloor[id] = floor + 1
+      escalators.push({ id: `${P}ExpEsc${g}`, x: SIDE_ARCH_E[0] + 10, y: y - 230, w: SIDE_ARCH_E[1] - SIDE_ARCH_E[0] - 20, h: WH + 460, dx: 0, dy: 1, speed: 190, premium: true })
+    }
     // No arches across a floor boundary (k = 4): stairs are the only way up.
     if (k !== 4 && spec.archAt(floor, k)) gaps.push([SIDE_ARCH_W[0], SIDE_ARCH_W[1]], [SIDE_ARCH_E[0], SIDE_ARCH_E[1]])
     gaps.sort((a, b) => a[0] - b[0])
@@ -170,8 +202,17 @@ export function buildGrandLevel(spec: GrandSpec): LevelDef {
     if (x < W - T) solids.push({ x, y, w: W - T - x, h: WH, kind: 'wall' })
     // Floor stairs (k 3 and 4) are always locked; the rest follows the level's depth rule.
     const locked = k === 3 || k === 4 || spec.lockAt(floor, k)
-    if (locked) doors.push({ id: `${P}Door${g}`, x: COL_X0, y, w: COL_X1 - COL_X0, h: WH })
+    if (locked) {
+      doors.push({ id: `${P}Door${g}`, x: COL_X0, y, w: COL_X1 - COL_X0, h: WH })
+      // The stair door at the top of a floor belongs to the next floor.
+      doorFloor[`${P}Door${g}`] = k === 4 ? floor + 1 : floor
+    }
+    // Free down-escalators in the west arches: an optional quicker way back towards EXIT.
+    if (F.escalators?.free && k !== 4 && floor >= 1 && spec.archAt(floor, k) && (k === 1 || k === 2)) {
+      escalators.push({ id: `${P}Esc${g}`, x: SIDE_ARCH_W[0] + 10, y: y - 170, w: SIDE_ARCH_W[1] - SIDE_ARCH_W[0] - 20, h: WH + 340, dx: 0, dy: 1, speed: 170, premium: false })
+    }
   }
+  for (const e of escalators) keepClear.push({ x: e.x - 30, y: e.y, w: e.w + 60, h: e.h })
 
   // ---- bands → rooms ----
   let zi = 0
@@ -234,6 +275,7 @@ export function buildGrandLevel(spec: GrandSpec): LevelDef {
     const k = g % 5
     const splitX = k === 1 ? spec.splitByFloor[floor % spec.splitByFloor.length] : room.slot === 'W' ? 1000 : 2000
     doors.push({ id: `${P}Side${zone}`, x: splitX - WH / 2, y: mid - DOORWAY / 2, w: WH, h: DOORWAY })
+    doorFloor[`${P}Side${zone}`] = floor
     lockedRooms.add(room.i)
   }
 
@@ -241,6 +283,67 @@ export function buildGrandLevel(spec: GrandSpec): LevelDef {
   const spawn: Vec = { x: 1500, y: H - T - 120 }
   const exit: Rect = { x: 150, y: H - T - 150, w: 170, h: 96 }
   keepClear.push({ x: spawn.x - 180, y: spawn.y - 160, w: 360, h: 240 }, { x: exit.x - 60, y: exit.y - 80, w: exit.w + 120, h: exit.h + 120 })
+
+  // ---- SKYLINE lifts: a cabin in the top-right of every floor's entrance hall ----
+  const lifts: LiftDef[] = []
+  if (F.lifts) {
+    for (let f = 0; f < spec.floors; f += 1) {
+      const hall = rooms.find((r) => r.band === f * 5)!
+      const R = hall.inner
+      const lift: LiftDef = { id: `${P}Lift${f}`, x: R.x + R.w - 330, y: R.y + 26, w: 170, h: 120, floor: f, zone: hall.i }
+      lifts.push(lift)
+      keepClear.push({ x: lift.x - 60, y: lift.y - 10, w: lift.w + 120, h: lift.h + 150 })
+    }
+  }
+
+  // ---- GRAND COLLECTION lasers: corridor beams + laser vault rooms, each floor with a panel ----
+  const lasers: LaserDef[] = []
+  const panels: PanelDef[] = []
+  if (F.lasers) {
+    for (let f = F.lasers.fromFloor; f < spec.floors; f += 1) {
+      const band = f * 5 + 2
+      const c = rooms.find((r) => r.band === band && r.slot === 'C')
+      if (!c) continue
+      const R = c.inner
+      const group = `${P}Grid${f}`
+      const mid = Math.round(R.y + R.h / 2)
+      // Readable rhythm: 1.5 s on, 1.5 s off; deeper floors add a second beam half a cycle apart.
+      lasers.push({ id: `${P}Beam${f}a`, x: R.x, y: mid - 40, w: R.w, h: 6, period: 3, on: 1.5, phase: (f * 0.37) % 3, group })
+      if (f >= F.lasers.doubleFromFloor) lasers.push({ id: `${P}Beam${f}b`, x: R.x, y: mid + 60, w: R.w, h: 6, period: 3, on: 1.5, phase: (f * 0.37 + 1.5) % 3, group })
+      const panel: PanelDef = { id: `${P}Panel${f}`, x: R.x + 70, y: R.y + R.h - 70, group }
+      panels.push(panel)
+      keepClear.push({ x: panel.x - 50, y: panel.y - 60, w: 100, h: 110 }, { x: R.x, y: mid - 70, w: R.w, h: 170 })
+    }
+    for (const zone of F.lasers.vaultZones) {
+      const room = rooms[zone - 1]
+      if (!room) continue
+      const R = room.inner
+      const group = `${P}Vault${zone}`
+      for (const [i, fx] of [0.34, 0.62].entries()) {
+        lasers.push({ id: `${P}VBeam${zone}${i}`, x: Math.round(R.x + R.w * fx), y: R.y + 12, w: 6, h: R.h - 24, period: 2.6, on: 1.4, phase: i * 1.3, group })
+      }
+      keepClear.push({ x: R.x + R.w * 0.3, y: R.y, w: R.w * 0.4, h: R.h })
+    }
+  }
+
+  // ---- special loot (placed before furniture; laser vaults keep it at the far wall) ----
+  const valuables: ValuableDef[] = []
+  if (F.valuables) {
+    const zs = F.valuables.zones
+    zs.forEach((zone, n) => {
+      const room = rooms[zone - 1]
+      if (!room) return
+      const R = room.inner
+      const t = zs.length > 1 ? n / (zs.length - 1) : 1
+      const value = Math.round((F.valuables!.min + t * (F.valuables!.max - F.valuables!.min)) / 10) * 10
+      const inVault = F.lasers?.vaultZones.includes(zone)
+      const farLeft = room.slot === 'W' || (room.slot !== 'E' && hash(zone, 5, 9) < 0.5)
+      const x = inVault ? (farLeft ? R.x + 110 : R.x + R.w - 110) : Math.round(R.x + R.w * (0.25 + 0.5 * hash(zone, 2, 7)))
+      const y = Math.round(R.y + R.h * 0.5)
+      valuables.push({ id: `${P}V${zone}`, x, y, kind: VALUABLE_KINDS[n % VALUABLE_KINDS.length], value })
+      keepClear.push({ x: x - 70, y: y - 70, w: 140, h: 140 })
+    })
+  }
 
   // ---- safes (placed before furniture so furniture keeps clear of them) ----
   for (const s of spec.safes) {
@@ -533,7 +636,7 @@ export function buildGrandLevel(spec: GrandSpec): LevelDef {
   }
 
   // ---- loot: MANSION's column spread, value rising with depth ----
-  const blocked: Rect[] = [...solids, ...doors]
+  const blocked: Rect[] = [...solids, ...doors, ...valuables.map((v) => ({ x: v.x - 40, y: v.y - 40, w: 80, h: 80 })), ...lifts, ...panels.map((p) => ({ x: p.x - 30, y: p.y - 30, w: 60, h: 60 }))]
   const free = (x: number, y: number, pad: number) => !blocked.some((r) => x > r.x - pad && x < r.x + r.w + pad && y > r.y - pad && y < r.y + r.h + pad)
   const zoneOf = (x: number, y: number) => {
     for (let i = zones.length - 1; i >= 0; i -= 1) {
@@ -608,6 +711,12 @@ export function buildGrandLevel(spec: GrandSpec): LevelDef {
     finalZone: zonesTotal - 1,
     background: spec.background,
     runner: spec.runner,
+    doorFloor,
+    ...(F.lifts ? { lifts } : {}),
+    ...(escalators.length ? { escalators } : {}),
+    ...(lasers.length ? { lasers, panels } : {}),
+    ...(valuables.length ? { valuables } : {}),
+    ...(Object.keys(passDoors).length ? { passDoors } : {}),
   }
   cache.set(spec.id, level)
   return level

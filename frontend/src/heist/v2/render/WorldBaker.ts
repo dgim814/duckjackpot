@@ -1,7 +1,7 @@
 import type Phaser from 'phaser'
 import type { LevelDef, Rect } from '../level/LevelDef'
 import { buildDressing } from './Dressing'
-import { BANK_PALETTE, CORPORATE_PALETTE, GRAND_PALETTE, MANSION_PALETTE, UNDERGROUND_PALETTE, paintDecor, paintDoorFrame, paintExit, paintHide, paintSolid } from './Painter'
+import { BANK_PALETTE, CORPORATE_PALETTE, GRAND_PALETTE, MANSION_PALETTE, NEON_PALETTE, OBSIDIAN_PALETTE, SKYLINE_PALETTE, UNDERGROUND_PALETTE, paintDecor, paintDoorFrame, paintExit, paintHide, paintSolid } from './Painter'
 
 const CHUNK = 512
 const MARGIN = 32
@@ -48,7 +48,13 @@ export class WorldBaker {
             ? UNDERGROUND_PALETTE
             : level.id === 'level5'
               ? GRAND_PALETTE
-              : BANK_PALETTE
+              : level.id === 'level6'
+                ? SKYLINE_PALETTE
+                : level.id === 'level7'
+                  ? NEON_PALETTE
+                  : level.id === 'level8'
+                    ? OBSIDIAN_PALETTE
+                    : BANK_PALETTE
 
     let order = 0
     const dressing = buildDressing(level)
