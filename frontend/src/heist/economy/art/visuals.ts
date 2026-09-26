@@ -1,4 +1,3 @@
-import type { CarV } from './car'
 import type { JewelV } from './jewel'
 import type { ObjV } from './objects'
 import type { PaintV } from './painting'
@@ -6,16 +5,15 @@ import type { WatchV } from './watch'
 
 /**
  * One illustration recipe per Black Market lot. Each lot is drawn from its own
- * parameters (case shape, bezel, dial, strap; stone, cut, setting; body,
- * livery; composition; object form) so no two lots share a picture.
+ * parameters (case shape, bezel, dial, strap; stone, cut, setting;
+ * composition; object form) so no two lots share a picture.
  * qa: `visualSignature` must be unique across the market.
  */
-export type Visual = WatchV | JewelV | PaintV | CarV | ObjV
+export type Visual = WatchV | JewelV | PaintV | ObjV
 
 const w = (v: Omit<WatchV, 'k'>): WatchV => ({ k: 'watch', ...v })
 const j = (v: Omit<JewelV, 'k'>): JewelV => ({ k: 'jewel', ...v })
 const p = (scene: PaintV['scene'], frame: PaintV['frame'], portrait = false): PaintV => ({ k: 'paint', scene, frame, portrait })
-const c = (v: Omit<CarV, 'k'>): CarV => ({ k: 'car', ...v })
 const o = (form: ObjV['form'], c1: string, extra: Omit<ObjV, 'k' | 'form' | 'c1'> = {}): ObjV => ({ k: 'obj', form, c1, ...extra })
 
 export const VISUALS: Record<string, Visual> = {
@@ -120,53 +118,6 @@ export const VISUALS: Record<string, Visual> = {
   art_vangogh_sunflowers: p('sunflowers', 'gold', true),
   art_turner_temeraire: p('temeraire', 'gold'),
   art_bruegel_hunters: p('hunters', 'wood'),
-
-  // 🚗 CARS
-  car_ferrari_250_gto: c({ body: 'gt60', color: '#c8161d', stripe: '#f4f1ea', number: '3', wheels: 'wire' }),
-  car_ferrari_f40: c({ body: 'f40', color: '#d0141c', wing: true }),
-  car_ferrari_enzo: c({ body: 'hyper', color: '#b8121a', accent: '#111' }),
-  car_ferrari_laferrari: c({ body: 'hyper', color: '#e21d24' }),
-  car_lambo_miura: c({ body: 'miura', color: '#f28a1a' }),
-  car_lambo_countach: c({ body: 'wedge', color: '#f4f1ea', wing: true }),
-  car_lambo_diablo: c({ body: 'wedge', color: '#6a2aa8' }),
-  car_lambo_aventador: c({ body: 'hyper', color: '#8ac62a', accent: '#111' }),
-  car_porsche_911: c({ body: 'p911', color: '#c9ccd2' }),
-  car_porsche_959: c({ body: 'p911', color: '#f4f1ea', accent: '#b9bdc4' }),
-  car_porsche_carrera_gt: c({ body: 'hyper', color: '#9aa3ad' }),
-  car_porsche_918: c({ body: 'hyper', color: '#e9eef2', stripe: '#1f5fb0' }),
-  car_mb_300sl: c({ body: 'gull', color: '#c9ccd4' }),
-  car_mb_300slr: c({ body: 'racer', color: '#d9dde3', number: '722' }),
-  car_mb_540k: c({ body: 'prewar', color: '#1a1a1a', accent: '#8a1a1a' }),
-  car_mb_slr: c({ body: 'etype', color: '#6f7780' }),
-  car_am_db5: c({ body: 'gt60', color: '#b8b8b0', wheels: 'wire' }),
-  car_am_db9: c({ body: 'gtcoupe', color: '#1f3a2a' }),
-  car_am_valkyrie: c({ body: 'hyper', color: '#1e6a4a', stripe: '#c8e02a' }),
-  car_jaguar_etype: c({ body: 'etype', color: '#1f4a32', wheels: 'wire' }),
-  car_jaguar_xj220: c({ body: 'hyper', color: '#3a5a8a' }),
-  car_mclaren_f1: c({ body: 'hyper', color: '#e87a1a', accent: '#2a2a2a' }),
-  car_mclaren_p1: c({ body: 'hyper', color: '#f2e22a', wing: true }),
-  car_bugatti_veyron: c({ body: 'atlantic', color: '#1f2f5a', accent: '#9aa3ad', wheels: 'alloy' }),
-  car_bugatti_chiron: c({ body: 'hyper', color: '#16306a', accent: '#0c0c10', stripe: '#9aa3ad' }),
-  car_bugatti_atlantic: c({ body: 'atlantic', color: '#1b2430' }),
-  car_rr_phantom: c({ body: 'sedan', color: '#141418', accent: '#6a1a2a' }),
-  car_rr_silver_ghost: c({ body: 'veteran', color: '#d0d2d4', accent: '#6a6a6a' }),
-  car_bentley_continental: c({ body: 'gtcoupe', color: '#2a3a2e', accent: '#1a1a1a' }),
-  car_ford_gt40: c({ body: 'racer', color: '#8ec8e8', stripe: '#f28a1a', number: '6' }),
-  car_shelby_cobra: c({ body: 'roadster', color: '#1f4fb0', stripe: '#f4f1ea', wheels: 'wire' }),
-  car_toyota_2000gt: c({ body: 'etype', color: '#f4f1ea' }),
-  car_nissan_r34: c({ body: 'boxy', color: '#1f5fc0', wing: true }),
-  car_bmw_507: c({ body: 'roadster', color: '#f4f1ea', accent: '#b3202a' }),
-  car_bmw_m1: c({ body: 'wedge', color: '#f4f1ea', stripe: '#1f5fb0', number: '1' }),
-  car_audi_quattro: c({ body: 'boxy', color: '#f4f1ea', stripe: '#b3202a', number: '1' }),
-  car_delorean: c({ body: 'wedge', color: '#b9bec4', accent: '#2a2a2a' }),
-  car_citroen_ds: c({ body: 'ds', color: '#141414', accent: '#c9ccd2' }),
-  car_lancia_stratos: c({ body: 'wedge', color: '#1f6fb0', stripe: '#2e9a4a', number: '4', wing: true }),
-  car_alfa_33_stradale: c({ body: 'racer', color: '#b3121a' }),
-  car_vw_beetle: c({ body: 'beetle', color: '#6fa8d8', wheels: 'steel' }),
-  car_fiat_500: c({ body: 'fiat500', color: '#f2e2b8', wheels: 'steel' }),
-  car_mini: c({ body: 'mini', color: '#b3202a', accent: '#f4f1ea', wheels: 'steel' }),
-  car_citroen_2cv: c({ body: 'cv2', color: '#b8c9b0', wheels: 'steel' }),
-  car_ford_t: c({ body: 'veteran', color: '#141414', accent: '#141414' }),
 
   // 🏺 ANTIQUES
   antique_bronze_candlestick: o('candlestick', '#8f6532', { metal: 'bronze' }),

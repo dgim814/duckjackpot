@@ -28,7 +28,7 @@ createRoot(document.getElementById('qa')!).render(
   </AdminProvider>,
 )
 const section = q.get('section')
-const names: Record<string, string> = { WATCHES: 'WATCHES', JEWELRY: 'JEWELRY', ART: 'ART', ANTIQUES: 'ANTIQUES', COLLECTIBLES: 'COLLECTIBLES', CARS: 'CARS', RARE: 'RARE', MASTERPIECES: 'ЗАЛ ШЕДЕВРОВ' }
+const names: Record<string, string> = { WATCHES: 'WATCHES', JEWELRY: 'JEWELRY', ART: 'ART', ANTIQUES: 'ANTIQUES', COLLECTIBLES: 'COLLECTIBLES', RARE: 'RARE', MASTERPIECES: 'ЗАЛ ШЕДЕВРОВ' }
 let stable = 0
 const tick = setInterval(() => {
   const head = document.querySelector('.bm-sec-head') as HTMLElement | null

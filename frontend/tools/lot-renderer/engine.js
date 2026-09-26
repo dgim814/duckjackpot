@@ -234,7 +234,7 @@ vec3 shadeFloor(vec3 p, vec3 rd) {
   float sh = softShadow(p + n * 0.002, L, 10.0);
   float occ = 1.0;
   for (int i = 1; i <= 4; i++) { float h = 0.03 * float(i); occ -= (h - map(p + n * h, false).x) * 1.4 / float(i); }
-  // wide contact shadow for objects standing clear of the floor (a car on its tyres)
+  // wide contact shadow for objects standing clear of the floor
   float dUp = map(p + n * 0.35, false).x;
   occ *= mix(0.45, 1.0, smoothstep(0.05, 0.6, dUp));
   occ = clamp(occ, 0.0, 1.0);

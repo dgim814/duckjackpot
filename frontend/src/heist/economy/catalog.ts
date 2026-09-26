@@ -3,12 +3,12 @@
 
 import { COLLECTION_MARKUP } from './config'
 import { RENOIR, TIER_BANDS, type Tier } from './balance'
-import { ACCESSIBLE_LOTS, ART_LOTS, CAR_LOTS, COLLECTIBLE_LOTS, EXPANSION_LOTS, LOT_HISTORY, LOT_HISTORY_MORE, LOT_HISTORY_MORE2, RARE_OBJECT_LOTS, WATCH_LOTS } from './lots'
+import { ACCESSIBLE_LOTS, ART_LOTS, COLLECTIBLE_LOTS, EXPANSION_LOTS, LOT_HISTORY, LOT_HISTORY_MORE, LOT_HISTORY_MORE2, RARE_OBJECT_LOTS, WATCH_LOTS } from './lots'
 
 export type ItemRarity = 'COMMON' | 'UNCOMMON' | 'LUX' | 'RARE' | 'EPIC' | 'LEGENDARY' | 'ICONIC'
 export type ItemCategory = 'ART' | 'LUXURY' | 'INTERIOR' | 'CARS' | 'SPECIAL'
 
-export const MARKET_CATEGORIES: ItemCategory[] = ['ART', 'LUXURY', 'INTERIOR', 'CARS', 'SPECIAL']
+export const MARKET_CATEGORIES: ItemCategory[] = ['ART', 'LUXURY', 'INTERIOR', 'SPECIAL']
 
 export type LocaleText = { ru: string; en: string }
 
@@ -377,6 +377,18 @@ function roundNice(n: number) {
 /** DuckJackpot's own lore objects that predate the `fictional` flag. */
 const FICTIONAL_IDS = new Set(['special_mystery'])
 
+/**
+ * Source price range each tier band is mapped from. Frozen at the values of the full
+ * 236-lot catalogue so that removing lots (the CARS section) never re-prices the others.
+ */
+const TIER_SOURCE_RANGE: Record<Tier, [number, number]> = {
+  COMMON: [28, 340],
+  RARE: [540, 2100],
+  EPIC: [1800, 10000],
+  LEGENDARY: [12000, 95000],
+  MASTERPIECE: [210000, 12000000],
+}
+
 function rebalance(items: CatalogItem[]): CatalogItem[] {
   const byTier = new Map<Tier, CatalogItem[]>()
   for (const it of items) {
@@ -387,9 +399,8 @@ function rebalance(items: CatalogItem[]): CatalogItem[] {
   const price = new Map<string, number>()
   for (const [tier, list] of byTier) {
     const band = TIER_BANDS[tier]
-    const logs = list.map((it) => Math.log(it.purchasePrice))
-    const lo = Math.min(...logs)
-    const hi = Math.max(...logs)
+    const lo = Math.log(TIER_SOURCE_RANGE[tier][0])
+    const hi = Math.log(TIER_SOURCE_RANGE[tier][1])
     for (const it of list) {
       const t = hi > lo ? (Math.log(it.purchasePrice) - lo) / (hi - lo) : 0.5
       price.set(it.id, roundNice(Math.exp(Math.log(band.min) + t * (Math.log(band.max) - Math.log(band.min)))))
@@ -409,7 +420,7 @@ function rebalance(items: CatalogItem[]): CatalogItem[] {
 }
 
 export const CATALOG: readonly CatalogItem[] = rebalance([
-  ...[...ART_LOTS, ...WATCH_LOTS, ...CAR_LOTS, ...COLLECTIBLE_LOTS, ...RARE_OBJECT_LOTS, ...ACCESSIBLE_LOTS, ...EXPANSION_LOTS].map(lot),
+  ...[...ART_LOTS, ...WATCH_LOTS, ...COLLECTIBLE_LOTS, ...RARE_OBJECT_LOTS, ...ACCESSIBLE_LOTS, ...EXPANSION_LOTS].map(lot),
   ...LEGACY_LOTS.map((item) => ({ ...item, market: false })),
 ])
 

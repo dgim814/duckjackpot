@@ -72,7 +72,6 @@ const SECTION_DESC: Record<SectionId, MessageKey> = {
   ART: 'bmSecDescArt',
   ANTIQUES: 'bmSecDescAntiques',
   COLLECTIBLES: 'bmSecDescCollectibles',
-  CARS: 'bmSecDescCars',
   RARE: 'bmSecDescRare',
   MASTERPIECES: 'bmSecDescMasterpieces',
 }

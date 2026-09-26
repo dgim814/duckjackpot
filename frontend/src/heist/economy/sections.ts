@@ -7,7 +7,7 @@ import type { Tier } from './balance'
  * its id prefix / tier, no UI change needed. A MASTERPIECE also shows in its
  * own shelf (MASTERPIECES) as well as in its category.
  */
-export type SectionId = 'WATCHES' | 'JEWELRY' | 'ART' | 'ANTIQUES' | 'COLLECTIBLES' | 'CARS' | 'RARE' | 'MASTERPIECES'
+export type SectionId = 'WATCHES' | 'JEWELRY' | 'ART' | 'ANTIQUES' | 'COLLECTIBLES' | 'RARE' | 'MASTERPIECES'
 
 export type Section = { id: SectionId; icon: string; name: MessageKey; match: (i: CatalogItem) => boolean }
 
@@ -19,7 +19,6 @@ export const SECTIONS: Section[] = [
   { id: 'ART', icon: '🖼️', name: 'bmSecArt', match: (i) => starts(i, 'art_') },
   { id: 'ANTIQUES', icon: '🏺', name: 'bmSecAntiques', match: (i) => (starts(i, 'antique_', 'sci_', 'book_') && i.id !== 'antique_breguet_pocket') },
   { id: 'COLLECTIBLES', icon: '👑', name: 'bmSecCollectibles', match: (i) => starts(i, 'tech_', 'music_', 'fashion_', 'coin_', 'toy_', 'sport_') },
-  { id: 'CARS', icon: '🚗', name: 'bmSecCars', match: (i) => starts(i, 'car_') },
   { id: 'RARE', icon: '💰', name: 'bmSecRare', match: (i) => starts(i, 'rare_', 'special_') },
   { id: 'MASTERPIECES', icon: '🎨', name: 'bmSecMasterpieces', match: (i) => i.tier === 'MASTERPIECE' },
 ]

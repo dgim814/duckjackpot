@@ -29,7 +29,8 @@ export function removeFromCollection(owned: OwnedCollection, itemId: string, cou
 
 export function countOwned(owned: OwnedCollection) {
   let n = 0
-  for (const count of Object.values(owned ?? {})) n += Math.max(0, Math.floor(count))
+  // ids that left the catalogue (e.g. removed lots in an old save) are not counted
+  for (const [id, count] of Object.entries(owned ?? {})) if (catalogItem(id)) n += Math.max(0, Math.floor(count))
   return n
 }
 

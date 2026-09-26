@@ -4,7 +4,7 @@ Offline studio renders for every Black Market lot (dev-only, not part of the app
 
 - `engine.js` — WebGL2 raymarcher: SDF scene → GLSL, PBR-ish metals / gems / glass / clear-coat paint /
   leather / wood, studio softboxes, soft shadows, AO, glossy floor, canvas decals (dials, labels, reliefs).
-- `builders/` — one builder per family (watch, jewel, painting, car, objects); recipes come from
+- `builders/` — one builder per family (watch, jewel, painting, objects); recipes come from
   `src/heist/economy/art/visuals.ts`. Paintings use real public-domain images from `sources/`
   (Wikimedia Commons, all marked Public domain); copyrighted works are the lot's own composition, re-painted.
 - Bake: run the dev server, `node tools/lot-renderer/save-server.mjs <dir>`, open

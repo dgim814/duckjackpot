@@ -1,5 +1,4 @@
 import { useId } from 'react'
-import { CarArt } from './car'
 import { JewelArt } from './jewel'
 import { ObjectArt } from './objects'
 import { PaintingArt } from './painting'
@@ -18,8 +17,6 @@ export function LotVisual({ v }: { v: Visual }) {
       return <JewelArt v={v} g={g} />
     case 'paint':
       return <PaintingArt v={v} g={g} />
-    case 'car':
-      return <CarArt v={v} g={g} />
     case 'obj':
       return <ObjectArt v={v} g={g} />
   }

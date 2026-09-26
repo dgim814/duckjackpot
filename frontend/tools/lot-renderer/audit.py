@@ -4,7 +4,7 @@ import hashlib, json, os, sys
 from PIL import Image, ImageFilter, ImageStat
 
 lots = json.load(open(sys.argv[1]))
-EXPECT = {'WATCHES': 'watch', 'JEWELRY': 'jewel', 'ART': 'paint', 'CARS': 'car', 'ANTIQUES': 'obj', 'COLLECTIBLES': 'obj', 'RARE': 'obj'}
+EXPECT = {'WATCHES': 'watch', 'JEWELRY': 'jewel', 'ART': 'paint', 'ANTIQUES': 'obj', 'COLLECTIBLES': 'obj', 'RARE': 'obj'}
 
 
 def dhash(im):

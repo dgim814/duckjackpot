@@ -2,7 +2,6 @@ import { VISUALS } from '/src/heist/economy/art/visuals.ts'
 import { buildWatch } from './builders/watch.js'
 import { buildJewel } from './builders/jewel.js'
 import { buildPainting } from './builders/painting.js'
-import { buildCar } from './builders/car.js'
 import { buildObject } from './builders/objects.js'
 import { CATALOG } from '/src/heist/economy/catalog.ts'
 import { U, rng } from './dsl.js'
@@ -15,7 +14,7 @@ export async function buildScene(id) {
   const v = VISUALS[id]
   if (v && v.k !== 'paint') {
     const r = rng(id)
-    const span = v.k === 'car' ? 34 : v.k === 'watch' ? 30 : 22
+    const span = v.k === 'watch' ? 30 : 22
     const a = (r() * 2 - 1) * span
     scene.root = U([scene.root], { rot: [0, a, 0] })
   }
@@ -35,7 +34,6 @@ async function buildBase(id) {
   if (v.k === 'watch') return buildWatch(v, id)
   if (v.k === 'jewel') return buildJewel(v, id)
   if (v.k === 'paint') return buildPainting(v, id, item?.tier)
-  if (v.k === 'car') return buildCar(v, id)
   if (v.k === 'obj') return buildObject(v, id)
   throw new Error('no builder for ' + v.k)
 }
