@@ -1,5 +1,8 @@
 # Mount a persistent volume at /data (payments, cards, wallets, NFT).
 [deploy]
+# Railway Free plan only runs serverless services. Config-as-code overrides the
+# dashboard, so the Serverless flag must be set here, not only in Settings.
+sleepApplication = true
 startCommand = "npm start --prefix backend"
 healthcheckPath = "/api/health"
 healthcheckTimeout = 30
