@@ -128,6 +128,11 @@ export class InputController {
     this.actionTouch = on
   }
 
+  /** Forget button taps made while the raid was frozen (the stick and held buttons stay as they are). */
+  clearEdges() {
+    this.edges.clear()
+  }
+
   releaseAll() {
     this.stickX = 0
     this.stickY = 0

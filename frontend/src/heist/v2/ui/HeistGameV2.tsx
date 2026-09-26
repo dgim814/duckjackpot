@@ -22,6 +22,8 @@ import { ContinuePanel, LiftPanel, NftCtaPanel, PassPanel } from './RaidPanels'
 import { CONTINUE_KEEP, NFT_CTA, STAR_ITEMS } from '../../economy/balance'
 import { buyStarItem, consumeStarItem, loadProgress, markNftCta } from '../../progress'
 import { HudStore } from './store'
+import { TutorialOverlay } from './Tutorial'
+import { markTutorialSeen, pendingTutorialSteps, resetHeistTutorial } from '../../tutorial'
 import './v2.css'
 
 type Props = {
@@ -146,6 +148,9 @@ export function HeistGameV2({ running, mods, levelId = 'bank', novice = false, o
         openPanel('lift')
       },
       onNeedPass: () => openPanel('pass'),
+      // New players: one hint per mechanic, on its first real encounter (see tutorial.ts).
+      tutorial: raid.mods.preview ? null : pendingTutorialSteps(loadProgress()),
+      onTutorialSeen: markTutorialSeen,
       onEnd: (end) => {
         if (endedRef.current) return
         // CAUGHT: offer the ⭐ continue once per raid, if the player can afford it.
@@ -180,7 +185,7 @@ export function HeistGameV2({ running, mods, levelId = 'bank', novice = false, o
 
     // NFT Drop offer: after a good stretch of active play, at most once per 24 h, never mid-panel.
     const cta = window.setInterval(() => {
-      if (ctaShown || raid.ended || raid.paused || panelRef.current || raid.time < NFT_CTA.afterActiveS) return
+      if (ctaShown || raid.ended || raid.paused || raid.hold || panelRef.current || raid.time < NFT_CTA.afterActiveS) return
       const now = Date.now()
       if (now - (loadProgress().nftCtaAt || 0) < NFT_CTA.everyMs) {
         ctaShown = true
@@ -222,6 +227,8 @@ export function HeistGameV2({ running, mods, levelId = 'bank', novice = false, o
       /* not in Telegram */
     }
     if (import.meta.env.DEV) (window as Window & { __v2?: unknown }).__v2 = { raid, scene, game, input, hud }
+    // QA / dev: `__heistTutorial.reset()` makes the next raid run the tutorial again.
+    ;(window as Window & { __heistTutorial?: unknown }).__heistTutorial = { reset: () => resetHeistTutorial(true), off: () => resetHeistTutorial(false) }
 
     return () => {
       window.clearInterval(cta)
@@ -348,6 +355,7 @@ export function HeistGameV2({ running, mods, levelId = 'bank', novice = false, o
         <SafeFlyLayer hud={hud} />
         <TopBar hud={hud} onPause={pause} />
         <ExtrasChip hud={hud} />
+        <TutorialOverlay hud={hud} onDismiss={() => sceneRef.current?.dismissTutorial() ?? false} />
         {!panel && <PauseMenu hud={hud} onResume={pause} onAbort={abort} onToHub={onSuspend ? toHub : undefined} />}
         {nftOpen && <NftVaultPanel ids={vaultIds} onOpenDrop={openDrop} onClose={closeNft} />}
         {panel === 'lift' && raidRef.current && (

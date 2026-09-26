@@ -1,8 +1,25 @@
 import { useRef, useSyncExternalStore } from 'react'
 import type { RaidPhase } from '../sim/events'
 import type { HeistLevelId } from '../../heistLevel'
+import type { TutorialStep } from '../../tutorial'
 
 export type Toast = { id: number; kind: 'intro' | 'info' | 'good' | 'warn' | 'danger' | 'safe'; title: string; sub?: string; note?: string; until: number }
+
+/**
+ * Tutorial hint on screen. x/y: the object it points at, as 0..1 of the view
+ * (clamped to the edge when the object is off-screen); x2/y2: a second spot (the
+ * nearest cover for the guard hint); dom: a HUD button to point at instead.
+ */
+export type TutorialHint = {
+  step: TutorialStep
+  variant: 'lock' | 'stars' | null
+  x: number
+  y: number
+  edge: boolean
+  x2: number | null
+  y2: number | null
+  dom: 'dash' | null
+}
 
 /** Coins flying from a cracked safe to the bag chip; x/y are the safe on screen, 0..1. */
 export type SafeFly = { id: number; x: number; y: number; amount: number }
@@ -43,6 +60,7 @@ export type HudSnapshot = {
   /** Direction from the duck to the EXIT on screen, when the exit is off-screen. */
   exitArrow: { angle: number; dist: number } | null
   paused: boolean
+  tutorial: TutorialHint | null
   ended: boolean
   toasts: Toast[]
   timeS: number
@@ -80,6 +98,7 @@ export const EMPTY_HUD: HudSnapshot = {
   safeFly: null,
   exitArrow: null,
   paused: false,
+  tutorial: null,
   ended: false,
   toasts: [],
   timeS: 0,

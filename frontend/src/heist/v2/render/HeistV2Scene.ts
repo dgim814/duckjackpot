@@ -8,8 +8,10 @@ import type { MessageKey } from '../../../i18n/messages'
 import type { RaidEvent } from '../sim/events'
 import type { InputController } from '../sim/Input'
 import { Raid, SIM_DT } from '../sim/Raid'
-import type { HudSnapshot, HudStore, SafeFly, Toast } from '../ui/store'
+import type { HudSnapshot, HudStore, SafeFly, Toast, TutorialHint } from '../ui/store'
 import type { NftSkinDef } from '../../nftTrial'
+import { TUTORIAL_ORDER, type TutorialStep } from '../../tutorial'
+import { distToRect } from '../sim/Collision'
 import { DuckView, GuardView, createActorAnims, nftSkinTextureKey } from './Actors'
 import { AudioBridge } from './AudioBridge'
 import { CameraRig } from './CameraRig'
@@ -38,7 +40,18 @@ export type SceneDeps = {
   /** LEVELS 6–8: the lift panel and the ⭐ pass offer are React panels. */
   onLiftOpen?: () => void
   onNeedPass?: () => void
+  /** New player: tutorial steps still to show (null = no tutorial). */
+  tutorial?: Set<TutorialStep> | null
+  onTutorialSeen?: (step: TutorialStep) => void
 }
+
+/** A hint on screen: what it points at, in world coordinates (or a HUD button). */
+type ActiveHint = { step: TutorialStep; variant: TutorialHint['variant']; x: number; y: number; x2?: number; y2?: number; dom?: 'dash'; shownAt: number }
+
+/** Tutorial pacing: never two hints back to back, never in the first moment of a raid. */
+const TUT_FIRST_S = 1.0
+const TUT_GAP_S = 2.2
+const TUT_MIN_SHOW_S = 0.45
 
 /** Zones (1-based) where deep levels suggest heading back, once per raid each: 15, 25, 35… */
 function farHints(zones: number) {
@@ -89,6 +102,13 @@ export class HeistV2Scene extends Phaser.Scene {
   private safeFlyId = 0
   private sirenBySafe = false
   private sirenAt = -1
+  private tut: Set<TutorialStep> | null = null
+  private hint: ActiveHint | null = null
+  private tutReadyAt = TUT_FIRST_S
+  private firstLootClock = -1
+  private dashWanted = false
+  /** The duck has gone deep into the building since the raid started (EXIT is often next to the spawn). */
+  private leftExit = false
   stepsLastFrame = 0
 
   constructor(deps: SceneDeps) {
@@ -150,7 +170,11 @@ export class HeistV2Scene extends Phaser.Scene {
     this.rig = new CameraRig(this.cameras.main, { x: -CAM_MARGIN, y: -CAM_MARGIN, w: L.w + CAM_MARGIN * 2, h: L.h + CAM_MARGIN * 2 }, this.deps.resolution)
     this.rig.update(0, raid.player.x, raid.player.y, 0, 0)
     this.depthAtStart = raid.depthBest
-    if (raid.novice && raid.levelId === 'bank') this.toast('intro', heistT('heistV2Intro'), heistT('heistV2IntroSub'), 4.2)
+    this.tut = this.deps.tutorial && this.deps.tutorial.size > 0 ? new Set(this.deps.tutorial) : null
+    // The tutorial explains the raid step by step: no intro banner on top of it.
+    if (this.tut) {
+      /* hints follow the first encounters */
+    } else if (raid.novice && raid.levelId === 'bank') this.toast('intro', heistT('heistV2Intro'), heistT('heistV2IntroSub'), 4.2)
     else this.toast('info', zoneTitle(raid), heistT('heistV2Record', { n: raid.depthBest + 1 }), 2.2)
 
     this.scale.on(Phaser.Scale.Events.RESIZE, this.onResize, this)
@@ -201,14 +225,15 @@ export class HeistV2Scene extends Phaser.Scene {
     const dt = Math.min(0.25, Math.max(0, deltaMs / 1000))
     this.clock += dt
 
-    if (raid.paused !== this.animsPaused) {
-      this.animsPaused = raid.paused
-      if (raid.paused) this.anims.pauseAll()
+    const frozen = raid.paused || raid.hold
+    if (frozen !== this.animsPaused) {
+      this.animsPaused = frozen
+      if (frozen) this.anims.pauseAll()
       else this.anims.resumeAll()
     }
 
     let steps = 0
-    if (!raid.paused && !raid.ended) {
+    if (!frozen && !raid.ended) {
       this.acc += dt
       while (this.acc >= SIM_DT && steps < MAX_STEPS) {
         raid.step(this.deps.input.sample())
@@ -223,6 +248,7 @@ export class HeistV2Scene extends Phaser.Scene {
     this.stepsLastFrame = steps
 
     for (const e of raid.events.splice(0)) this.onEvent(e)
+    if (this.tut && !this.hint && !frozen && !raid.ended && !raid.crack && this.clock >= this.tutReadyAt) this.checkTutorial()
     this.audio.sync(raid)
 
     if (raid.ended && this.endAt < 0) this.endAt = this.clock + END_DELAY
@@ -231,7 +257,7 @@ export class HeistV2Scene extends Phaser.Scene {
       this.deps.onEnd(raid.result)
     }
 
-    const alpha = raid.paused || raid.ended ? 1 : Math.min(1, this.acc / SIM_DT)
+    const alpha = raid.paused || raid.hold || raid.ended ? 1 : Math.min(1, this.acc / SIM_DT)
     this.renderFrame(dt, alpha)
   }
 
@@ -280,7 +306,8 @@ export class HeistV2Scene extends Phaser.Scene {
       }
       case 'firstLoot':
         this.exitView.emphasize(5)
-        if (raid.novice) this.toast('good', heistT('heistV2FirstLoot'), heistT('heistV2FirstLootSub'), 4.5)
+        this.firstLootClock = this.clock
+        if (raid.novice && !this.tut) this.toast('good', heistT('heistV2FirstLoot'), heistT('heistV2FirstLootSub'), 4.5)
         break
       case 'bagFull':
         this.toast('warn', heistT('heistBagFull'), heistT('heistFleeNow'), 2.4)
@@ -337,7 +364,11 @@ export class HeistV2Scene extends Phaser.Scene {
         if (!this.sirenBySafe) this.toast('danger', heistT('heistSiren'), heistT('heistFleeNow'), 3)
         break
       case 'chaseStart':
+        this.dashWanted = true
         this.toast('danger', heistT('heistV2Seen'), undefined, 1.6)
+        break
+      case 'phase':
+        if (e.rising && e.phase === 'DANGER') this.dashWanted = true
         break
       case 'chaseStop':
         if (!raid.ended) this.toast('good', heistT('heistV2Lost'), undefined, 1.6)
@@ -453,6 +484,117 @@ export class HeistV2Scene extends Phaser.Scene {
     }
   }
 
+  // ---------- tutorial ----------
+
+  /** The first real encounter of a mechanic the player has not been shown yet, in tutorial order. */
+  private checkTutorial() {
+    const tut = this.tut
+    if (!tut) return
+    const raid = this.raid
+    const p = raid.player
+    const v = this.rig.view()
+    const on = (x: number, y: number, m = 40) => x > v.x + m && x < v.x + v.w - m && y > v.y + m && y < v.y + v.h - m
+    // Clearly in view: not under the top bar, not under the thumbs.
+    const clear = (x: number, y: number) => x > v.x + v.w * 0.1 && x < v.x + v.w * 0.9 && y > v.y + v.h * 0.2 && y < v.y + v.h * 0.72
+    const L = raid.level
+    const ex = L.exit.x + L.exit.w / 2
+    const ey = L.exit.y + L.exit.h / 2
+    const toExit = distToRect(p.x, p.y, L.exit)
+    if (toExit > 700) this.leftExit = true
+    for (const step of TUTORIAL_ORDER) {
+      if (!tut.has(step)) continue
+      let hint: Omit<ActiveHint, 'shownAt'> | null = null
+      if (step === 'coin') {
+        const c = raid.loot.nearestPickable(p.x, p.y, raid.time, 190)
+        if (c && clear(c.x, c.y)) hint = { step, variant: null, x: c.x, y: c.y }
+      } else if (step === 'goal') {
+        if (!tut.has('coin') && raid.bag > 0 && this.firstLootClock >= 0 && this.clock - this.firstLootClock >= 1.5) hint = { step, variant: null, x: ex, y: ey }
+      } else if (step === 'guard') {
+        const g = raid.guards.guards.find((gg) => clear(gg.box.x, gg.box.y) && Math.hypot(gg.box.x - p.x, gg.box.y - p.y) < 650)
+        if (g) {
+          let cover: { x: number; y: number } | null = null
+          let best = 520
+          for (const h of L.hides) {
+            const hx = h.x + h.w / 2
+            const hy = h.y + h.h / 2
+            const d = Math.hypot(hx - p.x, hy - p.y)
+            if (d < best && on(hx, hy)) {
+              best = d
+              cover = { x: hx, y: hy }
+            }
+          }
+          hint = { step, variant: null, x: g.box.x, y: g.box.y, x2: cover?.x, y2: cover?.y }
+        }
+      } else if (step === 'camera') {
+        const c = raid.cams.cams.find((cc) => clear(cc.x, cc.y) && Math.hypot(cc.x - p.x, cc.y - p.y) < 600)
+        if (c) hint = { step, variant: null, x: c.x, y: c.y }
+      } else if (step === 'door') {
+        const k = raid.prompt?.kind
+        if (k === 'door' || k === 'gate') hint = { step, variant: k === 'gate' ? 'stars' : 'lock', x: raid.prompt!.x, y: raid.prompt!.y }
+      } else if (step === 'safe') {
+        if (raid.prompt?.kind === 'safe') hint = { step, variant: null, x: raid.prompt.x, y: raid.prompt.y }
+      } else if (step === 'lift') {
+        if (raid.prompt?.kind === 'lift') hint = { step, variant: raid.liftOptions().some((o) => o.premium) ? 'stars' : null, x: raid.prompt.x, y: raid.prompt.y }
+      } else if (step === 'dash') {
+        if (this.dashWanted) hint = { step, variant: null, x: p.x, y: p.y, dom: 'dash' }
+      } else if (step === 'exit') {
+        if (raid.bag > 0 && this.leftExit && toExit < 260) hint = { step, variant: null, x: ex, y: ey }
+      }
+      if (hint) {
+        this.showHint({ ...hint, shownAt: this.clock })
+        return
+      }
+    }
+  }
+
+  private showHint(h: ActiveHint) {
+    this.hint = h
+    this.raid.hold = true
+    this.tut?.delete(h.step)
+    if (this.tut && this.tut.size === 0) this.tut = null
+    this.deps.onTutorialSeen?.(h.step)
+  }
+
+  /** One tap on the hint: the raid continues from the same moment. False while the hint just appeared. */
+  dismissTutorial() {
+    if (!this.hint || this.clock - this.hint.shownAt < TUT_MIN_SHOW_S) return false
+    this.hint = null
+    this.raid.hold = false
+    this.tutReadyAt = this.clock + TUT_GAP_S
+    this.deps.input.clearEdges()
+    return true
+  }
+
+  private hintSnapshot(): TutorialHint | null {
+    const h = this.hint
+    if (!h) return null
+    const wv = this.cameras.main.worldView
+    const fx = (x: number) => (x - wv.x) / Math.max(1, wv.width)
+    const fy = (y: number) => (y - wv.y) / Math.max(1, wv.height)
+    let x = fx(h.x)
+    let y = fy(h.y)
+    // Off-screen target (EXIT far away): point at the screen edge in its direction.
+    const edge = x < 0.12 || x > 0.88 || y < 0.14 || y > 0.86
+    if (edge) {
+      const dx = x - 0.5
+      const dy = y - 0.5
+      const k = Math.min(0.38 / Math.max(1e-3, Math.abs(dx)), 0.36 / Math.max(1e-3, Math.abs(dy)))
+      x = 0.5 + dx * k
+      y = 0.5 + dy * k
+    }
+    const r = (n: number) => Math.round(n * 1000) / 1000
+    return {
+      step: h.step,
+      variant: h.variant,
+      x: r(x),
+      y: r(y),
+      edge,
+      x2: h.x2 != null ? r(fx(h.x2)) : null,
+      y2: h.y2 != null ? r(fy(h.y2)) : null,
+      dom: h.dom ?? null,
+    }
+  }
+
   private toast(kind: Toast['kind'], title: string, sub: string | undefined, seconds: number, note?: string) {
     this.toastId += 1
     // One banner per kind at a time; the newest wins.
@@ -533,6 +675,7 @@ export class HeistV2Scene extends Phaser.Scene {
       safeFly: this.safeFly && this.safeFly.until > this.clock ? { id: this.safeFly.id, x: this.safeFly.x, y: this.safeFly.y, amount: this.safeFly.amount } : null,
       exitArrow: !exitVisible && raid.bag > 0 ? { angle: Math.round(Math.atan2(dy, dx) * 20) / 20, dist: Math.round(Math.hypot(dx, dy) / 50) * 50 } : null,
       paused: raid.paused,
+      tutorial: this.hintSnapshot(),
       ended: raid.ended,
       toasts,
       timeS: Math.floor(raid.time),

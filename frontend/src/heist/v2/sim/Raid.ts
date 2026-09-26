@@ -59,6 +59,8 @@ export class Raid {
 
   time = 0
   paused = false
+  /** Tutorial hint on screen: the whole raid is frozen (no pause menu). */
+  hold = false
   crack: CrackGame | null = null
   bag = 0
   carried: Carried[] = []
@@ -220,7 +222,7 @@ export class Raid {
   // ---------- simulation ----------
 
   step(input: InputSample) {
-    if (this.paused || this.ended) return
+    if (this.paused || this.hold || this.ended) return
     const dt = SIM_DT
     this.time += dt
     const frozen = this.time < this.hitStopUntil

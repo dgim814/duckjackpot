@@ -86,7 +86,7 @@ export class AudioBridge {
       investigating: raid.guards.anyInvestigating(),
       chasing: raid.guards.anyChase(),
       cracking: raid.crack !== null,
-      paused: raid.paused,
+      paused: raid.paused || raid.hold,
       ended: raid.ended,
     })
   }

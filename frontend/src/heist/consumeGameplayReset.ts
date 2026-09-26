@@ -6,6 +6,7 @@ import {
   notifyGameplayReset,
   resetGameplayProgress,
 } from './progress'
+import { clearHeistTutorial } from './tutorial'
 
 function identityBody() {
   const user = captureTelegramUser()
@@ -24,6 +25,7 @@ export async function consumePendingGameplayReset() {
     const { data } = await api.post<{ pending?: boolean }>('/heist/gameplay-reset/pending', identityBody())
     if (!data.pending) return false
     if (!isGameplayFresh(loadProgress())) resetGameplayProgress()
+    clearHeistTutorial()
     notifyGameplayReset()
     await api.post('/heist/gameplay-reset/consume', identityBody())
     return true
@@ -35,6 +37,7 @@ export async function consumePendingGameplayReset() {
 export function applyLocalGameplayReset() {
   const already = isGameplayFresh(loadProgress())
   if (!already) resetGameplayProgress()
+  clearHeistTutorial()
   notifyGameplayReset()
   return { already }
 }
