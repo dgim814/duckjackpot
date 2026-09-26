@@ -1,9 +1,10 @@
 import type { RaffleId } from '../constants'
 
 /**
- * 24-hour NFT try-on. Purely cosmetic: it changes how the heist duck looks and
- * never touches ownership, cards, DUCK COIN or payments. Stored on its own key
- * so the progress save is not affected.
+ * RETIRED: the 24-hour NFT try-on. NFTs are separate DuckJackpot collectibles and
+ * NFT Drop prizes, not a costume for the heist duck, so gameplay no longer starts or
+ * applies a trial (the MANSION vault only shows the NFT and links to the NFT Drop).
+ * The skin definitions stay for reference; clearNftTrial() removes old stored trials.
  */
 const KEY = 'duckjackpot.heist.nftTrial.v1'
 export const NFT_TRIAL_MS = 24 * 60 * 60 * 1000
@@ -152,4 +153,13 @@ export function nftTrialLeft(trial: NftTrial, now = Date.now(), seconds = false)
   }
   const total = Math.ceil(ms / 60_000)
   return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`
+}
+
+/** Remove a trial stored by an earlier build (the try-on no longer exists in gameplay). */
+export function clearNftTrial() {
+  try {
+    localStorage.removeItem(KEY)
+  } catch {
+    /* storage unavailable: nothing stored */
+  }
 }

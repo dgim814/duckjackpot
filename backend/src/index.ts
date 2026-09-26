@@ -65,7 +65,9 @@ app.use(
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   }),
 )
-app.use(express.json({ limit: '8mb' }))
+// NFT images arrive as base64 JSON: a 6 MB file is ~8 MB of base64, so leave headroom for
+// saveNftFile's own 6 MB check to answer with a clear `too_large` instead of the parser.
+app.use(express.json({ limit: '10mb' }))
 
 app.get('/', (_req, res) => {
   res.json({ ok: true })
@@ -755,6 +757,30 @@ app.post('/api/admin/raffles/:raffleId/draw', async (req, res) => {
         : 500
     res.status(status).json({ error: message })
   }
+})
+
+// Every failure answers JSON (never Express's HTML page with a stack trace), so the
+// admin sees the real reason: oversized upload, bad JSON or a blocked origin.
+app.use((err: unknown, _req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (res.headersSent) {
+    next(err)
+    return
+  }
+  const e = err as { type?: string; status?: number; message?: string }
+  if (e?.type === 'entity.too.large') {
+    res.status(413).json({ error: 'too_large' })
+    return
+  }
+  if (e?.type === 'entity.parse.failed') {
+    res.status(400).json({ error: 'bad_json' })
+    return
+  }
+  if (typeof e?.message === 'string' && e.message.startsWith('CORS blocked origin')) {
+    res.status(403).json({ error: 'cors_blocked' })
+    return
+  }
+  console.error('[api] unhandled error', err)
+  res.status(typeof e?.status === 'number' ? e.status : 500).json({ error: 'server_error' })
 })
 
 app.listen(port, '0.0.0.0', () => {

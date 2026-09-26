@@ -132,6 +132,7 @@ vec2 opU(vec2 a, vec2 b) { return a.x < b.x ? a : b; }
 vec2 opSU(vec2 a, vec2 b, float k) { float h = clamp(0.5 + 0.5 * (b.x - a.x) / k, 0.0, 1.0); float d = mix(b.x, a.x, h) - k * h * (1.0 - h); return vec2(d, h > 0.5 ? a.y : b.y); }
 vec2 opS(vec2 a, vec2 b) { return vec2(max(a.x, -b.x), a.y); }
 vec2 opI(vec2 a, vec2 b) { return vec2(max(a.x, b.x), a.y); }
+vec2 opSI(vec2 a, vec2 b, float k) { float h = clamp(0.5 - 0.5 * (b.x - a.x) / k, 0.0, 1.0); return vec2(mix(b.x, a.x, h) + k * h * (1.0 - h), a.y); }
 `
 
 const SHADING = /* glsl */ `
@@ -233,6 +234,9 @@ vec3 shadeFloor(vec3 p, vec3 rd) {
   float sh = softShadow(p + n * 0.002, L, 10.0);
   float occ = 1.0;
   for (int i = 1; i <= 4; i++) { float h = 0.03 * float(i); occ -= (h - map(p + n * h, false).x) * 1.4 / float(i); }
+  // wide contact shadow for objects standing clear of the floor (a car on its tyres)
+  float dUp = map(p + n * 0.35, false).x;
+  occ *= mix(0.45, 1.0, smoothstep(0.05, 0.6, dUp));
   occ = clamp(occ, 0.0, 1.0);
   float pool = exp(-1.6 * dot(p.xz - uSpot.xz, p.xz - uSpot.xz) / max(uSpot.y, 0.01));
   vec3 base = uWall * 0.55 + vec3(0.02) + uHalo * pool * 0.9;
@@ -325,7 +329,7 @@ vec3 shadeSurface(vec3 p, vec3 rd, vec3 n0, int m, bool deep) {
   } else if (type == 4) { // clear-coated paint: coloured base + mirror-like lacquer
     float F = 0.05 + 0.95 * pow(1.0 - ndv, 5.0);
     vec3 base = albedo * diffuseLight * 0.62 + albedo * env(r, 0.6) * 0.3;
-    vec3 coat = env(r, 0.015) * (0.16 + 0.84 * F);
+    vec3 coat = env(r, 0.015) * (0.1 + 0.9 * F);
     col = base * (1.0 - F) + coat * mix(1.0, occ, 0.5);
   } else if (type == 5) { // emissive
     col = albedo * 2.5;
@@ -472,7 +476,7 @@ export class Compiler {
       for (let i = 1; i < parts.length; i++) {
         const b = parts[i][1]
         if (node.op === 's') acc = `opS(${acc},${b})`
-        else if (node.op === 'i') acc = `opI(${acc},${b})`
+        else if (node.op === 'i') acc = node.k ? `opSI(${acc},${b},${f(node.k)})` : `opI(${acc},${b})`
         else if (node.k) acc = `opSU(${acc},${b},${f(node.k)})`
         else acc = `opU(${acc},${b})`
       }

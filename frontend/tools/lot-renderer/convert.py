@@ -11,9 +11,21 @@ for i in ids:
     im = Image.open(f'{src}/{i}.png').convert('RGB')
     im.resize((800, 500), Image.LANCZOS).save(f'{out}/{i}.webp', 'WEBP', quality=80, method=6)
     W, H = im.size
-    cw = int(H * 96 / 76)
-    x0 = (W - cw) // 2
-    th = im.crop((x0, 0, x0 + cw, H)).resize((288, 228), Image.LANCZOS).filter(ImageFilter.UnsharpMask(radius=1, percent=40, threshold=2))
+    if i.startswith('car_'):
+        # cars are long and often side-on: fit the whole frame and extend the studio backdrop instead of cropping
+        cw = int(W * 0.9)
+        x0 = (W - cw) // 2
+        fit = im.crop((x0, 0, x0 + cw, H)).resize((288, int(288 * H / cw)), Image.LANCZOS)
+        th = Image.new('RGB', (288, 228))
+        top = (228 - fit.height) // 2
+        th.paste(fit.crop((0, 0, 288, 1)).resize((288, top)), (0, 0))
+        th.paste(fit.crop((0, fit.height - 1, 288, fit.height)).resize((288, 228 - top - fit.height)), (0, top + fit.height))
+        th.paste(fit, (0, top))
+        th = th.filter(ImageFilter.UnsharpMask(radius=1, percent=40, threshold=2))
+    else:
+        cw = int(H * 96 / 76)
+        x0 = (W - cw) // 2
+        th = im.crop((x0, 0, x0 + cw, H)).resize((288, 228), Image.LANCZOS).filter(ImageFilter.UnsharpMask(radius=1, percent=40, threshold=2))
     th.save(f'{out}/{i}.thumb.webp', 'WEBP', quality=82, method=6)
     h.update(open(f'{out}/{i}.webp', 'rb').read())
 ts = (

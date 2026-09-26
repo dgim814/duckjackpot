@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ScreenHeader } from '../components/ScreenHeader'
 import { catalogItem } from '../heist/economy/catalog'
 import { collectionValue, countOwned, ownedEntries } from '../heist/economy/collection'
 import { LotArt, RARITY_TONE } from '../heist/economy/LotArt'
-import { boardPlace, localLeaderboard } from '../heist/economy/leaderboard'
+import { ThiefStatus } from '../heist/economy/ThiefStatus'
 import { loadListings, localPlayerId } from '../heist/economy/marketStore'
 import { heistSfx, unlockHeistSfx } from '../heist/heistSfx'
 import { listOwnedItem, loadProgress, recallListing, subscribeGameplayReset } from '../heist/progress'
@@ -22,11 +22,6 @@ export function CollectionPage() {
   const rank = heistRank(progress)
   const entries = ownedEntries(progress.ownedArt, progress.ownedMeta)
   const value = collectionValue(progress.ownedArt)
-  const board = useMemo(
-    () => localLeaderboard(you, t('rankYou'), progress.ownedArt, progress.bankedDuckCoin),
-    [progress.ownedArt, progress.bankedDuckCoin, t, you],
-  )
-  const place = boardPlace(board, you)
   const mine = listings.filter(
     (row) => row.sellerId === you && row.status === 'ACTIVE' && Math.max(0, Math.floor(progress.ownedArt?.[row.itemId] ?? 0)) > 0,
   )
@@ -58,27 +53,11 @@ export function CollectionPage() {
         <p className="text-center text-[10px] font-extrabold tracking-[0.2em] text-amber-200">{t('collectionValue')}</p>
         <p className="gold-text font-display text-center text-4xl font-black leading-none">{value.toLocaleString()}</p>
         <p className="mt-2 text-center text-[11px] text-zinc-400">
-          {t('collectionCount', { n: countOwned(progress.ownedArt) })} · {t(rank.nameKey)} · {t('rankPlace', { n: place })}
+          {t('collectionCount', { n: countOwned(progress.ownedArt) })} · {t(rank.nameKey)}
         </p>
       </section>
 
-      <section className="mt-3 rounded-2xl border border-white/8 bg-[#141218] px-3 py-3">
-        <h2 className="text-[11px] font-extrabold uppercase tracking-[0.18em] text-amber-200">{t('rankTitle')}</h2>
-        <p className="mt-1 text-[11px] text-zinc-500">{t('rankHint')}</p>
-        <ul className="mt-2 space-y-1.5">
-          {board.map((row, i) => (
-            <li
-              key={row.id}
-              className={`flex items-center justify-between gap-2 rounded-xl px-2 py-1.5 ${row.you ? 'bg-amber-400/10' : ''}`}
-            >
-              <span className="text-sm font-bold text-amber-50">
-                {i + 1}. {row.name}
-              </span>
-              <span className="font-mono text-sm font-bold text-amber-200">{row.collectionValue.toLocaleString()}</span>
-            </li>
-          ))}
-        </ul>
-      </section>
+      <ThiefStatus progress={progress} />
 
       <div className="mt-3 space-y-3">
         {entries.length === 0 ? (

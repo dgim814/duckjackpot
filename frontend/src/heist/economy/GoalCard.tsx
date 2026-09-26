@@ -15,6 +15,7 @@ export function GoalCard({
   onMarket,
   onRaid,
   collection,
+  actions = true,
 }: {
   progress: PlayerProgress
   /** DUCK COIN this raid added (result screen). */
@@ -23,6 +24,8 @@ export function GoalCard({
   onRaid?: () => void
   /** HUB: show the «🏆 КОЛЛЕКЦИЯ n / total» counter. */
   collection?: boolean
+  /** False on raid results: the RaidNext block below owns the buttons. */
+  actions?: boolean
 }) {
   const { t, lang } = useI18n()
   const g = goalProgress(progress)
@@ -37,9 +40,11 @@ export function GoalCard({
       <div className="goal-card mt-3 rounded-2xl p-3 text-center">
         <p className="font-display text-[15px] font-black text-amber-100">{t('bmNoGoal')}</p>
         <p className="mt-1 text-[11px] leading-snug text-zinc-400">{t('bmNoGoalSub')}</p>
-        <button type="button" className="buy-btn mt-3 min-h-11 w-full rounded-xl px-4 py-2 text-sm font-black text-zinc-950" onClick={onMarket}>
-          {t('bmOpen')}
-        </button>
+        {actions ? (
+          <button type="button" className="buy-btn mt-3 min-h-11 w-full rounded-xl px-4 py-2 text-sm font-black text-zinc-950" onClick={onMarket}>
+            {t('bmOpen')}
+          </button>
+        ) : null}
         {collectionLine}
       </div>
     )
@@ -51,6 +56,7 @@ export function GoalCard({
       <div className="mt-2 flex items-center gap-3">
         <LotArt item={g.item} className="goal-art h-16 w-24 shrink-0 overflow-hidden rounded-xl" />
         <div className="min-w-0">
+          <p className="text-[10px] font-bold text-amber-200/70">{t('goalSaving', { name: '' }).trim()}</p>
           <p className="font-display truncate text-[15px] font-black text-amber-50">{g.item.name[locale]}</p>
           <p className="text-[11px] font-bold text-amber-200/80">
             {fmt(g.price)} DUCK COIN · <span className={`tier-text tier-${tier}`}>{tier}</span>
@@ -68,6 +74,7 @@ export function GoalCard({
         <span className={g.reached ? 'text-emerald-300' : 'text-zinc-300'}>{g.reached ? t('bmGoalReached') : t('bmLeft', { n: fmt(g.left) })}</span>
       </div>
       {!g.reached ? <p className="mt-0.5 text-right text-[10px] text-zinc-500">{t('bmRaidsLeft', { n: raidsFor(g.left, progress.bagLevel) })}</p> : null}
+      {actions ? (
       <div className={`mt-3 grid gap-2 ${onRaid ? 'grid-cols-2' : 'grid-cols-1'}`}>
         {onRaid ? (
           <button type="button" className="buy-btn min-h-11 rounded-xl px-3 py-2 text-[13px] font-black text-zinc-950" onClick={onRaid}>
@@ -78,6 +85,7 @@ export function GoalCard({
           {g.reached ? t('bmBuy') : t('bmMarketBtn')}
         </button>
       </div>
+      ) : null}
       {collectionLine}
     </div>
   )

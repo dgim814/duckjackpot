@@ -89,3 +89,14 @@ export function heistLevelBrief(id: HeistLevelId) {
   }
   return { ...obj, guards: 13, cams: 16, safes: 2 }
 }
+
+/**
+ * «▶ ПРОДОЛЖИТЬ РЕЙД» after a successful EXIT: a new raid, not a resume. It stays
+ * on the same level while there is loot left; once that level is complete and the
+ * next one is open, it goes one level deeper.
+ */
+export function continueLevel(progress: PlayerProgress, id: HeistLevelId): HeistLevelId {
+  const next = nextHeistLevel(id)
+  if (next && isLevelComplete(progress, id) && isLevelUnlocked(progress, next)) return next
+  return id
+}

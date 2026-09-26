@@ -1,43 +1,21 @@
 import { collectionValue, type OwnedCollection } from './catalog'
 
-export type LeaderboardEntry = {
-  id: string
-  name: string
-  collectionValue: number
-  you?: boolean
+/**
+ * Thief ranking. The game's long-term goal is to become one of the richest
+ * thieves: wealth = DUCK COIN in the bank + the value of the collection
+ * (buying a lot turns coins into collection, it does not make you poorer).
+ * Stars are premium currency for gear and never count as wealth.
+ *
+ * There is no server board yet, so no places or rivals are shown — the UI
+ * shows the player's own wealth and says the online ranking is coming.
+ * When a real board exists, set THIEF_BOARD_ONLINE and fetch it here.
+ */
+export const THIEF_BOARD_ONLINE = false
+
+export type ThiefWealth = { bank: number; collection: number; total: number }
+
+export function thiefWealth(p: { bankedDuckCoin: number; ownedArt?: OwnedCollection }): ThiefWealth {
+  const bank = Math.max(0, Math.floor(p.bankedDuckCoin || 0))
+  const collection = collectionValue(p.ownedArt ?? {})
+  return { bank, collection, total: bank + collection }
 }
-
-/** Local ghosts until a server board exists. Not presented as live online play. */
-const GHOSTS: Omit<LeaderboardEntry, 'you'>[] = [
-  { id: 'npc_shadow', name: 'SHADOW', collectionValue: 50000 },
-  { id: 'npc_cracksman', name: 'CRACKSMAN', collectionValue: 250000 },
-  { id: 'npc_legend', name: 'LEGEND', collectionValue: 500000 },
-  { id: 'npc_rookie', name: 'ROOKIE', collectionValue: 1000 },
-]
-
-export function localLeaderboard(
-  playerId: string,
-  displayName: string,
-  owned: OwnedCollection,
-  _bankedDuckCoin: number,
-): LeaderboardEntry[] {
-  const you: LeaderboardEntry = {
-    id: playerId,
-    name: displayName,
-    collectionValue: collectionValue(owned),
-    you: true,
-  }
-  const rows = [...GHOSTS.map((row) => ({ ...row })), you]
-  rows.sort((a, b) => b.collectionValue - a.collectionValue || a.name.localeCompare(b.name))
-  return rows
-}
-
-export function boardPlace(rows: LeaderboardEntry[], playerId: string) {
-  return rows.findIndex((row) => row.id === playerId) + 1
-}
-
-export function scoreOf(owned: OwnedCollection, _bankedDuckCoin: number) {
-  return collectionValue(owned)
-}
-
-export { collectionValue }

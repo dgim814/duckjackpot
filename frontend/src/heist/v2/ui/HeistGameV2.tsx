@@ -5,13 +5,13 @@ import WebApp from '@twa-dev/sdk'
 import type { HeistEnd } from '../../types'
 import type { HeistRunMods } from '../../progress'
 import type { HeistLevelId } from '../../heistLevel'
-import { bindHeistI18n, heistT } from '../../heistI18n'
+import { bindHeistI18n } from '../../heistI18n'
 import { haltHeistSfx, heistSfx, unlockHeistSfx } from '../../heistSfx'
 import { useI18n } from '../../../i18n/LanguageProvider'
 import { useAdmin } from '../../../admin/AdminProvider'
 import { useCards } from '../../../cards/CardsProvider'
 import type { RaffleId } from '../../../constants'
-import { loadNftTrial, nftSkin, nftTrialLeft, startNftTrial, type NftTrial } from '../../nftTrial'
+import { clearNftTrial } from '../../nftTrial'
 import { InputController } from '../sim/Input'
 import { Raid } from '../sim/Raid'
 import { HeistV2Scene } from '../render/HeistV2Scene'
@@ -97,7 +97,6 @@ export function HeistGameV2({ running, mods, levelId = 'bank', novice = false, o
   const onSuspendRef = useRef(onSuspend)
   onSuspendRef.current = onSuspend
   const [liftTick, setLiftTick] = useState(0)
-  const [trial, setTrial] = useState<NftTrial | null>(() => loadNftTrial())
   const cardArtRef = useRef(cardArt)
   cardArtRef.current = cardArt
 
@@ -139,10 +138,8 @@ export function HeistGameV2({ running, mods, levelId = 'bank', novice = false, o
       hud,
       resolution: res,
       nftArt: { classic: cardArtRef.current('classic'), fast200: cardArtRef.current('fast200'), fast100: cardArtRef.current('fast100') },
-      skin: (() => {
-        const tr = loadNftTrial()
-        return tr ? nftSkin(tr.nftId) : null
-      })(),
+      // NFTs are separate collectibles, never a duck costume: the raid always uses the normal duck.
+      skin: null,
       onNftView: () => openPanel('nft'),
       onLiftOpen: () => {
         setLiftTick((n) => n + 1)
@@ -265,16 +262,8 @@ export function HeistGameV2({ running, mods, levelId = 'bank', novice = false, o
     raid.abort()
   }
 
-  // A try-on that runs out mid-raid takes the look off the duck.
-  useEffect(() => {
-    if (!trial) return
-    const left = trial.expiresAt - Date.now()
-    const id = window.setTimeout(() => {
-      setTrial(loadNftTrial())
-      sceneRef.current?.setSkin(null)
-    }, Math.max(0, Math.min(left, 2 ** 31 - 1)))
-    return () => window.clearTimeout(id)
-  }, [trial])
+  // The old 24-hour try-on is retired: drop any stored trial from earlier builds.
+  useEffect(() => clearNftTrial(), [])
 
   const closePanel = () => {
     setPanel(null)
@@ -337,15 +326,6 @@ export function HeistGameV2({ running, mods, levelId = 'bank', novice = false, o
     setPanel(null)
     navigate('/drop')
   }
-  /** Try-on keeps the raid: skin on, viewer closed, the same run continues where it paused. */
-  const tryNft = (id: RaffleId) => {
-    const next = startNftTrial(id)
-    setTrial(next)
-    const scene = sceneRef.current
-    scene?.setSkin(nftSkin(id))
-    closeNft()
-    scene?.notify('good', heistT('heistNftSkinOn'), `${nftSkin(id).name} · ${nftTrialLeft(next)}`, 3)
-  }
   const openDrop = (id: RaffleId) => {
     setRaffleId(id)
     setPanel(null)
@@ -369,7 +349,7 @@ export function HeistGameV2({ running, mods, levelId = 'bank', novice = false, o
         <TopBar hud={hud} onPause={pause} />
         <ExtrasChip hud={hud} />
         {!panel && <PauseMenu hud={hud} onResume={pause} onAbort={abort} onToHub={onSuspend ? toHub : undefined} />}
-        {nftOpen && <NftVaultPanel ids={vaultIds} trial={trial} onTry={tryNft} onOpenDrop={openDrop} onClose={closeNft} />}
+        {nftOpen && <NftVaultPanel ids={vaultIds} onOpenDrop={openDrop} onClose={closeNft} />}
         {panel === 'lift' && raidRef.current && (
           <LiftPanel
             key={liftTick}

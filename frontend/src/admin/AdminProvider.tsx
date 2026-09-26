@@ -404,10 +404,13 @@ export function AdminProvider({ children }: { children: ReactNode }) {
           { mime: file.type || 'image/jpeg', data },
           { headers: adminHeaders, timeout: 60_000 },
         )
-        const image = saved.updatedAt ? nftUrl(id, saved.updatedAt) : nftUrl(id, Date.now())
+        // Success only when the server's own catalog now lists this image — never a local guess.
+        const { data: catalog } = await api.get<{ images?: Partial<Record<RaffleId, { updatedAt?: number } | null>> }>('/nft')
+        const stored = catalog.images?.[id]?.updatedAt
+        if (!stored || (saved.updatedAt && stored !== saved.updatedAt)) throw new Error('nft_not_stored')
         patch((prev) => ({
           ...prev,
-          raffles: { ...prev.raffles, [id]: { ...prev.raffles[id], image } },
+          raffles: applyNftCatalog(prev.raffles, catalog.images ?? {}),
         }))
       },
       resetCardImage: async (id) => {
