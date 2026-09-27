@@ -216,32 +216,19 @@ function BankProgress({ depth, banked }: { depth: number; banked: number }) {
 function RaidNext({
   progress,
   gained,
-  levelId,
-  onContinue,
   onMarket,
   onUpgrades,
-  hint,
 }: {
   progress: ReturnType<typeof loadProgress>
   gained: number
-  levelId: HeistLevelId
-  /** What the next raid is for, when there is something concrete to say (BANK: go deeper). */
-  hint?: string
-  onContinue: (id: HeistLevelId) => void
   onMarket: () => void
   onUpgrades: () => void
 }) {
   const { t } = useI18n()
-  const target = continueLevel(progress, levelId)
-  const goal = goalProgress(progress)
   return (
     <div className="raid-next">
       <ThiefStatus progress={progress} compact />
       <GoalCard progress={progress} gained={gained} onMarket={onMarket} actions={false} />
-      <button type="button" className="buy-btn raid-continue mt-4 w-full rounded-2xl px-4 py-3.5 text-[15px] font-black text-zinc-950" onClick={() => onContinue(target)}>
-        {target === levelId ? t('raidContinue') : t('raidContinueNext', { level: t(HEIST_LEVEL_NAME[target]) })}
-      </button>
-      <p className="mt-1 text-[11px] font-semibold text-amber-100/70">{hint ?? (goal && !goal.reached ? t('raidContinueHint') : t('raidContinueHintNoGoal'))}</p>
       <div className="mt-3 grid grid-cols-2 gap-2">
         <button type="button" className="min-h-14 rounded-2xl border border-amber-400/45 bg-amber-400/10 px-2 py-2 text-amber-100" onClick={onMarket}>
           <span className="block text-[12px] font-black">{t('raidMarketBtn')}</span>
@@ -252,6 +239,24 @@ function RaidNext({
           <span className="block text-[9px] font-semibold text-sky-100/60">{t('raidUpgradesSub')}</span>
         </button>
       </div>
+    </div>
+  )
+}
+
+/**
+ * ▶ KEEP RAIDING, pinned to the bottom of the result card: always fully on screen,
+ * whatever the phone height; the rest of the result scrolls above it.
+ */
+function ContinueBar({ progress, levelId, hint, onContinue }: { progress: ReturnType<typeof loadProgress>; levelId: HeistLevelId; hint?: string; onContinue: (id: HeistLevelId) => void }) {
+  const { t } = useI18n()
+  const target = continueLevel(progress, levelId)
+  const goal = goalProgress(progress)
+  return (
+    <div className="shrink-0 border-t border-amber-400/20 bg-[#101014] px-5 pb-4 pt-3">
+      <button type="button" className="buy-btn raid-continue w-full rounded-2xl px-4 py-3.5 text-[15px] font-black text-zinc-950" onClick={() => onContinue(target)}>
+        {target === levelId ? t('raidContinue') : t('raidContinueNext', { level: t(HEIST_LEVEL_NAME[target]) })}
+      </button>
+      <p className="mt-1.5 text-center text-[11px] font-semibold text-amber-100/75">{hint ?? (goal && !goal.reached ? t('raidContinueHint') : t('raidContinueHintNoGoal'))}</p>
     </div>
   )
 }
@@ -351,9 +356,12 @@ export function HeistPage() {
     setShopMsg(null)
     setScreen('shop')
   }
-  const raidNext = (gained: number, hint?: string) => (
-    <RaidNext progress={progress} gained={gained} levelId={levelId} onContinue={(id) => playLevel(id)} onMarket={openMarket} onUpgrades={openUpgrades} hint={hint} />
-  )
+  /** The result's "what next" block; the ▶ continue button it implies goes to the pinned footer. */
+  let pinned: { hint?: string } | null = null
+  const raidNext = (gained: number, hint?: string) => {
+    pinned = { hint }
+    return <RaidNext progress={progress} gained={gained} onMarket={openMarket} onUpgrades={openUpgrades} />
+  }
 
   const buyLab = (stat: LabStat, currency: Currency) => {
     const result = buyLabUpgrade(progress, stat, currency)
@@ -579,10 +587,8 @@ export function HeistPage() {
     const grandDone = isGrandLevel(levelId) && win && end.levelCompleted
     const bankRun = levelId === 'bank'
     const gained = end.coins + end.bonus + end.objBonus
-    return (
-      <section className="relative flex h-[calc(100dvh-4.75rem-env(safe-area-inset-bottom))] items-center justify-center overflow-hidden bg-[#120c10] px-5">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_20%,rgba(255,193,7,0.22),transparent_55%)]" />
-        <div className="relative max-h-full w-full max-w-sm overflow-y-auto rounded-3xl border border-amber-400/40 bg-[#101014]/92 p-6 text-center shadow-[0_0_60px_rgba(255,176,40,0.12)]">
+    const content = (
+      <>
           {mansionDone ? (
             <>
               <p className="text-4xl">🏆</p>
@@ -797,6 +803,16 @@ export function HeistPage() {
               )}
             </>
           )}
+      </>
+    )
+    const bar = pinned as { hint?: string } | null
+    return (
+      <section className="relative flex h-[calc(100dvh-4.75rem-env(safe-area-inset-bottom))] flex-col items-center justify-center overflow-hidden bg-[#120c10] px-4 pb-3 pt-[calc(max(env(safe-area-inset-top),var(--tg-content-safe-area-inset-top,0px))+12px)]">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_20%,rgba(255,193,7,0.22),transparent_55%)]" />
+        {/* The result scrolls inside the card; ▶ continue stays pinned at its bottom, never under the nav. */}
+        <div className="relative flex max-h-full min-h-0 w-full max-w-sm flex-col overflow-hidden rounded-3xl border border-amber-400/40 bg-[#101014]/92 text-center shadow-[0_0_60px_rgba(255,176,40,0.12)]">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-4 pt-5">{content}</div>
+          {bar ? <ContinueBar progress={progress} levelId={levelId} hint={bar.hint} onContinue={(id) => playLevel(id)} /> : null}
         </div>
       </section>
     )
