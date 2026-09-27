@@ -19,7 +19,7 @@ import { useI18n } from '../i18n/LanguageProvider'
 import { perfMark, perfMarkPainted } from '../perf/transition'
 import { inTelegram, launchNotification, onSession, patchSession, referralMe, type ReferralMe, type Session } from '../retention/api'
 import { claimGrants } from '../retention/grants'
-import { LeaderboardSheet, NotifyOptIn, ReferralCard, ReferralMissionCard, StarsRewardNotice } from '../retention/HubCards'
+import { LeaderboardSheet, NotifyOptIn, ReferralCard, ReferralMissionCard } from '../retention/HubCards'
 
 /** What the hub's one main button does: resume a parked raid, or play the current level. */
 function primaryAction(progress: PlayerProgress) {
@@ -129,7 +129,7 @@ export function GameHomePage() {
       .then((me) => {
         if (!live) return
         setFriends(me.invites)
-        patchSession({ invitee: me.invitee, stars: me.stars, ...(me.grants.length ? { grants: me.grants } : {}) })
+        patchSession({ invitee: me.invitee, starsProgress: me.starsProgress, ...(me.grants.length ? { grants: me.grants } : {}) })
       })
       .catch(() => undefined)
     return () => {
@@ -238,12 +238,10 @@ export function GameHomePage() {
           invitee={session.invitee}
           channel={session.channel}
           rewards={session.rewards}
-          starsPaid={Boolean(session.stars?.some((r) => r.role === 'invitee' && r.status === 'PAID'))}
           onUpdate={(v) => patchSession({ invitee: v })}
         />
       ) : null}
-      {session?.stars?.length ? <StarsRewardNotice rewards={session.stars} /> : null}
-      {inTelegram() ? <ReferralCard friends={friends} rewards={session?.rewards ?? { inviterCoins: 300, inviteeCoins: 150, stars: { available: true, manual: true, inviter: 10, invitee: 5 }, missionCoins: 650 }} /> : null}
+      {inTelegram() ? <ReferralCard friends={friends} progress={session?.starsProgress} onProgress={(p) => patchSession({ starsProgress: p })} rewards={session?.rewards ?? { inviterCoins: 300, inviteeCoins: 150, stars: { available: true, manual: true, perFriend: 5, payout: 50, inviter: 5, invitee: 0 }, missionCoins: 650 }} /> : null}
 
       {/* SECONDARY: short labels only; details live in their own screens */}
       <div className="mt-3 grid grid-cols-3 gap-2">

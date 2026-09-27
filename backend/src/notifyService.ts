@@ -4,7 +4,7 @@ import { recordEvents } from './analyticsStore.js'
 import { DATA_DIR } from './config.js'
 import { sendRetentionMessage, type SendResult } from './bot.js'
 import { DAILY_REWARD, DAILY_REWARD_MS, dailyUsers } from './dailyRewardStore.js'
-import { allState, INVITEE_COINS, INVITEE_STARS, INVITER_COINS, INVITER_STARS, leaderboard, markWriteBlocked, updateNotif, type Player } from './retentionStore.js'
+import { allState, INVITEE_COINS, INVITER_COINS, leaderboard, markWriteBlocked, STARS_PAYOUT_BLOCK, STARS_PER_REFERRAL, updateNotif, type Player, type StarsAccrual } from './retentionStore.js'
 
 /**
  * Telegram bot notifications, never spam:
@@ -83,12 +83,12 @@ const TEXT: Record<NotifKind, Record<'ru' | 'en', { text: string; button: string
     en: { text: `🔔 DUCKJACKPOT\n\n👥 INVITE A FRIEND\n\nYour friend gets 🪙 ${INVITEE_COINS} DUCK COIN,\nand you get 🪙 ${INVITER_COINS} DUCK COIN.`, button: '👥 INVITE' },
   },
   referral_inviter: {
-    ru: { text: `👥 ДРУГ ВЫПОЛНИЛ РЕФЕРАЛЬНУЮ МИССИЮ\n\nТвоя награда:${INVITER_STARS ? `\n⭐ ${INVITER_STARS} Stars` : ''}\n🪙 +${INVITER_COINS} DUCK COIN${INVITER_STARS ? '\n\n⭐ Stars выплачиваются вручную в течение 24 часов.' : ''}`, button: '🎁 ЗАБРАТЬ НАГРАДУ' },
-    en: { text: `👥 YOUR FRIEND COMPLETED THE REFERRAL MISSION\n\nYour reward:${INVITER_STARS ? `\n⭐ ${INVITER_STARS} Stars` : ''}\n🪙 +${INVITER_COINS} DUCK COIN${INVITER_STARS ? '\n\n⭐ Stars are paid out manually within 24 hours.' : ''}`, button: '🎁 CLAIM REWARD' },
+    ru: { text: `🎉 ДРУГ ВЫПОЛНИЛ МИССИЮ!\n\nТы получил ⭐${STARS_PER_REFERRAL} к реферальной награде.\n🪙 +${INVITER_COINS} DUCK COIN`, button: '🎁 ОТКРЫТЬ' },
+    en: { text: `🎉 YOUR FRIEND COMPLETED THE MISSION!\n\nYou got ⭐${STARS_PER_REFERRAL} toward your referral reward.\n🪙 +${INVITER_COINS} DUCK COIN`, button: '🎁 OPEN' },
   },
   referral_invitee: {
-    ru: { text: `🎉 РЕФЕРАЛЬНАЯ МИССИЯ ВЫПОЛНЕНА\n${INVITEE_STARS ? `\n⭐ ${INVITEE_STARS} Stars — подтверждено` : ''}\n🪙 ${INVITEE_COINS} DUCK COIN — начислено${INVITEE_STARS ? '\n\n⭐ Stars выплачиваются вручную в течение 24 часов.' : ''}`, button: '🎁 ЗАБРАТЬ НАГРАДУ' },
-    en: { text: `🎉 REFERRAL MISSION COMPLETE\n${INVITEE_STARS ? `\n⭐ ${INVITEE_STARS} Stars — confirmed` : ''}\n🪙 ${INVITEE_COINS} DUCK COIN — credited${INVITEE_STARS ? '\n\n⭐ Stars are paid out manually within 24 hours.' : ''}`, button: '🎁 CLAIM REWARD' },
+    ru: { text: `🎉 РЕФЕРАЛЬНАЯ МИССИЯ ВЫПОЛНЕНА\n\n🪙 ${INVITEE_COINS} DUCK COIN — начислено`, button: '🎁 ЗАБРАТЬ НАГРАДУ' },
+    en: { text: `🎉 REFERRAL MISSION COMPLETE\n\n🪙 ${INVITEE_COINS} DUCK COIN — credited`, button: '🎁 CLAIM REWARD' },
   },
 }
 
@@ -123,8 +123,8 @@ export function textFor(kind: NotifKind, p?: Pick<Player, 'lang' | 'goal'>) {
   return TEXT[kind][lang]
 }
 
-async function deliver(p: Player, kind: NotifKind, now: number): Promise<SendResult | 'dry_run'> {
-  const t = textFor(kind, p)
+async function deliver(p: Player, kind: NotifKind, now: number, custom?: { text: string; button: string }): Promise<SendResult | 'dry_run'> {
+  const t = custom ?? textFor(kind, p)
   let result: SendResult | 'dry_run' = 'dry_run'
   if (enabled()) result = await sendRetentionMessage(p.id, t.text, { text: t.button, query: `n=${kind}` })
   dryLog.push({ t: now, to: p.id, kind, result })
@@ -138,16 +138,29 @@ async function deliver(p: Player, kind: NotifKind, now: number): Promise<SendRes
   return result
 }
 
-/** Referral completed: tell both players once (event messages, outside the reminder budget). */
-export async function notifyReferralCompleted(inviteeId: number, inviterId: number, now = Date.now()) {
-  const s = allState()
-  for (const [id, kind] of [
-    [inviteeId, 'referral_invitee'],
-    [inviterId, 'referral_inviter'],
-  ] as const) {
-    const p = s.players[String(id)]
-    if (p && reachable(p)) await deliver(p, kind, now).catch((err) => console.error('[notify] referral', err))
+/** The inviter's message: ⭐ progress toward the next payout, or a full block ready. */
+export function inviterText(a: StarsAccrual, lang: 'ru' | 'en') {
+  const ru = lang === 'ru'
+  if (a.newPayouts.length) {
+    const n = a.newPayouts.length * STARS_PAYOUT_BLOCK
+    return ru
+      ? { text: `🎉 ТЫ НАКОПИЛ ${n} ⭐!\n\n${a.firstBlock ? 'Первая выплата доступна.' : 'Новая выплата доступна.'}\n\n🪙 +${INVITER_COINS} DUCK COIN за друга`, button: `⭐ ПОЛУЧИТЬ ${STARS_PAYOUT_BLOCK} ⭐` }
+      : { text: `🎉 YOU COLLECTED ${n} ⭐!\n\n${a.firstBlock ? 'Your first payout is available.' : 'A new payout is available.'}\n\n🪙 +${INVITER_COINS} DUCK COIN for your friend`, button: `⭐ GET ${STARS_PAYOUT_BLOCK} ⭐` }
   }
+  const left = Math.ceil((STARS_PAYOUT_BLOCK - a.balance) / STARS_PER_REFERRAL)
+  const first = a.earned < STARS_PAYOUT_BLOCK
+  return ru
+    ? { text: `🎉 ДРУГ ВЫПОЛНИЛ МИССИЮ!\n\nТы получил ⭐${STARS_PER_REFERRAL} к реферальной награде.\n🪙 +${INVITER_COINS} DUCK COIN\n\n⭐ ${a.balance} / ${STARS_PAYOUT_BLOCK}\n\nЕщё ${left} успешных друзей → ${first ? 'первая выплата' : 'следующая выплата'}.`, button: '👥 ПРИГЛАСИТЬ ЕЩЁ' }
+    : { text: `🎉 YOUR FRIEND COMPLETED THE MISSION!\n\nYou got ⭐${STARS_PER_REFERRAL} toward your referral reward.\n🪙 +${INVITER_COINS} DUCK COIN\n\n⭐ ${a.balance} / ${STARS_PAYOUT_BLOCK}\n\n${left} more successful friends → ${first ? 'first payout' : 'next payout'}.`, button: '👥 INVITE MORE' }
+}
+
+/** Referral completed: tell both players once (event messages, outside the reminder budget). */
+export async function notifyReferralCompleted(inviteeId: number, inviterId: number, accrual: StarsAccrual | null, now = Date.now()) {
+  const s = allState()
+  const invitee = s.players[String(inviteeId)]
+  if (invitee && reachable(invitee)) await deliver(invitee, 'referral_invitee', now).catch((err) => console.error('[notify] referral', err))
+  const inviter = s.players[String(inviterId)]
+  if (inviter && reachable(inviter)) await deliver(inviter, 'referral_inviter', now, accrual ? inviterText(accrual, inviter.lang ?? 'ru') : undefined).catch((err) => console.error('[notify] referral', err))
 }
 
 /** One scheduler pass: at most one reminder per reachable player, following every rule above. */
@@ -218,12 +231,11 @@ export function startNotifier() {
   console.log('[notify] scheduler', { everyMs: every, enabled: enabled() })
 }
 
-/** Sent once, only after the operator confirmed the Stars were really sent (a transactional message). */
-export async function notifyStarsPaid(to: number, stars: number, role: 'inviter' | 'invitee') {
+/** Sent once, only after the operator confirmed the payout was really sent (a transactional message). */
+export async function notifyPayoutPaid(to: number, stars: number) {
   const p = allState().players[String(to)]
   const ru = (p?.lang ?? 'ru') === 'ru'
-  const tail = role === 'inviter' ? (ru ? 'Спасибо за приглашение друга! 🦆' : 'Thanks for inviting a friend! 🦆') : ru ? 'Добро пожаловать в DuckJackpot! 🦆' : 'Welcome to DuckJackpot! 🦆'
-  const text = ru ? `✓ НАГРАДА ВЫПЛАЧЕНА\n\nТебе отправлено ⭐${stars} Stars.\n\n${tail}` : `✓ REWARD PAID\n\nYou were sent ⭐${stars} Stars.\n\n${tail}`
+  const text = ru ? `✓ ${stars} ⭐ ВЫПЛАЧЕНО!\n\nТебе отправлено ⭐${stars} Stars.\n\nСпасибо, что приглашаешь друзей! 🦆` : `✓ ${stars} ⭐ PAID!\n\nYou were sent ⭐${stars} Stars.\n\nThanks for inviting friends! 🦆`
   const result = await sendRetentionMessage(to, text, { text: '🦆 DUCKJACKPOT', query: 'n=stars_paid' })
   if (result === 'blocked') await markWriteBlocked(to)
   if (result === 'sent') recordEvents(`tg:${to}`, 'server', [{ name: 'notification_sent', props: { kind: 'stars_paid' } }])

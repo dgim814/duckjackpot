@@ -31,16 +31,18 @@ import {
   claimGrant,
   INVITEE_COINS,
   INVITER_COINS,
-  INVITER_STARS,
-  INVITEE_STARS,
-  backfillStarsRewards,
   backfillMissionProgress,
   MISSION_COINS,
-  listStarsRewards,
-  noteStarsNotify,
-  settleStarsReward,
-  starsRewardsOf,
-  type StarsStatus,
+  STARS_PAYOUT_BLOCK,
+  STARS_PER_REFERRAL,
+  listPayouts,
+  migrateStarsModel,
+  notePayoutNotify,
+  requestPayout,
+  settlePayout,
+  starsProgressOf,
+  type PayoutStatus,
+  type StarsAccrual,
   inviteOf,
   invitesBy,
   inviteStatus,
@@ -57,7 +59,7 @@ import {
   type Invite,
   type RaidReport,
 } from './retentionStore.js'
-import { notifyStarsPaid, notifyLog, notifyReferralCompleted, notifyTick, setNotificationsEnabled, startNotifier, textFor, type NotifKind } from './notifyService.js'
+import { notifyPayoutPaid, notifyLog, notifyReferralCompleted, notifyTick, setNotificationsEnabled, startNotifier, textFor, type NotifKind } from './notifyService.js'
 import { botUsername, channelHealth, checkChannelMember, prepareInviteMessage, sendRetentionMessage } from './bot.js'
 
 dotenv.config()
@@ -550,19 +552,24 @@ const ev = (id: number, name: string, props?: Record<string, string | number | b
 const NOTIF_KINDS: NotifKind[] = ['daily', 'overtaken', 'leader', 'raid_return', 'invite', 'referral_inviter', 'referral_invitee']
 const STATUS_ORDER = ['opened', 'verified', 'played', 'exited', 'rewarded'] as const
 const channelInfo = () => ({ configured: Boolean(channelId()), url: channelUrl() })
-const rewardsInfo = () => ({ missionCoins: MISSION_COINS, inviterCoins: INVITER_COINS, inviteeCoins: INVITEE_COINS, stars: { available: INVITER_STARS + INVITEE_STARS > 0, manual: true, inviter: INVITER_STARS, invitee: INVITEE_STARS } })
+const rewardsInfo = () => ({ missionCoins: MISSION_COINS, inviterCoins: INVITER_COINS, inviteeCoins: INVITEE_COINS, stars: { available: true, manual: true, perFriend: STARS_PER_REFERRAL, payout: STARS_PAYOUT_BLOCK, inviter: STARS_PER_REFERRAL, invitee: 0 } })
 const inviteView = (i: Invite | null) =>
   i
-    ? { status: inviteStatus(i), channelVerified: Boolean(i.channelVerifiedAt), firstRaid: Boolean(i.firstRaidAt), firstExit: Boolean(i.firstExitAt), completed: Boolean(i.completedAt), progress: Math.min(i.progressCoins ?? 0, MISSION_COINS), target: MISSION_COINS }
+    ? { status: inviteStatus(i), channelVerified: Boolean(i.channelVerifiedAt), firstRaid: Boolean(i.firstRaidAt), firstExit: Boolean(i.firstExitAt), completed: Boolean(i.completedAt), completedAt: i.completedAt ?? null, progress: Math.min(i.progressCoins ?? 0, MISSION_COINS), target: MISSION_COINS }
     : null
 
-async function afterCompletion(completed: { invitee: { telegramId: number; coins: number }; inviter: { telegramId: number; coins: number } } | null) {
+async function afterCompletion(completed: { invitee: { telegramId: number; coins: number }; inviter: { telegramId: number; coins: number }; stars: StarsAccrual | null } | null) {
   if (!completed) return
   ev(completed.invitee.telegramId, 'referral_reward_pending', { coins: completed.invitee.coins, kind: 'invitee' })
   ev(completed.inviter.telegramId, 'referral_reward_pending', { coins: completed.inviter.coins, kind: 'inviter' })
-  if (INVITEE_STARS) ev(completed.invitee.telegramId, 'stars_reward_pending', { stars: INVITEE_STARS, kind: 'invitee' })
-  if (INVITER_STARS) ev(completed.inviter.telegramId, 'stars_reward_pending', { stars: INVITER_STARS, kind: 'inviter' })
-  void notifyReferralCompleted(completed.invitee.telegramId, completed.inviter.telegramId)
+  const a = completed.stars
+  if (a) {
+    ev(a.inviterId, 'successful_referral', { stars: STARS_PER_REFERRAL })
+    ev(a.inviterId, 'referral_stars_earned', { stars: STARS_PER_REFERRAL, coins: a.earned })
+    for (const p of a.newPayouts) ev(a.inviterId, 'referral_payout_ready', { stars: p.stars, orderId: p.id })
+    if (a.firstBlock) ev(a.inviterId, 'referral_first_50_reached', { stars: STARS_PAYOUT_BLOCK })
+  }
+  void notifyReferralCompleted(completed.invitee.telegramId, completed.inviter.telegramId, a)
 }
 
 /** The device's Black Market goal (display only: it words a reminder, never a reward). */
@@ -592,7 +599,7 @@ app.post('/api/me/session', async (req, res) => {
     }
     const n = String(req.body?.n ?? '')
     if ((NOTIF_KINDS as string[]).includes(n)) ev(u.id, 'notification_opened', { kind: n })
-    res.json({ invitee: inviteView(r.invite), canWrite: r.player.canWrite && !r.player.writeBlocked, muted: Boolean(r.player.muted), grants: pendingGrants(u.id), rewards: rewardsInfo(), channel: channelInfo(), stars: starsRewardsOf(u.id) })
+    res.json({ invitee: inviteView(r.invite), canWrite: r.player.canWrite && !r.player.writeBlocked, muted: Boolean(r.player.muted), grants: pendingGrants(u.id), rewards: rewardsInfo(), channel: channelInfo(), starsProgress: starsProgressOf(u.id) })
   } catch (err) {
     console.error('[retention] session failed', err)
     res.status(503).json({ error: 'unavailable' })
@@ -622,7 +629,7 @@ app.get('/api/referral/me', async (req, res) => {
       invitee: inviteView(inviteOf(u.id)),
       grants: pendingGrants(u.id),
       channel: channelInfo(),
-      stars: starsRewardsOf(u.id),
+      starsProgress: starsProgressOf(u.id),
     })
   } catch (err) {
     console.error('[referral] me failed', err)
@@ -645,11 +652,9 @@ app.post('/api/referral/share', async (req, res) => {
     // /start ref_<code>: the bot chat opens first (and stays in the list), then its button starts the game.
     const url = `https://t.me/${bot}?start=ref_${code}`
     const ru = req.body?.lang !== 'en'
-    const st = (n: number) => (n > 0 ? `${n} Stars + ` : '')
-    const stars = INVITER_STARS + INVITEE_STARS > 0
     const text = ru
-      ? `🦆 DUCKJACKPOT\n\nПопробуй ограбить BANK и забрать DUCK COIN.\n\n🎁 Чтобы получить награду:\n\n1️⃣ Подпишись на канал DuckJackpot\n2️⃣ Открой игру\n3️⃣ Накопи ${MISSION_COINS} DUCK COIN\n4️⃣ Успешно вынеси добычу через EXIT\n\n⭐ Награда:\nТы получишь ${st(INVITEE_STARS)}${INVITEE_COINS} DUCK COIN\nЯ получу ${st(INVITER_STARS)}${INVITER_COINS} DUCK COIN${stars ? '\n\n⭐ Stars выплачиваются вручную в течение 24 часов после выполнения условий.' : ''}`
-      : `🦆 DUCKJACKPOT\n\nTry to rob the BANK and grab DUCK COIN.\n\n🎁 To get the reward:\n\n1️⃣ Follow the DuckJackpot channel\n2️⃣ Open the game\n3️⃣ Collect ${MISSION_COINS} DUCK COIN\n4️⃣ Carry the loot out through EXIT\n\n⭐ Reward:\nYou get ${st(INVITEE_STARS)}${INVITEE_COINS} DUCK COIN\nI get ${st(INVITER_STARS)}${INVITER_COINS} DUCK COIN${stars ? '\n\n⭐ Stars are paid out manually within 24 hours after the conditions are met.' : ''}`
+      ? `🦆 DUCKJACKPOT\n\nПриглашай друзей и получай ⭐${STARS_PER_REFERRAL}\nза каждого друга, который выполнит миссию.\n\n🎁 Собери ${STARS_PAYOUT_BLOCK} ⭐ и получи первую выплату.\n\nТвоя ссылка:\n${url}`
+      : `🦆 DUCKJACKPOT\n\nInvite friends and get ⭐${STARS_PER_REFERRAL}\nfor every friend who completes the mission.\n\n🎁 Collect ${STARS_PAYOUT_BLOCK} ⭐ and get your first payout.\n\nYour link:\n${url}`
     // 📢 opens the channel only; the server still checks the real subscription later.
     const buttons = [
       { text: ru ? '📢 ПОДПИСАТЬСЯ НА КАНАЛ' : '📢 FOLLOW THE CHANNEL', url: channelUrl() },
@@ -782,52 +787,73 @@ app.post('/api/notifications/prefs', async (req, res) => {
   res.json({ muted: await setMuted(u.id, req.body?.muted === true) })
 })
 
-// ---------- ⭐ Stars reward queue (manual payouts by the operator) ----------
-const STARS_STATUSES: StarsStatus[] = ['PENDING', 'PAID', 'CANCELLED']
-app.get('/api/admin/stars-rewards', (req, res) => {
+// ---------- ⭐ referral payouts (blocks of 50 ⭐, paid by hand by the operator) ----------
+/** The player asks for a ready payout (their own): READY_FOR_PAYOUT → PENDING. */
+app.post('/api/referral/payouts/:id/request', async (req, res) => {
+  const u = tgUser(req)
+  if (!u) {
+    res.status(401).json({ error: 'unauthorized' })
+    return
+  }
+  try {
+    const r = await requestPayout(u.id, String(req.params.id))
+    if (!r.ok) {
+      res.status(r.error === 'not_found' ? 404 : 409).json({ error: r.error })
+      return
+    }
+    if (r.first) ev(u.id, 'referral_payout_requested', { stars: r.payout.stars })
+    res.json({ ok: true, payout: r.payout, starsProgress: starsProgressOf(u.id) })
+  } catch (err) {
+    console.error('[payout] request failed', err)
+    res.status(503).json({ error: 'unavailable' })
+  }
+})
+
+const PAYOUT_STATUSES: PayoutStatus[] = ['READY_FOR_PAYOUT', 'PENDING', 'PAID', 'CANCELLED']
+app.get('/api/admin/referral-payouts', (req, res) => {
   if (!requireAdmin(req, res)) return
-  const q = String(req.query.status ?? '').toUpperCase() as StarsStatus
-  res.json(listStarsRewards(STARS_STATUSES.includes(q) ? q : undefined))
+  const q = String(req.query.status ?? '').toUpperCase() as PayoutStatus
+  res.json(listPayouts(PAYOUT_STATUSES.includes(q) ? q : undefined))
 })
 
 const operatorOf = (raw: unknown) => (typeof raw === 'string' && raw.trim() ? raw.trim().slice(0, 40) : 'admin')
 
-/** The operator sent the Stars from their own Telegram balance: PENDING → PAID once, then tell the player. */
-app.post('/api/admin/stars-rewards/:id/paid', async (req, res) => {
+/** The operator really sent the Stars from their own Telegram balance: → PAID once, then tell the player. */
+app.post('/api/admin/referral-payouts/:id/paid', async (req, res) => {
   if (!requireAdmin(req, res)) return
   if (req.body?.confirm !== true) {
     res.status(400).json({ error: 'confirm_required' })
     return
   }
   try {
-    const r = await settleStarsReward(String(req.params.id), 'PAID', operatorOf(req.body?.operator))
+    const r = await settlePayout(String(req.params.id), 'PAID', operatorOf(req.body?.operator))
     if (!r.ok) {
       res.status(r.error === 'not_found' ? 404 : 409).json({ error: r.error })
       return
     }
-    const w = r.reward
-    ev(w.recipientTelegramId, 'stars_reward_paid', { stars: w.rewardStars, kind: w.role })
-    const notify = await notifyStarsPaid(w.recipientTelegramId, w.rewardStars, w.role).catch(() => 'failed')
-    await noteStarsNotify(w.id, notify)
-    res.json({ ok: true, reward: { ...w, notifyResult: notify } })
+    const p = r.payout
+    ev(p.telegramId, 'referral_payout_paid', { stars: p.stars, orderId: p.id })
+    const notify = await notifyPayoutPaid(p.telegramId, p.stars).catch(() => 'failed')
+    await notePayoutNotify(p.id, notify)
+    res.json({ ok: true, payout: { ...p, notifyResult: notify } })
   } catch (err) {
-    console.error('[stars-reward] paid failed', err)
+    console.error('[payout] paid failed', err)
     res.status(503).json({ error: 'unavailable' })
   }
 })
 
-app.post('/api/admin/stars-rewards/:id/cancel', async (req, res) => {
+app.post('/api/admin/referral-payouts/:id/cancel', async (req, res) => {
   if (!requireAdmin(req, res)) return
   try {
-    const r = await settleStarsReward(String(req.params.id), 'CANCELLED', operatorOf(req.body?.operator), typeof req.body?.reason === 'string' ? req.body.reason : undefined)
+    const r = await settlePayout(String(req.params.id), 'CANCELLED', operatorOf(req.body?.operator), typeof req.body?.reason === 'string' ? req.body.reason : undefined)
     if (!r.ok) {
       res.status(r.error === 'not_found' ? 404 : 409).json({ error: r.error })
       return
     }
-    ev(r.reward.recipientTelegramId, 'stars_reward_cancelled', { stars: r.reward.rewardStars, kind: r.reward.role })
-    res.json({ ok: true, reward: r.reward })
+    ev(r.payout.telegramId, 'referral_payout_cancelled', { stars: r.payout.stars, orderId: r.payout.id })
+    res.json({ ok: true, payout: r.payout })
   } catch (err) {
-    console.error('[stars-reward] cancel failed', err)
+    console.error('[payout] cancel failed', err)
     res.status(503).json({ error: 'unavailable' })
   }
 })
@@ -1348,7 +1374,7 @@ void backfillOnce({ dailyIds: dailyUsers().map((d) => d.telegramId), starsIds: [
   .then((r) => console.log('[retention] backfill', r))
   .catch((err) => console.error('[retention] backfill failed', err))
 void backfillMissionProgress().then((n) => n && console.log('[retention] mission progress backfilled', n))
-void backfillStarsRewards().then((n) => n && console.log('[retention] stars rewards backfilled', n))
+void migrateStarsModel().then((r) => r.done && console.log('[retention] stars model v2', r))
 startNotifier()
 
 app.listen(port, '0.0.0.0', () => {

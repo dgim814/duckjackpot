@@ -8,13 +8,17 @@ import { telegramInitData } from '../telegram/user'
  * Nothing here is awaited on the way into or out of a raid.
  */
 export type InviteStatus = 'opened' | 'verified' | 'played' | 'exited' | 'rewarded'
-export type InviteeView = { status: InviteStatus; channelVerified: boolean; firstRaid: boolean; firstExit: boolean; completed: boolean; progress?: number; target?: number }
+export type InviteeView = { status: InviteStatus; channelVerified: boolean; firstRaid: boolean; firstExit: boolean; completed: boolean; completedAt?: number | null; progress?: number; target?: number }
 export type Grant = { id: string; coins: number; reason: 'referral_invitee' | 'referral_inviter' }
-export type Rewards = { missionCoins?: number; inviterCoins: number; inviteeCoins: number; stars: { available: boolean; manual?: boolean; inviter: number; invitee: number } }
-/** Stars owed to this player for a referral (paid manually by the operator; never game currency). */
-export type StarsView = { id: string; stars: number; role: 'inviter' | 'invitee'; status: 'PENDING' | 'PAID' | 'CANCELLED'; createdAt: number; paidAt: number | null }
+export type Rewards = { missionCoins?: number; inviterCoins: number; inviteeCoins: number; stars: { available: boolean; manual?: boolean; perFriend?: number; payout?: number; inviter: number; invitee: number } }
+/**
+ * ⭐ Referral Stars of this player: an internal accumulating reward (never a Telegram balance).
+ * Each full block becomes a payout the operator sends by hand.
+ */
+export type PayoutView = { id: string; stars: number; block: number; status: 'READY_FOR_PAYOUT' | 'PENDING' | 'PAID' | 'CANCELLED'; createdAt: number; requestedAt: number | null; paidAt: number | null }
+export type StarsProgress = { perFriend: number; block: number; earned: number; balance: number; successful: number; payouts: PayoutView[] }
 export type Channel = { configured: boolean; url: string | null }
-export type Session = { invitee: InviteeView | null; canWrite: boolean; muted: boolean; grants: Grant[]; rewards: Rewards; channel: Channel; stars?: StarsView[] }
+export type Session = { invitee: InviteeView | null; canWrite: boolean; muted: boolean; grants: Grant[]; rewards: Rewards; channel: Channel; starsProgress?: StarsProgress }
 export type ReferralMe = {
   link: string | null
   code: string
@@ -25,7 +29,7 @@ export type ReferralMe = {
   invitee: InviteeView | null
   grants: Grant[]
   channel: Channel
-  stars?: StarsView[]
+  starsProgress?: StarsProgress
 }
 export type Board = { top: { rank: number; name: string; wealth: number; me: boolean }[]; me: { rank: number | null; wealth: number } | null; players: number }
 
@@ -89,6 +93,7 @@ export const referralMe = () => api<ReferralMe>('/referral/me')
 export const checkChannel = () => post<{ subscribed: boolean; status: string; invitee?: InviteeView; grants?: Grant[] }>('/referral/check-channel', {})
 export const leaderboardApi = () => api<Board>('/leaderboard')
 export const prepareShare = (lang: string) => post<{ id: string; url: string; text: string }>('/referral/share', { lang })
+export const requestPayout = (id: string) => post<{ ok: boolean; payout: PayoutView; starsProgress: StarsProgress }>(`/referral/payouts/${id}/request`, {})
 export const reportWriteAccess = (granted: boolean) => post<{ canWrite: boolean }>('/notifications/access', { granted })
 
 /** Raid start / end → server (ranking + referral progress). Never awaited by the game. */

@@ -10,13 +10,14 @@ import {
   prepareShare,
   referralMe,
   reportWriteAccess,
+  requestPayout,
   tg,
   type Board,
   type Channel,
   type InviteeView,
   type ReferralMe,
   type Rewards,
-  type StarsView,
+  type StarsProgress,
 } from './api'
 
 /** A bottom sheet over the hub (closes on the backdrop), clear of the nav and the home indicator. */
@@ -45,20 +46,19 @@ export function ReferralMissionCard({
   invitee,
   channel,
   rewards,
-  starsPaid,
   onUpdate,
 }: {
   invitee: InviteeView
   channel: Channel
   rewards: Rewards
-  starsPaid: boolean
   onUpdate: (v: InviteeView) => void
 }) {
   const { t } = useI18n()
   const [phase, setPhase] = useState<'idle' | 'checking' | 'missing' | 'error'>('idle')
   const target = invitee.target ?? rewards.missionCoins ?? 650
   const progress = Math.min(target, invitee.progress ?? 0)
-  if (invitee.completed && starsPaid) return null
+  // A completed mission stays on the hub for three days.
+  if (invitee.completed && invitee.completedAt && Date.now() - invitee.completedAt > 3 * 86_400_000) return null
   if (invitee.completed) {
     return (
       <section className="channel-step mission-card mt-3 rounded-2xl border border-emerald-300/40 bg-emerald-400/[0.07] px-3 py-3 text-left">
@@ -159,16 +159,14 @@ function MyInvites({ data, onClose }: { data: ReferralMe | null; onClose: () => 
           <p className="mt-3 text-[11px] font-extrabold tracking-[0.12em] text-amber-200">{t('refRewards')}</p>
           <p className="mt-1 text-[13px] font-bold text-emerald-300">{t('refReceived', { n: data.coins.received })}</p>
           <p className="text-[13px] font-bold text-amber-100/80">{t('refPending', { n: data.coins.pending })}</p>
-          {(() => {
-            const mine = (data.stars ?? []).filter((r) => r.role === 'inviter')
-            const sum = (st: StarsView['status']) => mine.filter((r) => r.status === st).reduce((a, r) => a + r.stars, 0)
-            return mine.length ? (
-              <>
-                <p className="mt-1 text-[13px] font-bold text-emerald-300">{t('refStarsPaid', { n: sum('PAID') })}</p>
-                <p className="text-[13px] font-bold text-sky-100/80">{t('refStarsPending', { n: sum('PENDING') })}</p>
-              </>
-            ) : null
-          })()}
+          {data.starsProgress ? (
+            <>
+              <p className="mt-1 text-[13px] font-bold text-sky-100">{t('rfEarned', { n: data.starsProgress.earned })}</p>
+              <p className="text-[13px] font-bold text-emerald-300">
+                {t('rfPaidTotal', { n: data.starsProgress.payouts.filter((x) => x.status === 'PAID').reduce((a, x) => a + x.stars, 0) })}
+              </p>
+            </>
+          ) : null}
           <ul className="mt-3 space-y-1.5">
             {data.invites.length ? (
               data.invites.map((i, k) => (
@@ -190,8 +188,70 @@ function MyInvites({ data, onClose }: { data: ReferralMe | null; onClose: () => 
   )
 }
 
-/** 👥 Invite a friend: the rewards shown are only the ones the server really gives. */
-export function ReferralCard({ rewards, friends = [] }: { rewards: Rewards; friends?: ReferralMe['invites'] }) {
+/** ⭐ Payout status (ready / requested / paid) or the progress toward the next block of 50. */
+function StarsBlock({ progress, onChange }: { progress: StarsProgress; onChange: (p: StarsProgress) => void }) {
+  const { t } = useI18n()
+  const [busy, setBusy] = useState(false)
+  const ready = progress.payouts.find((x) => x.status === 'READY_FOR_PAYOUT')
+  const pending = progress.payouts.find((x) => x.status === 'PENDING')
+  const paid = progress.payouts.filter((x) => x.status === 'PAID' && Date.now() - (x.paidAt ?? 0) < 7 * 86_400_000)
+  const firstBlock = progress.payouts.length <= 1
+  const left = Math.max(1, Math.ceil((progress.block - progress.balance) / progress.perFriend))
+  return (
+    <div className="stars-block mt-2 space-y-2">
+      {ready ? (
+        <div className="payout-ready rounded-xl border border-emerald-300/50 bg-emerald-400/10 px-3 py-2.5">
+          <p className="text-[13px] font-black text-emerald-300">{t('rfReadyTitle', { n: ready.stars })}</p>
+          <p className="mt-0.5 text-[11px] text-emerald-100/80">{firstBlock ? t('rfReadyFirst') : t('rfReadyNext')}</p>
+          <button
+            type="button"
+            disabled={busy}
+            className="payout-get mt-2 min-h-11 w-full rounded-xl bg-emerald-300 text-[13px] font-black text-zinc-950 disabled:opacity-60"
+            onClick={() => {
+              setBusy(true)
+              requestPayout(ready.id)
+                .then((r) => onChange(r.starsProgress))
+                .catch(() => undefined)
+                .finally(() => setBusy(false))
+            }}
+          >
+            {t('rfGet', { n: ready.stars })}
+          </button>
+        </div>
+      ) : null}
+      {pending ? <p className="payout-pending rounded-xl bg-amber-300/10 px-3 py-2 text-[12px] font-black text-amber-200">{t('rfPending', { n: pending.stars })}</p> : null}
+      {paid.map((x) => (
+        <p key={x.id} className="payout-paid rounded-xl bg-emerald-400/10 px-3 py-2 text-[12px] font-black text-emerald-300">
+          {t('rfPaid', { n: x.stars })}
+        </p>
+      ))}
+      <div className="rounded-xl bg-black/30 px-3 py-2">
+        <div className="flex items-center justify-between gap-2">
+          <p className="stars-balance font-display text-[15px] font-black text-sky-100">{t('rfBalance', { n: progress.balance, max: progress.block })}</p>
+        </div>
+        <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-zinc-800">
+          <div className="progress-fill h-full rounded-full" style={{ width: `${Math.round((progress.balance / progress.block) * 100)}%` }} />
+        </div>
+        <p className="mt-1.5 text-[11px] font-bold text-zinc-300">
+          {progress.earned < progress.block ? t('rfLeftFirst', { n: left, max: progress.block }) : t('rfLeftNext', { n: left, max: progress.block })}
+        </p>
+      </div>
+    </div>
+  )
+}
+
+/** 🎁 Invite friends: ⭐5 per successful friend toward payouts of 50 ⭐ (plus the DUCK COIN reward). */
+export function ReferralCard({
+  rewards,
+  friends = [],
+  progress,
+  onProgress,
+}: {
+  rewards: Rewards
+  friends?: ReferralMe['invites']
+  progress?: StarsProgress
+  onProgress?: (p: StarsProgress) => void
+}) {
   const { t, lang } = useI18n()
   const [open, setOpen] = useState(false)
   const [data, setData] = useState<ReferralMe | null>(null)
@@ -227,22 +287,15 @@ export function ReferralCard({ rewards, friends = [] }: { rewards: Rewards; frie
   }
   return (
     <section className="referral-card mt-3 rounded-2xl border border-amber-400/30 bg-[#16120c] px-3 py-3 text-left">
-      <p className="text-[12px] font-black tracking-[0.06em] text-amber-100">{t('refTitle')}</p>
-      <p className="mt-0.5 text-[12px] text-zinc-300">{t('refText')}</p>
-      <div className="mt-2 grid grid-cols-2 gap-2">
-        <div className="rounded-xl bg-black/30 px-2.5 py-1.5">
-          <p className="text-[10px] font-bold text-zinc-400">{t('refYouGet')}</p>
-          {rewards.stars.inviter > 0 ? <p className="font-display text-[13px] font-black text-sky-100">{t('refStars', { n: rewards.stars.inviter })}</p> : null}
-          <p className="font-display text-[13px] font-black text-amber-50">{t('refCoins', { n: rewards.inviterCoins })}</p>
-        </div>
-        <div className="rounded-xl bg-black/30 px-2.5 py-1.5">
-          <p className="text-[10px] font-bold text-zinc-400">{t('refFriendGets')}</p>
-          {rewards.stars.invitee > 0 ? <p className="font-display text-[13px] font-black text-sky-100">{t('refStars', { n: rewards.stars.invitee })}</p> : null}
-          <p className="font-display text-[13px] font-black text-amber-50">{t('refCoins', { n: rewards.inviteeCoins })}</p>
-        </div>
-      </div>
+      <p className="text-[12px] font-black tracking-[0.06em] text-amber-100">{t('rfTitle')}</p>
+      <p className="mt-0.5 text-[12px] text-zinc-300">{t('rfText', { n: rewards.stars.perFriend ?? 5 })}</p>
+      <p className="text-[11px] text-amber-100/80">{t('rfCoins', { n: rewards.inviterCoins })}</p>
+      <StarsBlock
+        progress={progress ?? { perFriend: rewards.stars.perFriend ?? 5, block: rewards.stars.payout ?? 50, earned: 0, balance: 0, successful: 0, payouts: [] }}
+        onChange={(p) => onProgress?.(p)}
+      />
       <p className="mt-1.5 text-[10px] leading-snug text-zinc-500">{t('refRuleMission', { n: rewards.missionCoins ?? 650 })}</p>
-      {rewards.stars.available ? <p className="mt-0.5 text-[10px] leading-snug text-zinc-500">{t('refStarsNote')}</p> : null}
+      <p className="mt-0.5 text-[10px] leading-snug text-zinc-500">{t('rfNote')}</p>
       <div className="mt-2 grid grid-cols-2 gap-2">
         <button type="button" className="buy-btn min-h-11 rounded-xl px-2 text-[12px] font-black text-zinc-950" onClick={() => void invite()}>
           {t('refInvite')}
@@ -347,35 +400,5 @@ export function NotifyOptIn({ canWrite }: { canWrite: boolean }) {
     >
       {t('notifyAsk')}
     </button>
-  )
-}
-
-/**
- * ⭐ Stars this player is owed for a referral. Never shown as received until the operator
- * marked the payout as sent (PAID); a paid notice stays for a week.
- */
-export function StarsRewardNotice({ rewards }: { rewards: StarsView[] }) {
-  const { t } = useI18n()
-  // An invited player's pending Stars are shown on the mission card itself.
-  const recent = rewards.filter((r) => (r.status === 'PENDING' && r.role === 'inviter') || (r.status === 'PAID' && Date.now() - (r.paidAt ?? 0) < 7 * 86_400_000))
-  if (!recent.length) return null
-  return (
-    <section className="stars-notice mt-3 space-y-2">
-      {recent.map((r) =>
-        r.status === 'PENDING' ? (
-          <div key={r.id} className="rounded-2xl border border-sky-300/40 bg-sky-400/[0.07] px-3 py-2.5 text-left">
-            <div className="flex items-center justify-between gap-2">
-              <p className="text-[12px] font-black text-sky-100">{r.role === 'inviter' ? t('friendDone') : t('starsOwedTitle')}</p>
-              <span className="shrink-0 rounded-full bg-amber-300/20 px-2 py-0.5 text-[10px] font-black text-amber-200">{t('starsPending')}</span>
-            </div>
-            <p className="mt-1 text-[12px] leading-snug text-sky-100/80">{t('starsOwedText', { n: r.stars })}</p>
-          </div>
-        ) : (
-          <div key={r.id} className="rounded-2xl border border-emerald-300/40 bg-emerald-400/[0.07] px-3 py-2.5 text-left">
-            <p className="text-[12px] font-black text-emerald-300">{t('starsPaid', { n: r.stars })}</p>
-          </div>
-        ),
-      )}
-    </section>
   )
 }
