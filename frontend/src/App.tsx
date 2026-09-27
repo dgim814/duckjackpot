@@ -1,5 +1,7 @@
 import { TonConnectUIProvider } from '@tonconnect/ui-react'
 import WebApp from '@twa-dev/sdk'
+import { startSession } from './retention/api'
+import { isHeistNovice, loadProgress } from './heist/progress'
 import { bootTelegramApp } from './telegram/webapp'
 import { useEffect, type ReactNode } from 'react'
 import { HashRouter, Navigate, Route, Routes, useNavigate } from 'react-router-dom'
@@ -41,6 +43,8 @@ function TelegramBoot({ children }: { children: ReactNode }) {
   useEffect(() => {
     bootTelegramApp()
     captureTelegramUser()
+    // Retention session (referral from the signed start_param, notification opens): fire-and-forget.
+    startSession(isHeistNovice(loadProgress()))
     void consumePendingGameplayReset()
   }, [])
   return children

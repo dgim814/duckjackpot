@@ -25,7 +25,30 @@ import {
 import { verifyInitData } from './verifyInitData.js'
 import { allOrders, createOrder, ordersOf, saveOrder, STARS_PRODUCTS, type StarsOrder } from './starsStore.js'
 import { analyticsSummary, recordEvents, userKey, type AnalyticsRange, type IncomingEvent } from './analyticsStore.js'
-import { claimDaily, dailyStatus, isNonce } from './dailyRewardStore.js'
+import { claimDaily, dailyStatus, dailyUsers, isNonce } from './dailyRewardStore.js'
+import {
+  backfillOnce,
+  claimGrant,
+  INVITEE_COINS,
+  INVITER_COINS,
+  inviteOf,
+  invitesBy,
+  inviteStatus,
+  isRaidId,
+  leaderboard,
+  markChannelVerified,
+  pendingGrants,
+  refCodeOf,
+  referralSummary,
+  reportRaid,
+  setMuted,
+  setWriteAccess,
+  touchSession,
+  type Invite,
+  type RaidReport,
+} from './retentionStore.js'
+import { notifyLog, notifyReferralCompleted, notifyTick, startNotifier, type NotifKind } from './notifyService.js'
+import { botUsername, channelHealth, checkChannelMember, prepareInviteMessage, sendRetentionMessage } from './bot.js'
 
 dotenv.config()
 
@@ -362,7 +385,8 @@ app.get('/api/admin/analytics', (req, res) => {
   const r = String(req.query.range ?? '7d')
   const range: AnalyticsRange = r === 'today' || r === '7d' || r === '30d' || r === 'all' ? r : '7d'
   try {
-    res.json(analyticsSummary(range, Date.now(), allOrders()))
+    const sum = analyticsSummary(range, Date.now(), allOrders())
+    res.json({ ...sum, referrals: referralSummary(sum.from, sum.notifications.linksCreated) })
   } catch (err) {
     console.error('[analytics] summary failed', err)
     res.status(500).json({ error: 'server_error' })
@@ -497,6 +521,259 @@ app.post('/api/daily-reward/claim', async (req, res) => {
     console.error('[daily] claim failed', err)
     res.status(503).json({ error: 'unavailable' })
   }
+})
+
+// ---------- 👥 referrals, 🔔 notifications, 🏆 ranking ----------
+/** The verified Telegram user (signed initData, up to 7 days old). Never a client-sent id. */
+function tgUser(req: express.Request) {
+  const raw = req.header('x-telegram-init-data') ?? (typeof req.body?.initData === 'string' ? req.body.initData : '')
+  if (!raw) return null
+  return verifyInitData(raw, getTelegramSettings().token, 7 * 86_400)
+}
+const ev = (id: number, name: string, props?: Record<string, string | number | boolean>) => {
+  try {
+    recordEvents(`tg:${id}`, 'server', [{ name, ...(props ? { props } : {}) }])
+  } catch (err) {
+    console.error('[analytics] server event failed', err)
+  }
+}
+const NOTIF_KINDS: NotifKind[] = ['daily', 'overtaken', 'leader', 'raid_return', 'invite', 'referral_inviter', 'referral_invitee']
+const STATUS_ORDER = ['opened', 'verified', 'played', 'exited', 'rewarded'] as const
+const channelInfo = () => ({ configured: Boolean((process.env.TELEGRAM_CHANNEL_ID ?? '').trim()), url: (process.env.TELEGRAM_CHANNEL_URL ?? '').trim() || null })
+const rewardsInfo = () => ({ inviterCoins: INVITER_COINS, inviteeCoins: INVITEE_COINS, stars: { available: false, inviter: 0, invitee: 0 } })
+const inviteView = (i: Invite | null) =>
+  i ? { status: inviteStatus(i), channelVerified: Boolean(i.channelVerifiedAt), firstRaid: Boolean(i.firstRaidAt), firstExit: Boolean(i.firstExitAt), completed: Boolean(i.completedAt) } : null
+
+async function afterCompletion(completed: { invitee: { telegramId: number; coins: number }; inviter: { telegramId: number; coins: number } } | null) {
+  if (!completed) return
+  ev(completed.invitee.telegramId, 'referral_reward_pending', { coins: completed.invitee.coins, kind: 'invitee' })
+  ev(completed.inviter.telegramId, 'referral_reward_pending', { coins: completed.inviter.coins, kind: 'inviter' })
+  void notifyReferralCompleted(completed.invitee.telegramId, completed.inviter.telegramId)
+}
+
+/** App opened: register the player, apply a referral from the signed start_param once. */
+app.post('/api/me/session', async (req, res) => {
+  const u = tgUser(req)
+  if (!u) {
+    res.status(401).json({ error: 'unauthorized' })
+    return
+  }
+  const m = /^ref_([A-Za-z0-9]{6,16})$/.exec(u.startParam ?? '')
+  try {
+    const r = await touchSession({ id: u.id, name: u.firstName, username: u.username, allowsWriteToPm: u.allowsWriteToPm, lang: u.languageCode, refCode: m?.[1], via: 'startapp', novice: typeof req.body?.novice === 'boolean' ? req.body.novice : undefined })
+    if (m) {
+      if (r.freshInvite) {
+        ev(u.id, 'referral_opened')
+        ev(u.id, 'referral_registered')
+      } else if (r.referral.kind === 'refused') ev(u.id, 'referral_opened', { error: r.referral.reason })
+    }
+    const n = String(req.body?.n ?? '')
+    if ((NOTIF_KINDS as string[]).includes(n)) ev(u.id, 'notification_opened', { kind: n })
+    res.json({ invitee: inviteView(r.invite), canWrite: r.player.canWrite && !r.player.writeBlocked, muted: Boolean(r.player.muted), grants: pendingGrants(u.id), rewards: rewardsInfo(), channel: channelInfo() })
+  } catch (err) {
+    console.error('[retention] session failed', err)
+    res.status(503).json({ error: 'unavailable' })
+  }
+})
+
+app.get('/api/referral/me', async (req, res) => {
+  const u = tgUser(req)
+  if (!u) {
+    res.status(401).json({ error: 'unauthorized' })
+    return
+  }
+  try {
+    const { code, first } = await refCodeOf(u.id)
+    const bot = await botUsername()
+    if (first) ev(u.id, 'referral_link_created')
+    const mine = invitesBy(u.id)
+    const reached = (s: (typeof STATUS_ORDER)[number]) => mine.list.filter((i) => STATUS_ORDER.indexOf(inviteStatus(i)) >= STATUS_ORDER.indexOf(s)).length
+    res.json({
+      link: bot ? `https://t.me/${bot}?startapp=ref_${code}` : null,
+      code,
+      rewards: rewardsInfo(),
+      stats: { invited: mine.list.length, subscribed: reached('verified'), played: reached('played'), exited: reached('exited'), rewarded: reached('rewarded') },
+      coins: { received: mine.rewardedCoins, pending: mine.pendingCoins },
+      invites: mine.list.slice(0, 50).map((i) => ({ name: i.inviteeName ?? null, username: i.inviteeUsername ?? null, status: inviteStatus(i), openedAt: i.openedAt })),
+      invitee: inviteView(inviteOf(u.id)),
+      grants: pendingGrants(u.id),
+      channel: channelInfo(),
+    })
+  } catch (err) {
+    console.error('[referral] me failed', err)
+    res.status(503).json({ error: 'unavailable' })
+  }
+})
+
+/** Native share: a prepared message with a ▶ button (Telegram shareMessage). */
+app.post('/api/referral/share', async (req, res) => {
+  const u = tgUser(req)
+  if (!u) {
+    res.status(401).json({ error: 'unauthorized' })
+    return
+  }
+  try {
+    const { code, first } = await refCodeOf(u.id)
+    if (first) ev(u.id, 'referral_link_created')
+    const bot = await botUsername()
+    if (!bot) throw new Error('bot_not_configured')
+    const url = `https://t.me/${bot}?startapp=ref_${code}`
+    const ru = req.body?.lang !== 'en'
+    const text = ru
+      ? `🦆 DUCKJACKPOT\n\nПопробуй ограбить BANK и забрать DUCK COIN.\n\n🎁 Ты получишь:\n🪙 ${INVITEE_COINS} DUCK COIN\n\nА я получу:\n🪙 ${INVITER_COINS} DUCK COIN`
+      : `🦆 DUCKJACKPOT\n\nTry to rob the BANK and grab DUCK COIN.\n\n🎁 You get:\n🪙 ${INVITEE_COINS} DUCK COIN\n\nAnd I get:\n🪙 ${INVITER_COINS} DUCK COIN`
+    const id = await prepareInviteMessage(u.id, { title: 'DUCKJACKPOT', text, url, button: ru ? '🦆 ИГРАТЬ' : '🦆 PLAY' })
+    res.json({ id, url, text })
+  } catch (err) {
+    console.error('[referral] share failed', err instanceof Error ? err.message : err)
+    res.status(502).json({ error: 'share_unavailable' })
+  }
+})
+
+/** getChatMember on the configured channel for the verified user. Never trusts the client. */
+app.post('/api/referral/check-channel', async (req, res) => {
+  const u = tgUser(req)
+  if (!u) {
+    res.status(401).json({ error: 'unauthorized' })
+    return
+  }
+  ev(u.id, 'referral_channel_check_started')
+  const check = await checkChannelMember(u.id)
+  if (!check.ok) {
+    res.status(503).json({ error: check.error })
+    return
+  }
+  if (!check.subscribed) {
+    res.json({ subscribed: false, status: check.status })
+    return
+  }
+  try {
+    const r = await markChannelVerified(u.id)
+    if (r.first) ev(u.id, 'referral_channel_verified')
+    await afterCompletion(r.completed)
+    res.json({ subscribed: true, status: check.status, invitee: inviteView(r.invite), grants: pendingGrants(u.id) })
+  } catch (err) {
+    console.error('[referral] verify failed', err)
+    res.status(503).json({ error: 'unavailable' })
+  }
+})
+
+/** Raid start / end from the game (fire-and-forget on the client). */
+app.post('/api/player/raid', async (req, res) => {
+  const u = tgUser(req)
+  if (!u) {
+    res.status(401).json({ error: 'unauthorized' })
+    return
+  }
+  const b = (req.body ?? {}) as Record<string, unknown>
+  if (!isRaidId(b.raidId) || (b.event !== 'start' && b.event !== 'end')) {
+    res.status(400).json({ error: 'bad_request' })
+    return
+  }
+  const verdict = b.verdict === 'escaped' || b.verdict === 'caught' || b.verdict === 'aborted' ? b.verdict : null
+  const report: RaidReport =
+    b.event === 'start'
+      ? { event: 'start', raidId: b.raidId, level: typeof b.level === 'string' ? b.level : 'bank', preview: b.preview === true }
+      : { event: 'end', raidId: b.raidId, verdict: verdict ?? 'aborted', loot: Number(b.loot) || 0, preview: b.preview === true }
+  try {
+    const r = await reportRaid(u.id, report)
+    if (r.firstRaid) ev(u.id, 'referral_first_raid')
+    if (r.firstExit) ev(u.id, 'referral_first_exit')
+    await afterCompletion(r.completed)
+    res.json({ ok: true, counted: r.counted, rejected: r.rejected, invitee: inviteView(r.invite), grants: r.completed ? pendingGrants(u.id) : undefined })
+  } catch (err) {
+    console.error('[raid] report failed', err)
+    res.status(503).json({ error: 'unavailable' })
+  }
+})
+
+/** Claim a server-granted DUCK COIN reward once (nonce-idempotent, like the daily reward). */
+app.post('/api/rewards/claim', async (req, res) => {
+  const u = tgUser(req)
+  if (!u) {
+    res.status(401).json({ error: 'unauthorized' })
+    return
+  }
+  const grantId = String(req.body?.grantId ?? '')
+  const nonce = req.body?.nonce
+  if (!/^[a-f0-9]{18}$/.test(grantId) || !isNonce(nonce)) {
+    res.status(400).json({ error: 'bad_request' })
+    return
+  }
+  try {
+    const r = await claimGrant(u.id, grantId, nonce)
+    if (!r.ok) {
+      res.status(r.error === 'not_found' ? 404 : 409).json({ error: r.error })
+      return
+    }
+    if (!r.replay) ev(u.id, 'referral_reward_success', { coins: r.grant.coins, kind: r.grant.reason === 'referral_inviter' ? 'inviter' : 'invitee' })
+    res.json({ granted: true, replay: r.replay, claimId: r.grant.id, amount: r.grant.coins, reason: r.grant.reason })
+  } catch (err) {
+    console.error('[rewards] claim failed', err)
+    res.status(503).json({ error: 'unavailable' })
+  }
+})
+
+const dailyCoinsMap = () => new Map(dailyUsers().map((d) => [d.telegramId, d.totalCoins]))
+
+app.get('/api/leaderboard', (req, res) => {
+  const u = tgUser(req)
+  const board = leaderboard(dailyCoinsMap())
+  const me = u ? board.find((r) => r.id === u.id) : undefined
+  res.json({
+    top: board.slice(0, 10).map((r) => ({ rank: r.rank, name: r.name, wealth: r.wealth, me: r.id === u?.id })),
+    me: u ? { rank: me?.rank ?? null, wealth: me?.wealth ?? 0 } : null,
+    players: board.length,
+  })
+})
+
+app.post('/api/notifications/access', async (req, res) => {
+  const u = tgUser(req)
+  if (!u) {
+    res.status(401).json({ error: 'unauthorized' })
+    return
+  }
+  const granted = req.body?.granted === true || u.allowsWriteToPm === true
+  const canWrite = await setWriteAccess(u.id, granted)
+  if (granted) ev(u.id, 'notification_permission_granted')
+  res.json({ canWrite })
+})
+
+app.post('/api/notifications/prefs', async (req, res) => {
+  const u = tgUser(req)
+  if (!u) {
+    res.status(401).json({ error: 'unauthorized' })
+    return
+  }
+  res.json({ muted: await setMuted(u.id, req.body?.muted === true) })
+})
+
+app.get('/api/admin/retention', async (req, res) => {
+  if (!requireAdmin(req, res)) return
+  const r = String(req.query.range ?? 'all')
+  const range: AnalyticsRange = r === 'today' || r === '7d' || r === '30d' || r === 'all' ? r : 'all'
+  const sum = analyticsSummary(range, Date.now(), allOrders())
+  res.json({ referrals: referralSummary(sum.from, sum.notifications.linksCreated), notifications: { ...sum.notifications, ...notifyLog() }, channel: await channelHealth(), leaderboard: leaderboard(dailyCoinsMap()).slice(0, 20) })
+})
+
+/** Admin: send one notification to a given Telegram id now (to test on your own account). */
+app.post('/api/admin/notifications/test', async (req, res) => {
+  if (!requireAdmin(req, res)) return
+  const id = Number(req.body?.telegramId)
+  const kind = String(req.body?.kind ?? 'daily') as NotifKind
+  if (!Number.isInteger(id) || id <= 0 || !NOTIF_KINDS.includes(kind)) {
+    res.status(400).json({ error: 'bad_request' })
+    return
+  }
+  const text = kind === 'daily' ? '🔔 DUCKJACKPOT\n\n🎁 Не забудь забрать награду!\n\nСегодня тебя ждёт:\n🪙 +150 DUCK COIN' : `🔔 DUCKJACKPOT (test: ${kind})`
+  res.json({ result: await sendRetentionMessage(id, text, { text: '🦆 DUCKJACKPOT', query: `n=${kind}` }) })
+})
+
+/** Admin / tests: run one notification pass now. */
+app.post('/api/admin/notifications/tick', async (req, res) => {
+  if (!requireAdmin(req, res)) return
+  const now = Number(req.body?.now) || Date.now()
+  res.json(await notifyTick(now))
 })
 
 app.get('/api/nft', (_req, res) => {
@@ -958,6 +1235,12 @@ app.use((err: unknown, _req: express.Request, res: express.Response, next: expre
   console.error('[api] unhandled error', err)
   res.status(typeof e?.status === 'number' ? e.status : 500).json({ error: 'server_error' })
 })
+
+// Players known before referrals existed are "old": queued first, before any session can run.
+void backfillOnce({ dailyIds: dailyUsers().map((d) => d.telegramId), starsIds: [...new Set(allOrders().map((o) => o.telegramUserId))] })
+  .then((r) => console.log('[retention] backfill', r))
+  .catch((err) => console.error('[retention] backfill failed', err))
+startNotifier()
 
 app.listen(port, '0.0.0.0', () => {
   loadWalletsFromDisk()

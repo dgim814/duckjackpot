@@ -2,6 +2,7 @@ import { getChat, rememberChat } from './chatStore.js'
 import { getUserCards, type StoredCard } from './cardStore.js'
 import { getTelegramSettings } from './config.js'
 import { recordEvents } from './analyticsStore.js'
+import { touchSession } from './retentionStore.js'
 import { applySuccessfulPayment, checkPreCheckout, invoiceTexts, STARS_PRODUCTS, type PreCheckout, type StarsOrder, type SuccessfulPayment } from './starsStore.js'
 
 type TelegramUser = {
@@ -131,6 +132,17 @@ async function handleMessage(token: string, message: TelegramMessage) {
   const chatId = message.chat.id
   const command = text.split(/\s+/)[0]?.split('@')[0]
   if (command === '/start') {
+    // t.me/<bot>?start=ref_<code>: Telegram itself says who pressed it (message.from), so it is verified.
+    const payload = text.split(/\s+/)[1] ?? ''
+    const ref = /^ref_([A-Za-z0-9]{6,16})$/.exec(payload)
+    if (ref && message.from?.id && !message.from.is_bot) {
+      try {
+        const r = await touchSession({ id: message.from.id, name: message.from.first_name, username: message.from.username, refCode: ref[1], via: 'start', allowsWriteToPm: true })
+        if (r.referral.kind === 'opened') recordEvents(`tg:${message.from.id}`, 'bot', [{ name: 'referral_opened', props: { step: 'start' } }])
+      } catch (err) {
+        console.error('[referral] /start failed', err)
+      }
+    }
     const name = message.from?.first_name ? `, ${message.from.first_name}` : ''
     await sendMessage(
       token,
@@ -418,4 +430,88 @@ export async function createStarsInvoiceLink(order: StarsOrder) {
 /** Whether this server can sell Stars: a bot token is configured and the update poller runs. */
 export function starsBotState() {
   return { configured: Boolean(getTelegramSettings().token), polling: pollLoop !== null }
+}
+
+// ---------- retention: notifications, channel check, share ----------
+
+export type SendResult = 'sent' | 'blocked' | 'failed' | 'no_bot'
+
+/** A short bot message with one button that opens the Mini App (web_app) at `query`. */
+export async function sendRetentionMessage(telegramId: number, text: string, button: { text: string; query: string }): Promise<SendResult> {
+  const { token, webappUrl } = getTelegramSettings()
+  if (!token) return 'no_bot'
+  const base = webappUrl.replace(/\/$/, '')
+  const reply_markup = base ? { inline_keyboard: [[{ text: button.text, web_app: { url: `${base}/?${button.query}` } }]] } : undefined
+  try {
+    await telegramApi(token, 'sendMessage', { chat_id: getChat(telegramId)?.chatId ?? telegramId, text, reply_markup })
+    return 'sent'
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    if (/forbidden|blocked|chat not found|can't initiate|deactivated/i.test(message)) return 'blocked'
+    console.error('[notify] send failed', message)
+    return 'failed'
+  }
+}
+
+export type ChannelCheck = { ok: true; subscribed: boolean; status: string } | { ok: false; error: string }
+
+/** Official check: getChatMember on the configured channel. The bot must be an admin there. */
+export async function checkChannelMember(userId: number): Promise<ChannelCheck> {
+  const { token } = getTelegramSettings()
+  const channel = (process.env.TELEGRAM_CHANNEL_ID ?? '').trim()
+  if (!token) return { ok: false, error: 'bot_not_configured' }
+  if (!channel) return { ok: false, error: 'channel_not_configured' }
+  try {
+    const m = await telegramApi<{ status: string; is_member?: boolean }>(token, 'getChatMember', { chat_id: channel, user_id: userId })
+    const subscribed = m.status === 'member' || m.status === 'administrator' || m.status === 'creator' || (m.status === 'restricted' && m.is_member === true)
+    return { ok: true, subscribed, status: m.status }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    // "user not found" for a channel = the user is not in it.
+    if (/user not found|PARTICIPANT_ID_INVALID/i.test(message)) return { ok: true, subscribed: false, status: 'left' }
+    console.error('[channel] getChatMember failed', message)
+    return { ok: false, error: /not enough rights|member list is inaccessible|administrator|chat not found|bot is not a member/i.test(message) ? 'bot_not_admin' : 'telegram_error' }
+  }
+}
+
+/** Channel health for the admin: does the channel exist and is the bot an administrator there? */
+export async function channelHealth() {
+  const { token } = getTelegramSettings()
+  const channel = (process.env.TELEGRAM_CHANNEL_ID ?? '').trim()
+  if (!token) return { configured: false, error: 'bot_not_configured' }
+  if (!channel) return { configured: false, error: 'TELEGRAM_CHANNEL_ID is not set' }
+  try {
+    const me = await telegramApi<{ id: number }>(token, 'getMe')
+    const m = await telegramApi<{ status: string }>(token, 'getChatMember', { chat_id: channel, user_id: me.id })
+    return { configured: true, channel, botStatus: m.status, botIsAdmin: m.status === 'administrator' || m.status === 'creator' }
+  } catch (err) {
+    return { configured: true, channel, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+let cachedUsername: string | null = null
+export async function botUsername() {
+  if (cachedUsername) return cachedUsername
+  const me = await botIdentity()
+  cachedUsername = me?.username ?? null
+  return cachedUsername
+}
+
+/** A share-ready invite (message + ▶ button) the player sends with Telegram's native share sheet. */
+export async function prepareInviteMessage(userId: number, t: { title: string; text: string; url: string; button: string }) {
+  const { token } = getTelegramSettings()
+  if (!token) throw new Error('bot_not_configured')
+  const r = await telegramApi<{ id: string }>(token, 'savePreparedInlineMessage', {
+    user_id: userId,
+    result: {
+      type: 'article',
+      id: `inv${Date.now().toString(36)}`,
+      title: t.title,
+      input_message_content: { message_text: t.text },
+      reply_markup: { inline_keyboard: [[{ text: t.button, url: t.url }]] },
+    },
+    allow_user_chats: true,
+    allow_group_chats: true,
+  })
+  return r.id
 }

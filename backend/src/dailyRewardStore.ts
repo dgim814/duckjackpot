@@ -123,3 +123,12 @@ export function claimDaily(telegramId: number, nonce: string, now = Date.now()) 
     return { granted: true, replay: false, claimId, amount: DAILY_REWARD, claimedAt: now, nextAt: now + DAILY_REWARD_MS }
   })
 }
+
+/** Read-only view for retention (reminders, ranking): who claimed when, and how much in total. */
+export function dailyUsers(): DailyUser[] {
+  try {
+    return Object.values(read().users).filter((u) => u.claims > 0)
+  } catch {
+    return []
+  }
+}

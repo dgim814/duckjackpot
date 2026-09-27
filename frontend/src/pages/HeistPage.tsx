@@ -41,6 +41,7 @@ import { HEIST_LEVEL_NAME, HEIST_LEVEL_ORDER, continueLevel, currentHeistLevel, 
 import { useI18n } from '../i18n/LanguageProvider'
 import { ThiefStatus } from '../heist/economy/ThiefStatus'
 import { perfMark, perfMarkPainted } from '../perf/transition'
+import { reportRaidEnd, reportRaidStart } from '../retention/api'
 
 /** Goal, guards and cameras of a level, so the player picks the risk knowingly. */
 function LevelBrief({ id, cap }: { id: HeistLevelId; cap: number }) {
@@ -387,6 +388,8 @@ export function HeistPage() {
 
   const onDone = (next: HeistEnd) => {
     perfMark('GAME_EXIT_SAVE_START')
+    // Ranking / referral progress on the server: fire-and-forget, never delays the result.
+    reportRaidEnd(next.verdict, next.verdict === 'escaped' ? next.coins + next.bonus + next.objBonus : 0, Boolean(next.preview))
     if (next.verdict === 'aborted') {
       setEnd(null)
       setScreen('lobby')
@@ -418,6 +421,7 @@ export function HeistPage() {
 
   const playLevel = (id: HeistLevelId, opts: { preview?: boolean; resume?: boolean } = {}) => {
     perfMark('PLAY_LEVEL')
+    if (!opts.resume) reportRaidStart(id, Boolean(opts.preview))
     setJustUnlocked(null)
     unlockHeistSfx()
     heistSfx.uiTap()
@@ -432,6 +436,12 @@ export function HeistPage() {
     setRunKey((n) => n + 1)
     setScreen('play')
   }
+
+  // A first-time player lands straight in the raid (no playLevel): report that start too.
+  useEffect(() => {
+    if (screen === 'play' && !hubIntent?.play) reportRaidStart(levelId, false)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Hub intent is used once, then dropped from history (a reload or Back must not restart a raid).
   const intentDone = useRef(false)

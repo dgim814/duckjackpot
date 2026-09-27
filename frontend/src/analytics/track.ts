@@ -34,6 +34,9 @@ export type AnalyticsEvent =
   | 'stars_cta_click'
   | 'hub_primary_cta_view'
   | 'hub_primary_cta_click'
+  | 'leaderboard_opened'
+  | 'notification_permission_requested'
+  | 'notification_action_clicked'
 
 export type AnalyticsProps = Partial<{
   level: string
@@ -56,6 +59,7 @@ export type AnalyticsProps = Partial<{
   starsAmount: number
   error: string
   placement: string
+  kind: string
 }>
 
 const ANON_KEY = 'duckjackpot.analytics.device'

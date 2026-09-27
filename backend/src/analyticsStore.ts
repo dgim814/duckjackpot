@@ -39,6 +39,27 @@ export const ANALYTICS_EVENTS = [
   'daily_reward_claimed',
   'hub_primary_cta_view',
   'hub_primary_cta_click',
+  'referral_link_created',
+  'referral_opened',
+  'referral_registered',
+  'referral_channel_check_started',
+  'referral_channel_verified',
+  'referral_first_raid',
+  'referral_first_exit',
+  'referral_reward_pending',
+  'referral_reward_success',
+  'referral_reward_failed',
+  'notification_permission_requested',
+  'notification_permission_granted',
+  'notification_sent',
+  'notification_opened',
+  'notification_action_clicked',
+  'daily_reward_notification_sent',
+  'referral_notification_sent',
+  'overtaken_notification_sent',
+  'raid_return_notification_sent',
+  'leaderboard_opened',
+  'leaderboard_position_changed',
 ] as const
 export type AnalyticsEventName = (typeof ANALYTICS_EVENTS)[number]
 
@@ -68,6 +89,10 @@ const PROPS: Record<string, 'str' | 'num' | 'bool'> = {
   placement: 'str',
   reward: 'num',
   currency: 'str',
+  kind: 'str',
+  rank: 'num',
+  prevRank: 'num',
+  coins: 'num',
 }
 
 export type StoredEvent = {
@@ -109,7 +134,7 @@ export function userKey(telegramId: number | null, anonId: unknown) {
 }
 
 /** Only the server may record these (invoice made, payment confirmed by Telegram, server errors). */
-const SERVER_ONLY = new Set<string>(['stars_invoice_created', 'stars_payment_success', 'daily_reward_available', 'daily_reward_claimed'])
+const SERVER_ONLY = new Set<string>(['stars_invoice_created', 'stars_payment_success', 'daily_reward_available', 'daily_reward_claimed', 'referral_link_created', 'referral_opened', 'referral_registered', 'referral_channel_verified', 'referral_first_raid', 'referral_first_exit', 'referral_reward_pending', 'referral_reward_success', 'referral_reward_failed', 'notification_sent', 'daily_reward_notification_sent', 'referral_notification_sent', 'overtaken_notification_sent', 'raid_return_notification_sent', 'leaderboard_position_changed', 'notification_opened'])
 
 /** Validate and append a batch. Returns how many events were stored. */
 export function recordEvents(user: string, sessionId: unknown, events: IncomingEvent[], now = Date.now(), fromClient = false) {
@@ -306,10 +331,27 @@ export function analyticsSummary(range: AnalyticsRange, now = Date.now(), orders
     conversion: pct(both(hubViewUsers, hubClickUsers), hubViewUsers.size),
   }
 
+  // 🔔 notifications (sent / opened by kind) and ranking views
+  const byKind = (name: AnalyticsEventName) => {
+    const out: Record<string, number> = {}
+    for (const e of inRange) if (e.e === name) out[String(e.p?.kind ?? 'other')] = (out[String(e.p?.kind ?? 'other')] ?? 0) + 1
+    return out
+  }
+  const notifications = {
+    sent: byKind('notification_sent'),
+    opened: byKind('notification_opened'),
+    actions: byKind('notification_action_clicked'),
+    permissionRequested: usersWith('notification_permission_requested').size,
+    permissionGranted: usersWith('notification_permission_granted').size,
+    leaderboardOpened: usersWith('leaderboard_opened').size,
+    linksCreated: usersWith('referral_link_created').size,
+  }
+
   return {
     range,
     stars,
     daily,
+    notifications,
     hub,
     from,
     generatedAt: now,

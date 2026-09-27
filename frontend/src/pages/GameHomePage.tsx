@@ -17,6 +17,9 @@ import { heistSfx, unlockHeistSfx } from '../heist/heistSfx'
 import { suspendedRaid } from '../heist/v2/ui/HeistGameV2'
 import { useI18n } from '../i18n/LanguageProvider'
 import { perfMark, perfMarkPainted } from '../perf/transition'
+import { inTelegram, launchNotification, onSession, patchSession, type Session } from '../retention/api'
+import { claimGrants } from '../retention/grants'
+import { ChannelStepCard, LeaderboardSheet, NotifyOptIn, ReferralCard } from '../retention/HubCards'
 
 /** What the hub's one main button does: resume a parked raid, or play the current level. */
 function primaryAction(progress: PlayerProgress) {
@@ -56,7 +59,7 @@ function usePrimaryView(level: HeistLevelId) {
 }
 
 /** 🎁 +150 DUCK COIN a day: a claim card while it is due, one quiet line after. */
-function DailyRewardCard({ phase, nextAt, amount, onClaim }: { phase: DailyPhase; nextAt: number | null; amount: number; onClaim: () => void }) {
+function DailyRewardCard({ phase, nextAt, amount, onClaim, canWrite }: { phase: DailyPhase; nextAt: number | null; amount: number; onClaim: () => void; canWrite: boolean }) {
   const { t, lang } = useI18n()
   const [, tick] = useState(0)
   useEffect(() => {
@@ -69,7 +72,7 @@ function DailyRewardCard({ phase, nextAt, amount, onClaim }: { phase: DailyPhase
     return (
       <section className="daily-card is-due mt-3 flex items-center justify-between gap-3 rounded-2xl border border-emerald-300/50 bg-emerald-400/10 px-3 py-2.5">
         <div className="min-w-0">
-          <p className="text-[10px] font-extrabold tracking-[0.14em] text-emerald-200">{t('dailyTitle')}</p>
+          <p className="text-[10px] font-extrabold tracking-[0.06em] text-emerald-200">{t('dailyRemindTitle')}</p>
           <p className="font-display text-lg font-black leading-tight text-emerald-50">{t('dailyAmount', { n: amount })}</p>
         </div>
         <button
@@ -89,6 +92,7 @@ function DailyRewardCard({ phase, nextAt, amount, onClaim }: { phase: DailyPhase
         <div className="min-w-0">
           <p className="text-[11px] font-extrabold tracking-[0.1em] text-emerald-200">{t('dailyDone')}</p>
           <p className="text-[11px] text-emerald-100/60">{next}</p>
+          <NotifyOptIn canWrite={canWrite} />
         </div>
         <p className="shrink-0 font-display text-lg font-black text-emerald-100">+{amount}</p>
       </section>
@@ -113,7 +117,27 @@ export function GameHomePage() {
     perfMark('HUB_MOUNT')
     perfMarkPainted('HUB_FIRST_RENDER')
   }, [])
+  const [session, setSession] = useState<Session | null>(null)
+  const [lbOpen, setLbOpen] = useState(false)
+  const [grantNote, setGrantNote] = useState<string | null>(null)
+  // Referral rewards the server granted are claimed as soon as the hub knows about them.
+  useEffect(
+    () =>
+      onSession((s) => {
+        setSession(s)
+        if (s.grants.length)
+          void claimGrants(s.grants, (next, g) => {
+            setProgress(next)
+            setGain({ n: g.coins, key: Date.now() })
+            setGrantNote(t('grantGot', { n: g.coins }))
+            patchSession({ grants: [] })
+          })
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  )
   const daily = useDailyReward((next, amount) => {
+    if (launchNotification() === 'daily') track('notification_action_clicked', { kind: 'daily' })
     setProgress(next)
     setGain({ n: amount, key: Date.now() })
     unlockHeistSfx()
@@ -164,7 +188,8 @@ export function GameHomePage() {
         ) : null}
       </section>
 
-      <DailyRewardCard phase={daily.phase} nextAt={daily.nextAt} amount={daily.amount} onClaim={daily.claim} />
+      <DailyRewardCard phase={daily.phase} nextAt={daily.nextAt} amount={daily.amount} onClaim={daily.claim} canWrite={Boolean(session?.canWrite)} />
+      {grantNote ? <p className="mt-2 text-center text-[12px] font-black text-emerald-300">{grantNote}</p> : null}
 
       <section className="hero-stage relative mt-3 overflow-hidden rounded-3xl border border-amber-400/40 px-4 pb-4 pt-3">
         <div className="flex items-center gap-3">
@@ -191,6 +216,11 @@ export function GameHomePage() {
       </section>
 
       <DuckLabEntry cue={labCue} onOpen={() => tap('/heist', { open: 'lab' })} />
+
+      {session?.invitee ? (
+        <ChannelStepCard invitee={session.invitee} channel={session.channel} rewards={session.rewards} onUpdate={(v) => patchSession({ invitee: v })} />
+      ) : null}
+      {inTelegram() ? <ReferralCard rewards={session?.rewards ?? { inviterCoins: 300, inviteeCoins: 150, stars: { available: false, inviter: 0, invitee: 0 } }} /> : null}
 
       {/* SECONDARY: short labels only; details live in their own screens */}
       <div className="mt-3 grid grid-cols-3 gap-2">
@@ -220,13 +250,14 @@ export function GameHomePage() {
         <button type="button" onClick={() => tap('/collection')} className="min-h-11 rounded-2xl border border-amber-400/30 bg-[#141218] px-2 py-2 font-display text-[11px] font-black text-amber-100">
           {t('collectionTitle')}
         </button>
-        <button type="button" onClick={() => tap('/collection')} className="min-h-11 rounded-2xl border border-white/10 bg-[#141218] px-2 py-2 font-display text-[11px] font-black text-amber-100">
-          {t('rankTitle')}
+        <button type="button" onClick={() => setLbOpen(true)} className="min-h-11 rounded-2xl border border-white/10 bg-[#141218] px-2 py-2 font-display text-[11px] font-black text-amber-100">
+          {t('lbMine')}
         </button>
       </div>
 
       <NextRaidCard progress={progress} onPlay={() => tap('/heist')} />
       <DailyHeistCard onOpen={() => tap('/heist')} />
+      {lbOpen ? <LeaderboardSheet onClose={() => setLbOpen(false)} /> : null}
     </div>
   )
 }

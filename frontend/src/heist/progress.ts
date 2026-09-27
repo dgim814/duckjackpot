@@ -53,6 +53,8 @@ export type PlayerProgress = {
   myGoalId: string | null
   /** 🎁 Daily reward claim ids the server granted and this wallet already credited (latest few). */
   dailyClaimIds: string[]
+  /** Other server-granted rewards (referrals) already credited, by grant id. */
+  grantIds: string[]
 }
 
 export type ValuableKind = 'watch' | 'jewel' | 'art' | 'relic' | 'crown'
@@ -157,6 +159,7 @@ const emptyProgress = (): PlayerProgress => ({
   onboardingSeen: false,
   myGoalId: null,
   dailyClaimIds: [],
+  grantIds: [],
 })
 
 function readOwned(raw: unknown): OwnedCollection {
@@ -329,6 +332,7 @@ export function loadProgress(): PlayerProgress {
       onboardingSeen: Boolean((parsed as { onboardingSeen?: unknown }).onboardingSeen),
       myGoalId: readGoal((parsed as { myGoalId?: unknown }).myGoalId),
       dailyClaimIds: readIdList((parsed as { dailyClaimIds?: unknown }).dailyClaimIds).slice(-10),
+      grantIds: readIdList((parsed as { grantIds?: unknown }).grantIds).slice(-30),
     }
     const before = JSON.stringify(readOwned(parsed.ownedArt))
     if (before !== JSON.stringify(ownedArt)) saveProgress(next)
@@ -746,6 +750,22 @@ export function creditDailyReward(claimId: string, amount: number) {
     ...keepWallet(live),
     bankedDuckCoin: live.bankedDuckCoin + add,
     dailyClaimIds: [...live.dailyClaimIds, claimId].slice(-10),
+  }
+  saveProgress(next)
+  return { credited: true as const, next }
+}
+
+/** 🎁 Credit a referral reward the SERVER granted, once per grant id (amount capped). */
+export const GRANT_COINS_MAX = 1000
+export function creditGrant(grantId: string, amount: number) {
+  const live = loadProgress()
+  if (!grantId || live.grantIds.includes(grantId)) return { credited: false as const, next: live }
+  const add = Math.max(0, Math.min(GRANT_COINS_MAX, Math.floor(amount) || 0))
+  const next: PlayerProgress = {
+    ...live,
+    ...keepWallet(live),
+    bankedDuckCoin: live.bankedDuckCoin + add,
+    grantIds: [...live.grantIds, grantId].slice(-30),
   }
   saveProgress(next)
   return { credited: true as const, next }
