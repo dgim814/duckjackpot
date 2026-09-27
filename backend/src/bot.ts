@@ -1,8 +1,8 @@
 import { getChat, rememberChat } from './chatStore.js'
 import { getUserCards, type StoredCard } from './cardStore.js'
-import { channelId, getTelegramSettings } from './config.js'
+import { channelId, channelUrl, getTelegramSettings } from './config.js'
 import { recordEvents } from './analyticsStore.js'
-import { touchSession } from './retentionStore.js'
+import { markWelcome, MISSION_COINS, touchSession } from './retentionStore.js'
 import { applySuccessfulPayment, checkPreCheckout, invoiceTexts, STARS_PRODUCTS, type PreCheckout, type StarsOrder, type SuccessfulPayment } from './starsStore.js'
 
 type TelegramUser = {
@@ -10,6 +10,7 @@ type TelegramUser = {
   is_bot?: boolean
   first_name?: string
   username?: string
+  language_code?: string
 }
 
 type TelegramMessage = {
@@ -137,8 +138,13 @@ async function handleMessage(token: string, message: TelegramMessage) {
     const ref = /^ref_([A-Za-z0-9]{6,16})$/.exec(payload)
     if (ref && message.from?.id && !message.from.is_bot) {
       try {
-        const r = await touchSession({ id: message.from.id, name: message.from.first_name, username: message.from.username, refCode: ref[1], via: 'start', allowsWriteToPm: true })
-        if (r.referral.kind === 'opened') recordEvents(`tg:${message.from.id}`, 'bot', [{ name: 'referral_opened', props: { step: 'start' } }])
+        const r = await touchSession({ id: message.from.id, name: message.from.first_name, username: message.from.username, lang: message.from.language_code, refCode: ref[1], via: 'start', allowsWriteToPm: true })
+        if (r.freshInvite) recordEvents(`tg:${message.from.id}`, 'bot', [{ name: 'referral_opened', props: { step: 'start' } }, { name: 'referral_registered', props: { step: 'start' } }])
+        // The referral welcome goes once; a repeated /start gets the usual greeting below.
+        if (r.referral.kind === 'opened' && (await markWelcome(message.from.id))) {
+          await sendReferralWelcome(token, chatId, ref[1], !message.from.language_code || /^(ru|uk|be|kk)/i.test(message.from.language_code))
+          return
+        }
       } catch (err) {
         console.error('[referral] /start failed', err)
       }
@@ -189,6 +195,25 @@ async function handleMessage(token: string, message: TelegramMessage) {
       '/heist',
     )
   }
+}
+
+/** Referral welcome in the bot chat: the channel, and ▶ the Mini App with the same startapp referral. */
+async function sendReferralWelcome(token: string, chatId: number, code: string, ru: boolean) {
+  const bot = await botUsername()
+  const play = bot ? `https://t.me/${bot}?startapp=ref_${code}` : publicWebappUrl('/')
+  const text = ru
+    ? `🦆 DUCKJACKPOT\n\nДобро пожаловать в Duck Heist.\n\n🎯 Твоя задача:\nподпишись на канал, играй и накопи ${MISSION_COINS} DUCK COIN.`
+    : `🦆 DUCKJACKPOT\n\nWelcome to Duck Heist.\n\n🎯 Your task:\nfollow the channel, play and collect ${MISSION_COINS} DUCK COIN.`
+  await telegramApi(token, 'sendMessage', {
+    chat_id: chatId,
+    text,
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: ru ? '📢 ПОДПИСАТЬСЯ НА КАНАЛ' : '📢 FOLLOW THE CHANNEL', url: channelUrl() }],
+        [play.startsWith('https://t.me/') ? { text: ru ? '🦆 ИГРАТЬ' : '🦆 PLAY', url: play } : { text: ru ? '🦆 ИГРАТЬ' : '🦆 PLAY', web_app: { url: play } }],
+      ],
+    },
+  })
 }
 
 async function applyMenuAndCommands(token: string) {

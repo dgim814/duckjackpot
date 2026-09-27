@@ -83,12 +83,12 @@ const TEXT: Record<NotifKind, Record<'ru' | 'en', { text: string; button: string
     en: { text: `🔔 DUCKJACKPOT\n\n👥 INVITE A FRIEND\n\nYour friend gets 🪙 ${INVITEE_COINS} DUCK COIN,\nand you get 🪙 ${INVITER_COINS} DUCK COIN.`, button: '👥 INVITE' },
   },
   referral_inviter: {
-    ru: { text: `👥 ДРУГ ЗАВЕРШИЛ ПЕРВЫЙ РЕЙД\n\nТвоя награда:\n🪙 +${INVITER_COINS} DUCK COIN${INVITER_STARS ? `\n⭐ ${INVITER_STARS} Stars — подтверждено, выплата в течение 24 часов` : ''}`, button: '🎁 ЗАБРАТЬ НАГРАДУ' },
-    en: { text: `👥 YOUR FRIEND FINISHED THEIR FIRST RAID\n\nYour reward:\n🪙 +${INVITER_COINS} DUCK COIN${INVITER_STARS ? `\n⭐ ${INVITER_STARS} Stars — confirmed, paid out within 24 hours` : ''}`, button: '🎁 CLAIM REWARD' },
+    ru: { text: `👥 ДРУГ ВЫПОЛНИЛ РЕФЕРАЛЬНУЮ МИССИЮ\n\nТвоя награда:${INVITER_STARS ? `\n⭐ ${INVITER_STARS} Stars` : ''}\n🪙 +${INVITER_COINS} DUCK COIN${INVITER_STARS ? '\n\n⭐ Stars выплачиваются вручную в течение 24 часов.' : ''}`, button: '🎁 ЗАБРАТЬ НАГРАДУ' },
+    en: { text: `👥 YOUR FRIEND COMPLETED THE REFERRAL MISSION\n\nYour reward:${INVITER_STARS ? `\n⭐ ${INVITER_STARS} Stars` : ''}\n🪙 +${INVITER_COINS} DUCK COIN${INVITER_STARS ? '\n\n⭐ Stars are paid out manually within 24 hours.' : ''}`, button: '🎁 CLAIM REWARD' },
   },
   referral_invitee: {
-    ru: { text: `🎉 ПЕРВЫЙ РЕЙД ЗАВЕРШЁН\n\nТвоя награда:\n🪙 +${INVITEE_COINS} DUCK COIN${INVITEE_STARS ? `\n⭐ ${INVITEE_STARS} Stars — подтверждено, выплата в течение 24 часов` : ''}`, button: '🎁 ЗАБРАТЬ НАГРАДУ' },
-    en: { text: `🎉 FIRST RAID COMPLETE\n\nYour reward:\n🪙 +${INVITEE_COINS} DUCK COIN${INVITEE_STARS ? `\n⭐ ${INVITEE_STARS} Stars — confirmed, paid out within 24 hours` : ''}`, button: '🎁 CLAIM REWARD' },
+    ru: { text: `🎉 РЕФЕРАЛЬНАЯ МИССИЯ ВЫПОЛНЕНА\n${INVITEE_STARS ? `\n⭐ ${INVITEE_STARS} Stars — подтверждено` : ''}\n🪙 ${INVITEE_COINS} DUCK COIN — начислено${INVITEE_STARS ? '\n\n⭐ Stars выплачиваются вручную в течение 24 часов.' : ''}`, button: '🎁 ЗАБРАТЬ НАГРАДУ' },
+    en: { text: `🎉 REFERRAL MISSION COMPLETE\n${INVITEE_STARS ? `\n⭐ ${INVITEE_STARS} Stars — confirmed` : ''}\n🪙 ${INVITEE_COINS} DUCK COIN — credited${INVITEE_STARS ? '\n\n⭐ Stars are paid out manually within 24 hours.' : ''}`, button: '🎁 CLAIM REWARD' },
   },
 }
 

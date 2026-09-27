@@ -37,11 +37,38 @@ function Sheet({ onClose, children }: { onClose: () => void; children: ReactNode
   )
 }
 
-/** 📢 For a player who came through an invite: follow the channel (checked by the server). */
-export function ChannelStepCard({ invitee, channel, rewards, onUpdate }: { invitee: InviteeView; channel: Channel; rewards: Rewards; onUpdate: (v: InviteeView) => void }) {
+/**
+ * 🎁 The referral mission of an invited player: follow the channel (checked by the server) and
+ * bank MISSION DUCK COIN through successful EXITs (counted by the server, never by the device).
+ */
+export function ReferralMissionCard({
+  invitee,
+  channel,
+  rewards,
+  starsPaid,
+  onUpdate,
+}: {
+  invitee: InviteeView
+  channel: Channel
+  rewards: Rewards
+  starsPaid: boolean
+  onUpdate: (v: InviteeView) => void
+}) {
   const { t } = useI18n()
   const [phase, setPhase] = useState<'idle' | 'checking' | 'missing' | 'error'>('idle')
-  if (invitee.completed) return null
+  const target = invitee.target ?? rewards.missionCoins ?? 650
+  const progress = Math.min(target, invitee.progress ?? 0)
+  if (invitee.completed && starsPaid) return null
+  if (invitee.completed) {
+    return (
+      <section className="channel-step mission-card mt-3 rounded-2xl border border-emerald-300/40 bg-emerald-400/[0.07] px-3 py-3 text-left">
+        <p className="text-[12px] font-black tracking-[0.04em] text-emerald-300">{t('misDone')}</p>
+        {rewards.stars.invitee > 0 ? <p className="mt-1 text-[13px] font-bold text-sky-100">{t('misStarsOk', { n: rewards.stars.invitee })}</p> : null}
+        <p className="text-[13px] font-bold text-amber-100">{t('misCoinsOk', { n: rewards.inviteeCoins })}</p>
+        {rewards.stars.invitee > 0 ? <p className="mt-1 text-[11px] text-zinc-400">{t('misStarsNote')}</p> : null}
+      </section>
+    )
+  }
   const verified = invitee.channelVerified
   const check = async () => {
     if (phase === 'checking') return
@@ -57,34 +84,42 @@ export function ChannelStepCard({ invitee, channel, rewards, onUpdate }: { invit
     }
   }
   return (
-    <section className="channel-step mt-3 rounded-2xl border border-sky-300/40 bg-sky-400/[0.07] px-3 py-3 text-left">
+    <section className="channel-step mission-card mt-3 rounded-2xl border border-sky-300/40 bg-sky-400/[0.07] px-3 py-3 text-left">
+      <p className="text-[12px] font-black tracking-[0.06em] text-sky-100">{t('misTitle')}</p>
+      <p className="mt-1 text-[12px] leading-snug text-sky-100/80">{t('misText', { n: target })}</p>
       {verified ? (
-        <>
-          <p className="text-[12px] font-black tracking-[0.06em] text-emerald-300">{t('chOk')}</p>
-          <p className="mt-1 text-[12px] text-sky-100/80">{t('chNextExit')}</p>
-        </>
+        <p className="mt-2 text-[12px] font-black text-emerald-300">{t('chOk')}</p>
+      ) : channel.url ? (
+        <div className="mt-2 grid grid-cols-2 gap-2">
+          <button type="button" className="min-h-11 rounded-xl bg-sky-300 px-2 text-[12px] font-black text-zinc-950" onClick={() => tg().openTelegramLink(channel.url!)}>
+            {t('chSubscribe')}
+          </button>
+          <button type="button" disabled={phase === 'checking'} className="min-h-11 rounded-xl border border-sky-300/50 bg-sky-300/10 px-2 text-[12px] font-black text-sky-50 disabled:opacity-60" onClick={() => void check()}>
+            {phase === 'checking' ? t('chChecking') : t('chCheck')}
+          </button>
+        </div>
       ) : (
-        <>
-          <p className="text-[12px] font-black tracking-[0.06em] text-sky-100">{t('chTitle')}</p>
-          <p className="mt-1 text-[12px] leading-snug text-sky-100/75">{t('chText')}</p>
-          {rewards.stars.invitee > 0 ? <p className="mt-1 font-display text-[15px] font-black text-sky-100">{t('refStars', { n: rewards.stars.invitee })}</p> : null}
-          <p className="mt-0.5 font-display text-[15px] font-black text-amber-100">{t('refCoins', { n: rewards.inviteeCoins })}</p>
-          {channel.url ? (
-            <div className="mt-2 grid grid-cols-2 gap-2">
-              <button type="button" className="min-h-11 rounded-xl bg-sky-300 px-2 text-[12px] font-black text-zinc-950" onClick={() => tg().openTelegramLink(channel.url!)}>
-                {t('chSubscribe')}
-              </button>
-              <button type="button" disabled={phase === 'checking'} className="min-h-11 rounded-xl border border-sky-300/50 bg-sky-300/10 px-2 text-[12px] font-black text-sky-50 disabled:opacity-60" onClick={() => void check()}>
-                {phase === 'checking' ? t('chChecking') : t('chCheck')}
-              </button>
-            </div>
-          ) : (
-            <p className="mt-2 text-[11px] text-zinc-400">{t('chSoon')}</p>
-          )}
-          {phase === 'missing' ? <p className="mt-2 text-[12px] font-bold text-orange-300">{t('chNotFound')}</p> : null}
-          {phase === 'error' ? <p className="mt-2 text-[12px] font-bold text-orange-300">{t('chUnavailable')}</p> : null}
-        </>
+        <p className="mt-2 text-[11px] text-zinc-400">{t('chSoon')}</p>
       )}
+      {phase === 'missing' ? <p className="mt-2 text-[12px] font-bold text-orange-300">{t('chNotFound')}</p> : null}
+      {phase === 'error' ? <p className="mt-2 text-[12px] font-bold text-orange-300">{t('chUnavailable')}</p> : null}
+      <div className="mt-3 flex items-center justify-between gap-2">
+        <div className="mission-bar h-2.5 flex-1 overflow-hidden rounded-full bg-zinc-800">
+          <div className="progress-fill h-full rounded-full" style={{ width: `${Math.round((progress / target) * 100)}%` }} />
+        </div>
+        <span className="mission-count shrink-0 font-mono text-[12px] font-bold text-amber-100">
+          {progress} / {target}
+        </span>
+      </div>
+      <p className="mt-1 text-[10px] text-zinc-500">{t('misHint')}</p>
+      <div className="mt-2 flex items-start justify-between gap-2">
+        <div>
+          <p className="text-[11px] font-black text-amber-200">{t('misInProgress')}</p>
+          {rewards.stars.invitee > 0 ? <p className="text-[12px] font-bold text-sky-100">{t('refStars', { n: rewards.stars.invitee })}</p> : null}
+          <p className="text-[12px] font-bold text-amber-50">{t('refCoins', { n: rewards.inviteeCoins })}</p>
+        </div>
+        <p className="shrink-0 text-right text-[11px] font-bold text-zinc-300">{t('misLeft', { n: Math.max(0, target - progress) })}</p>
+      </div>
     </section>
   )
 }
@@ -139,7 +174,10 @@ function MyInvites({ data, onClose }: { data: ReferralMe | null; onClose: () => 
               data.invites.map((i, k) => (
                 <li key={k} className="flex items-center justify-between gap-2 rounded-xl bg-black/30 px-3 py-2">
                   <span className="min-w-0 truncate text-[13px] font-bold text-zinc-100">{i.name || (i.username ? `@${i.username}` : t('refFriend'))}</span>
-                  <span className="shrink-0 text-[11px] font-black text-amber-200">{t(STATUS_KEY[i.status])}</span>
+                  <span className="shrink-0 text-right text-[11px] font-black text-amber-200">
+                    {t(STATUS_KEY[i.status])}
+                    {i.status !== 'rewarded' && i.target ? <span className="block font-mono text-[10px] text-zinc-400">{i.progress ?? 0} / {i.target}</span> : null}
+                  </span>
                 </li>
               ))
             ) : (
@@ -153,7 +191,7 @@ function MyInvites({ data, onClose }: { data: ReferralMe | null; onClose: () => 
 }
 
 /** 👥 Invite a friend: the rewards shown are only the ones the server really gives. */
-export function ReferralCard({ rewards }: { rewards: Rewards }) {
+export function ReferralCard({ rewards, friends = [] }: { rewards: Rewards; friends?: ReferralMe['invites'] }) {
   const { t, lang } = useI18n()
   const [open, setOpen] = useState(false)
   const [data, setData] = useState<ReferralMe | null>(null)
@@ -203,7 +241,7 @@ export function ReferralCard({ rewards }: { rewards: Rewards }) {
           <p className="font-display text-[13px] font-black text-amber-50">{t('refCoins', { n: rewards.inviteeCoins })}</p>
         </div>
       </div>
-      <p className="mt-1.5 text-[10px] leading-snug text-zinc-500">{t('refRule')}</p>
+      <p className="mt-1.5 text-[10px] leading-snug text-zinc-500">{t('refRuleMission', { n: rewards.missionCoins ?? 650 })}</p>
       {rewards.stars.available ? <p className="mt-0.5 text-[10px] leading-snug text-zinc-500">{t('refStarsNote')}</p> : null}
       <div className="mt-2 grid grid-cols-2 gap-2">
         <button type="button" className="buy-btn min-h-11 rounded-xl px-2 text-[12px] font-black text-zinc-950" onClick={() => void invite()}>
@@ -220,6 +258,14 @@ export function ReferralCard({ rewards }: { rewards: Rewards }) {
           {t('refMine')}
         </button>
       </div>
+      {friends.filter((f) => f.status !== 'rewarded').slice(0, 3).map((f, k) => (
+        <div key={k} className="friend-mission mt-2 rounded-xl bg-black/30 px-2.5 py-2">
+          <p className="text-[11px] font-black text-sky-100">
+            {t('friendDoing')} · {f.name || (f.username ? `@${f.username}` : t('refFriend'))}
+          </p>
+          <p className="font-mono text-[11px] text-amber-100">{t('friendProgress', { n: f.progress ?? 0, max: f.target ?? rewards.missionCoins ?? 650 })}</p>
+        </div>
+      ))}
       {note ? <p className="mt-2 text-[11px] font-bold text-orange-300">{note}</p> : null}
       {open ? <MyInvites data={data} onClose={() => setOpen(false)} /> : null}
     </section>
@@ -310,7 +356,8 @@ export function NotifyOptIn({ canWrite }: { canWrite: boolean }) {
  */
 export function StarsRewardNotice({ rewards }: { rewards: StarsView[] }) {
   const { t } = useI18n()
-  const recent = rewards.filter((r) => r.status === 'PENDING' || (r.status === 'PAID' && Date.now() - (r.paidAt ?? 0) < 7 * 86_400_000))
+  // An invited player's pending Stars are shown on the mission card itself.
+  const recent = rewards.filter((r) => (r.status === 'PENDING' && r.role === 'inviter') || (r.status === 'PAID' && Date.now() - (r.paidAt ?? 0) < 7 * 86_400_000))
   if (!recent.length) return null
   return (
     <section className="stars-notice mt-3 space-y-2">
@@ -318,7 +365,7 @@ export function StarsRewardNotice({ rewards }: { rewards: StarsView[] }) {
         r.status === 'PENDING' ? (
           <div key={r.id} className="rounded-2xl border border-sky-300/40 bg-sky-400/[0.07] px-3 py-2.5 text-left">
             <div className="flex items-center justify-between gap-2">
-              <p className="text-[12px] font-black text-sky-100">{t('starsOwedTitle')}</p>
+              <p className="text-[12px] font-black text-sky-100">{r.role === 'inviter' ? t('friendDone') : t('starsOwedTitle')}</p>
               <span className="shrink-0 rounded-full bg-amber-300/20 px-2 py-0.5 text-[10px] font-black text-amber-200">{t('starsPending')}</span>
             </div>
             <p className="mt-1 text-[12px] leading-snug text-sky-100/80">{t('starsOwedText', { n: r.stars })}</p>

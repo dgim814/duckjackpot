@@ -17,9 +17,9 @@ import { heistSfx, unlockHeistSfx } from '../heist/heistSfx'
 import { suspendedRaid } from '../heist/v2/ui/HeistGameV2'
 import { useI18n } from '../i18n/LanguageProvider'
 import { perfMark, perfMarkPainted } from '../perf/transition'
-import { inTelegram, launchNotification, onSession, patchSession, type Session } from '../retention/api'
+import { inTelegram, launchNotification, onSession, patchSession, referralMe, type ReferralMe, type Session } from '../retention/api'
 import { claimGrants } from '../retention/grants'
-import { ChannelStepCard, LeaderboardSheet, NotifyOptIn, ReferralCard, StarsRewardNotice } from '../retention/HubCards'
+import { LeaderboardSheet, NotifyOptIn, ReferralCard, ReferralMissionCard, StarsRewardNotice } from '../retention/HubCards'
 
 /** What the hub's one main button does: resume a parked raid, or play the current level. */
 function primaryAction(progress: PlayerProgress) {
@@ -120,6 +120,22 @@ export function GameHomePage() {
   const [session, setSession] = useState<Session | null>(null)
   const [lbOpen, setLbOpen] = useState(false)
   const [grantNote, setGrantNote] = useState<string | null>(null)
+  const [friends, setFriends] = useState<ReferralMe['invites']>([])
+  // Each hub visit: the server's mission progress, friends' progress, rewards (async, never blocks the hub).
+  useEffect(() => {
+    if (!inTelegram()) return
+    let live = true
+    referralMe()
+      .then((me) => {
+        if (!live) return
+        setFriends(me.invites)
+        patchSession({ invitee: me.invitee, stars: me.stars, ...(me.grants.length ? { grants: me.grants } : {}) })
+      })
+      .catch(() => undefined)
+    return () => {
+      live = false
+    }
+  }, [])
   // Referral rewards the server granted are claimed as soon as the hub knows about them.
   useEffect(
     () =>
@@ -218,10 +234,16 @@ export function GameHomePage() {
       <DuckLabEntry cue={labCue} onOpen={() => tap('/heist', { open: 'lab' })} />
 
       {session?.invitee ? (
-        <ChannelStepCard invitee={session.invitee} channel={session.channel} rewards={session.rewards} onUpdate={(v) => patchSession({ invitee: v })} />
+        <ReferralMissionCard
+          invitee={session.invitee}
+          channel={session.channel}
+          rewards={session.rewards}
+          starsPaid={Boolean(session.stars?.some((r) => r.role === 'invitee' && r.status === 'PAID'))}
+          onUpdate={(v) => patchSession({ invitee: v })}
+        />
       ) : null}
       {session?.stars?.length ? <StarsRewardNotice rewards={session.stars} /> : null}
-      {inTelegram() ? <ReferralCard rewards={session?.rewards ?? { inviterCoins: 300, inviteeCoins: 150, stars: { available: true, manual: true, inviter: 10, invitee: 5 } }} /> : null}
+      {inTelegram() ? <ReferralCard friends={friends} rewards={session?.rewards ?? { inviterCoins: 300, inviteeCoins: 150, stars: { available: true, manual: true, inviter: 10, invitee: 5 }, missionCoins: 650 }} /> : null}
 
       {/* SECONDARY: short labels only; details live in their own screens */}
       <div className="mt-3 grid grid-cols-3 gap-2">

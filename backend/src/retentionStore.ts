@@ -19,6 +19,11 @@ export const INVITEE_COINS = Math.max(0, Math.floor(Number(process.env.REFERRAL_
 export const INVITER_COINS = Math.max(0, Math.floor(Number(process.env.REFERRAL_INVITER_COINS ?? 300) || 0))
 /** Telegram Stars owed for a successful referral. Paid MANUALLY by the operator from their own balance. */
 export const INVITER_STARS = Math.max(0, Math.floor(Number(process.env.REFERRAL_INVITER_STARS ?? 10) || 0))
+/**
+ * The referral mission: DUCK COIN the invited player really banked through successful EXITs
+ * (server-validated raid reports; CAUGHT adds nothing) since the invite, plus the channel.
+ */
+export const MISSION_COINS = Math.max(1, Math.floor(Number(process.env.REFERRAL_MISSION_COINS ?? 650) || 650))
 export const INVITEE_STARS = Math.max(0, Math.floor(Number(process.env.REFERRAL_INVITEE_STARS ?? 5) || 0))
 /** Most DUCK COIN one raid can really bank (bag 1000 + 10 % clean bonus + objectives), with margin. */
 export const RAID_LOOT_CAP = 1300
@@ -82,6 +87,10 @@ export type Invite = {
   inviterGrantId?: string
   inviteeStarsId?: string
   inviterStarsId?: string
+  /** DUCK COIN banked through validated EXITs since the invite (the mission progress) */
+  progressCoins?: number
+  /** the bot's welcome for this referral was sent (repeated /start stays silent about it) */
+  welcomedAt?: number
 }
 
 export type Grant = {
@@ -459,7 +468,7 @@ export function noteStarsNotify(rewardId: string, result: string) {
 }
 
 function completeIfReady(s: State, inv: Invite, now: number) {
-  if (inv.completedAt || !inv.channelVerifiedAt || !inv.firstExitAt) return null
+  if (inv.completedAt || !inv.channelVerifiedAt || (inv.progressCoins ?? 0) < MISSION_COINS) return null
   inv.completedAt = now
   const mk = (telegramId: number, coins: number, reason: Grant['reason']): Grant => ({
     id: randomBytes(9).toString('hex'),
@@ -539,8 +548,10 @@ export function reportRaid(id: number, r: RaidReport, now = Date.now()) {
           if (inv && !inv.firstExitAt && inv.firstRaidAt) {
             inv.firstExitAt = now
             firstExit = true
-            completed = completeIfReady(s, inv, now)
           }
+          // Mission progress: only coins the server counted for this escape, only until complete.
+          if (inv && !inv.completedAt && counted > 0) inv.progressCoins = (inv.progressCoins ?? 0) + counted
+          if (inv) completed = completeIfReady(s, inv, now)
         }
       }
     }
@@ -719,4 +730,31 @@ export function referralSummary(from: number, linksCreated: number) {
     players: Object.keys(s.players).length,
     reachable: Object.values(s.players).filter((p) => p.canWrite && !p.writeBlocked && !p.muted).length,
   }
+}
+
+/** Invites that were open before the mission existed start from the coins the server already counted. */
+export function backfillMissionProgress() {
+  return enqueueDataOp('retention:mission-backfill', undefined, () => {
+    const s = read()
+    let n = 0
+    for (const inv of Object.values(s.invites)) {
+      if (inv.completedAt || inv.progressCoins !== undefined) continue
+      inv.progressCoins = s.players[String(inv.inviteeId)]?.raidCoins ?? 0
+      n += 1
+    }
+    if (n) write(s)
+    return n
+  })
+}
+
+/** Mark the bot's welcome for this referral as sent. True only the first time (idempotent /start). */
+export function markWelcome(inviteeId: number, now = Date.now()) {
+  return enqueueDataOp('retention:welcome', undefined, () => {
+    const s = read()
+    const inv = s.invites[String(inviteeId)]
+    if (!inv || inv.welcomedAt) return false
+    inv.welcomedAt = now
+    write(s)
+    return true
+  })
 }

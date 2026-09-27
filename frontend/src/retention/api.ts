@@ -8,9 +8,9 @@ import { telegramInitData } from '../telegram/user'
  * Nothing here is awaited on the way into or out of a raid.
  */
 export type InviteStatus = 'opened' | 'verified' | 'played' | 'exited' | 'rewarded'
-export type InviteeView = { status: InviteStatus; channelVerified: boolean; firstRaid: boolean; firstExit: boolean; completed: boolean }
+export type InviteeView = { status: InviteStatus; channelVerified: boolean; firstRaid: boolean; firstExit: boolean; completed: boolean; progress?: number; target?: number }
 export type Grant = { id: string; coins: number; reason: 'referral_invitee' | 'referral_inviter' }
-export type Rewards = { inviterCoins: number; inviteeCoins: number; stars: { available: boolean; manual?: boolean; inviter: number; invitee: number } }
+export type Rewards = { missionCoins?: number; inviterCoins: number; inviteeCoins: number; stars: { available: boolean; manual?: boolean; inviter: number; invitee: number } }
 /** Stars owed to this player for a referral (paid manually by the operator; never game currency). */
 export type StarsView = { id: string; stars: number; role: 'inviter' | 'invitee'; status: 'PENDING' | 'PAID' | 'CANCELLED'; createdAt: number; paidAt: number | null }
 export type Channel = { configured: boolean; url: string | null }
@@ -21,7 +21,7 @@ export type ReferralMe = {
   rewards: Rewards
   stats: { invited: number; subscribed: number; played: number; exited: number; rewarded: number }
   coins: { received: number; pending: number }
-  invites: { name: string | null; username: string | null; status: InviteStatus; openedAt: number }[]
+  invites: { name: string | null; username: string | null; status: InviteStatus; openedAt: number; progress?: number; target?: number }[]
   invitee: InviteeView | null
   grants: Grant[]
   channel: Channel
@@ -100,7 +100,13 @@ export function reportRaid(body: { event: 'start' | 'end'; raidId: string; level
       headers: { 'Content-Type': 'application/json', 'X-Telegram-Init-Data': telegramInitData() },
       body: JSON.stringify(body),
       keepalive: true,
-    }).catch(() => undefined)
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      // The server's mission progress (and a completed mission's rewards) reach the hub right away.
+      .then((d: { invitee?: InviteeView | null; grants?: Grant[] } | null) => {
+        if (d?.invitee) patchSession({ invitee: d.invitee, ...(d.grants?.length ? { grants: d.grants } : {}) })
+      })
+      .catch(() => undefined)
   } catch {
     /* offline: the raid simply does not count toward the ranking */
   }

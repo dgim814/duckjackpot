@@ -34,6 +34,8 @@ import {
   INVITER_STARS,
   INVITEE_STARS,
   backfillStarsRewards,
+  backfillMissionProgress,
+  MISSION_COINS,
   listStarsRewards,
   noteStarsNotify,
   settleStarsReward,
@@ -548,9 +550,11 @@ const ev = (id: number, name: string, props?: Record<string, string | number | b
 const NOTIF_KINDS: NotifKind[] = ['daily', 'overtaken', 'leader', 'raid_return', 'invite', 'referral_inviter', 'referral_invitee']
 const STATUS_ORDER = ['opened', 'verified', 'played', 'exited', 'rewarded'] as const
 const channelInfo = () => ({ configured: Boolean(channelId()), url: channelUrl() })
-const rewardsInfo = () => ({ inviterCoins: INVITER_COINS, inviteeCoins: INVITEE_COINS, stars: { available: INVITER_STARS + INVITEE_STARS > 0, manual: true, inviter: INVITER_STARS, invitee: INVITEE_STARS } })
+const rewardsInfo = () => ({ missionCoins: MISSION_COINS, inviterCoins: INVITER_COINS, inviteeCoins: INVITEE_COINS, stars: { available: INVITER_STARS + INVITEE_STARS > 0, manual: true, inviter: INVITER_STARS, invitee: INVITEE_STARS } })
 const inviteView = (i: Invite | null) =>
-  i ? { status: inviteStatus(i), channelVerified: Boolean(i.channelVerifiedAt), firstRaid: Boolean(i.firstRaidAt), firstExit: Boolean(i.firstExitAt), completed: Boolean(i.completedAt) } : null
+  i
+    ? { status: inviteStatus(i), channelVerified: Boolean(i.channelVerifiedAt), firstRaid: Boolean(i.firstRaidAt), firstExit: Boolean(i.firstExitAt), completed: Boolean(i.completedAt), progress: Math.min(i.progressCoins ?? 0, MISSION_COINS), target: MISSION_COINS }
+    : null
 
 async function afterCompletion(completed: { invitee: { telegramId: number; coins: number }; inviter: { telegramId: number; coins: number } } | null) {
   if (!completed) return
@@ -608,12 +612,13 @@ app.get('/api/referral/me', async (req, res) => {
     const mine = invitesBy(u.id)
     const reached = (s: (typeof STATUS_ORDER)[number]) => mine.list.filter((i) => STATUS_ORDER.indexOf(inviteStatus(i)) >= STATUS_ORDER.indexOf(s)).length
     res.json({
-      link: bot ? `https://t.me/${bot}?startapp=ref_${code}` : null,
+      // Opens the bot chat (/start ref_<code>), so the chat stays in the player's list and the bot may write.
+      link: bot ? `https://t.me/${bot}?start=ref_${code}` : null,
       code,
       rewards: rewardsInfo(),
       stats: { invited: mine.list.length, subscribed: reached('verified'), played: reached('played'), exited: reached('exited'), rewarded: reached('rewarded') },
       coins: { received: mine.rewardedCoins, pending: mine.pendingCoins },
-      invites: mine.list.slice(0, 50).map((i) => ({ name: i.inviteeName ?? null, username: i.inviteeUsername ?? null, status: inviteStatus(i), openedAt: i.openedAt })),
+      invites: mine.list.slice(0, 50).map((i) => ({ name: i.inviteeName ?? null, username: i.inviteeUsername ?? null, status: inviteStatus(i), openedAt: i.openedAt, progress: Math.min(i.progressCoins ?? 0, MISSION_COINS), target: MISSION_COINS })),
       invitee: inviteView(inviteOf(u.id)),
       grants: pendingGrants(u.id),
       channel: channelInfo(),
@@ -637,14 +642,15 @@ app.post('/api/referral/share', async (req, res) => {
     if (first) ev(u.id, 'referral_link_created')
     const bot = await botUsername()
     if (!bot) throw new Error('bot_not_configured')
-    const url = `https://t.me/${bot}?startapp=ref_${code}`
+    // /start ref_<code>: the bot chat opens first (and stays in the list), then its button starts the game.
+    const url = `https://t.me/${bot}?start=ref_${code}`
     const ru = req.body?.lang !== 'en'
-    const st = (n: number) => (n > 0 ? `⭐ ${n} Stars\n` : '')
+    const st = (n: number) => (n > 0 ? `${n} Stars + ` : '')
     const stars = INVITER_STARS + INVITEE_STARS > 0
     const text = ru
-      ? `🦆 DUCKJACKPOT\n\nПопробуй ограбить BANK и забрать DUCK COIN.\n\n🎁 Ты получишь:\n${st(INVITEE_STARS)}🪙 ${INVITEE_COINS} DUCK COIN\n\n🏆 А я получу:\n${st(INVITER_STARS)}🪙 ${INVITER_COINS} DUCK COIN\n\nЧтобы получить награду:\n1️⃣ Подпишись на канал DuckJackpot\n2️⃣ Нажми «🦆 ИГРАТЬ»\n3️⃣ Сделай первый успешный EXIT${stars ? '\n\n⭐ Stars выплачиваются вручную в течение 24 часов.' : ''}`
-      : `🦆 DUCKJACKPOT\n\nTry to rob the BANK and grab DUCK COIN.\n\n🎁 You get:\n${st(INVITEE_STARS)}🪙 ${INVITEE_COINS} DUCK COIN\n\n🏆 And I get:\n${st(INVITER_STARS)}🪙 ${INVITER_COINS} DUCK COIN\n\nTo get the reward:\n1️⃣ Follow the DuckJackpot channel\n2️⃣ Tap “🦆 PLAY”\n3️⃣ Make your first successful EXIT${stars ? '\n\n⭐ Stars are paid out manually within 24 hours.' : ''}`
-    // 📢 opens the channel only; the server still checks the real subscription later. 🦆 keeps startapp=ref_<code>.
+      ? `🦆 DUCKJACKPOT\n\nПопробуй ограбить BANK и забрать DUCK COIN.\n\n🎁 Чтобы получить награду:\n\n1️⃣ Подпишись на канал DuckJackpot\n2️⃣ Открой игру\n3️⃣ Накопи ${MISSION_COINS} DUCK COIN\n4️⃣ Успешно вынеси добычу через EXIT\n\n⭐ Награда:\nТы получишь ${st(INVITEE_STARS)}${INVITEE_COINS} DUCK COIN\nЯ получу ${st(INVITER_STARS)}${INVITER_COINS} DUCK COIN${stars ? '\n\n⭐ Stars выплачиваются вручную в течение 24 часов после выполнения условий.' : ''}`
+      : `🦆 DUCKJACKPOT\n\nTry to rob the BANK and grab DUCK COIN.\n\n🎁 To get the reward:\n\n1️⃣ Follow the DuckJackpot channel\n2️⃣ Open the game\n3️⃣ Collect ${MISSION_COINS} DUCK COIN\n4️⃣ Carry the loot out through EXIT\n\n⭐ Reward:\nYou get ${st(INVITEE_STARS)}${INVITEE_COINS} DUCK COIN\nI get ${st(INVITER_STARS)}${INVITER_COINS} DUCK COIN${stars ? '\n\n⭐ Stars are paid out manually within 24 hours after the conditions are met.' : ''}`
+    // 📢 opens the channel only; the server still checks the real subscription later.
     const buttons = [
       { text: ru ? '📢 ПОДПИСАТЬСЯ НА КАНАЛ' : '📢 FOLLOW THE CHANNEL', url: channelUrl() },
       { text: ru ? '🦆 ИГРАТЬ' : '🦆 PLAY', url },
@@ -1341,6 +1347,7 @@ app.use((err: unknown, _req: express.Request, res: express.Response, next: expre
 void backfillOnce({ dailyIds: dailyUsers().map((d) => d.telegramId), starsIds: [...new Set(allOrders().map((o) => o.telegramUserId))] })
   .then((r) => console.log('[retention] backfill', r))
   .catch((err) => console.error('[retention] backfill failed', err))
+void backfillMissionProgress().then((n) => n && console.log('[retention] mission progress backfilled', n))
 void backfillStarsRewards().then((n) => n && console.log('[retention] stars rewards backfilled', n))
 startNotifier()
 
