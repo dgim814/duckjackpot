@@ -1,6 +1,8 @@
 import { getChat, rememberChat } from './chatStore.js'
 import { getUserCards, type StoredCard } from './cardStore.js'
 import { getTelegramSettings } from './config.js'
+import { recordEvents } from './analyticsStore.js'
+import { applySuccessfulPayment, checkPreCheckout, invoiceTexts, STARS_PRODUCTS, type PreCheckout, type StarsOrder, type SuccessfulPayment } from './starsStore.js'
 
 type TelegramUser = {
   id: number
@@ -14,12 +16,17 @@ type TelegramMessage = {
   from?: TelegramUser
   chat: { id: number }
   text?: string
+  successful_payment?: SuccessfulPayment
 }
 
 type TelegramUpdate = {
   update_id: number
   message?: TelegramMessage
+  pre_checkout_query?: PreCheckout
 }
+
+/** Telegram Bot API base; overridable only so tests can point it at a local mock. */
+const API_BASE = (process.env.TELEGRAM_API_BASE ?? 'https://api.telegram.org').replace(/\/$/, '')
 
 type ApiResult<T> = { ok: true; result: T } | { ok: false; description?: string }
 
@@ -38,7 +45,7 @@ async function telegramApi<T>(
   body?: Record<string, unknown>,
   signal?: AbortSignal,
 ): Promise<T> {
-  const res = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
+  const res = await fetch(`${API_BASE}/bot${token}/${method}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: body ? JSON.stringify(body) : undefined,
@@ -79,7 +86,39 @@ async function sendMessage(token: string, chatId: number, text: string, path?: s
   })
 }
 
+/** Stars payment done: deliver once (idempotent), record analytics, tell the player. */
+async function handleSuccessfulPayment(token: string, message: TelegramMessage) {
+  const p = message.successful_payment!
+  const outcome = await applySuccessfulPayment(message.from?.id, p)
+  const o = outcome.order
+  console.log('[stars] successful_payment', { result: outcome.result, order: o?.id, product: o?.productId, reason: outcome.result === 'rejected' ? outcome.reason : undefined })
+  if (outcome.result === 'delivered' && o) {
+    try {
+      recordEvents(`tg:${o.telegramUserId}`, 'bot', [
+        {
+          name: 'stars_payment_success',
+          props: { productId: o.productId, starsAmount: o.starsAmount, orderId: o.id, telegramPaymentChargeId: o.telegramPaymentChargeId, purchaseStatus: o.status, tier: String(o.tier) },
+        },
+      ])
+    } catch (err) {
+      console.error('[stars] analytics failed', err)
+    }
+    const name = STARS_PRODUCTS[o.productId]?.title[o.lang] ?? o.productId
+    const text =
+      o.lang === 'ru'
+        ? `✓ Оплата получена: ${name} (уровень ${o.tier + 1}). Улучшение уже в игре — откройте Duck Heist.`
+        : `✓ Payment received: ${name} (level ${o.tier + 1}). The upgrade is in your game — open Duck Heist.`
+    await sendMessage(token, message.chat.id, text, '/heist').catch((err) => console.error('[stars] notify failed', err))
+  } else if (outcome.result === 'rejected') {
+    await sendMessage(token, message.chat.id, 'Оплата получена, но заказ не удалось выдать автоматически. Напишите /paysupport — мы разберёмся.').catch(() => undefined)
+  }
+}
+
 async function handleMessage(token: string, message: TelegramMessage) {
+  if (message.successful_payment) {
+    await handleSuccessfulPayment(token, message)
+    return
+  }
   if (message.from?.id && !message.from.is_bot) {
     rememberChat({
       telegramId: message.from.id,
@@ -122,6 +161,14 @@ async function handleMessage(token: string, message: TelegramMessage) {
     await sendMessage(token, chatId, `Ваши карточки:\n\n${list}${extra}`, '/cards')
     return
   }
+  if (command === '/paysupport') {
+    await sendMessage(
+      token,
+      chatId,
+      'Вопросы по оплате Telegram Stars: напишите в @DuckJackpotSupportBot. Укажите дату покупки, товар и, если есть, номер платежа из чека Telegram. Мы ответим и разберём каждый случай. Автоматических возвратов сейчас нет — возврат делается вручную после проверки.',
+    )
+    return
+  }
   if (command === '/heist') {
     await sendMessage(
       token,
@@ -138,6 +185,7 @@ async function applyMenuAndCommands(token: string) {
       { command: 'start', description: 'Открыть DuckJackpot' },
       { command: 'cards', description: 'Мои карточки' },
       { command: 'heist', description: 'Duck Heist' },
+      { command: 'paysupport', description: 'Вопросы по оплате Stars' },
     ],
   })
   const url = publicWebappUrl('/')
@@ -193,12 +241,23 @@ export async function startBot() {
           {
             offset,
             timeout: 25,
-            allowed_updates: ['message'],
+            allowed_updates: ['message', 'pre_checkout_query'],
           },
           abort.signal,
         )
         for (const update of updates) {
           offset = update.update_id + 1
+          if (update.pre_checkout_query) {
+            const q = update.pre_checkout_query
+            const verdict = checkPreCheckout(q)
+            try {
+              await telegramApi(token, 'answerPreCheckoutQuery', verdict.ok ? { pre_checkout_query_id: q.id, ok: true } : { pre_checkout_query_id: q.id, ok: false, error_message: verdict.error })
+            } catch (err) {
+              console.error('[stars] answerPreCheckoutQuery failed', err)
+            }
+            console.log('[stars] pre_checkout', { ok: verdict.ok, payload: q.invoice_payload })
+            continue
+          }
           if (update.message) {
             try {
               await handleMessage(token, update.message)
@@ -340,4 +399,23 @@ export async function botIdentity() {
   } catch {
     return null
   }
+}
+
+/** Stars invoice link for an order (currency XTR, one price, no provider token). */
+export async function createStarsInvoiceLink(order: StarsOrder) {
+  const { token } = getTelegramSettings()
+  if (!token) throw new Error('bot_not_configured')
+  const t = invoiceTexts(order)
+  return telegramApi<string>(token, 'createInvoiceLink', {
+    title: t.title,
+    description: t.description,
+    payload: order.payload,
+    currency: 'XTR',
+    prices: [{ label: t.label, amount: order.starsAmount }],
+  })
+}
+
+/** Whether this server can sell Stars: a bot token is configured and the update poller runs. */
+export function starsBotState() {
+  return { configured: Boolean(getTelegramSettings().token), polling: pollLoop !== null }
 }

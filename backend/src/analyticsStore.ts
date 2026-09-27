@@ -31,6 +31,8 @@ export const ANALYTICS_EVENTS = [
   'stars_open',
   'stars_invoice_created',
   'stars_payment_success',
+  'stars_invoice_cancelled',
+  'stars_purchase_error',
 ] as const
 export type AnalyticsEventName = (typeof ANALYTICS_EVENTS)[number]
 
@@ -51,6 +53,12 @@ const PROPS: Record<string, 'str' | 'num' | 'bool'> = {
   raffleId: 'str',
   item: 'str',
   stars: 'num',
+  productId: 'str',
+  starsAmount: 'num',
+  orderId: 'str',
+  telegramPaymentChargeId: 'str',
+  purchaseStatus: 'str',
+  error: 'str',
 }
 
 export type StoredEvent = {
@@ -91,13 +99,17 @@ export function userKey(telegramId: number | null, anonId: unknown) {
   return null
 }
 
+/** Only the server may record these (invoice made, payment confirmed by Telegram, server errors). */
+const SERVER_ONLY = new Set<string>(['stars_invoice_created', 'stars_payment_success'])
+
 /** Validate and append a batch. Returns how many events were stored. */
-export function recordEvents(user: string, sessionId: unknown, events: IncomingEvent[], now = Date.now()) {
+export function recordEvents(user: string, sessionId: unknown, events: IncomingEvent[], now = Date.now(), fromClient = false) {
   const s = typeof sessionId === 'string' && /^[A-Za-z0-9_-]{4,64}$/.test(sessionId) ? sessionId : undefined
   const rows: StoredEvent[] = []
   for (const ev of events.slice(0, 50)) {
     const name = ev?.name
     if (typeof name !== 'string' || !(ANALYTICS_EVENTS as readonly string[]).includes(name)) continue
+    if (fromClient && SERVER_ONLY.has(name)) continue
     if (name === 'app_open') {
       const prev = lastOpen.get(user) ?? 0
       if (now - prev < OPEN_WINDOW_MS) continue
@@ -144,7 +156,10 @@ const round = (n: number, d = 1) => Math.round(n * 10 ** d) / 10 ** d
 const pct = (a: number, b: number) => (b > 0 ? round((a / b) * 100) : 0)
 
 /** Everything the admin dashboard shows, from stored events only (no estimates). */
-export function analyticsSummary(range: AnalyticsRange, now = Date.now()) {
+/** Stars orders, as the summary needs them (kept structural to avoid a store dependency). */
+export type OrderLike = { telegramUserId: number; productId: string; starsAmount: number; status: string; deliveredAt?: number }
+
+export function analyticsSummary(range: AnalyticsRange, now = Date.now(), orders: OrderLike[] = []) {
   const all = readAll()
   const from = rangeStart(range, now)
   const inRange = all.filter((e) => e.t >= from)
@@ -181,6 +196,7 @@ export function analyticsSummary(range: AnalyticsRange, now = Date.now()) {
     starsOpen: usersWith('stars_open').size,
     starsPayments: payments.length,
     starsPayers: new Set(payments.map((e) => e.u)).size,
+
   }
   const conversion = {
     openToStart: pct(both(opened, started), opened.size),
@@ -224,8 +240,39 @@ export function analyticsSummary(range: AnalyticsRange, now = Date.now()) {
     levels[l] = (levels[l] ?? 0) + 1
   }
 
+  // ⭐ Telegram Stars: opens and invoices from analytics, payments from the orders (source of truth)
+  const paid = orders.filter((o) => o.status === 'delivered' && (o.deliveredAt ?? 0) >= from)
+  const starsOpenUsers = usersWith('stars_open')
+  const invoiceUsers = usersWith('stars_invoice_created')
+  const payerKeys = new Set(paid.map((o) => `tg:${o.telegramUserId}`))
+  const starsSold = paid.reduce((a, o) => a + o.starsAmount, 0)
+  const perProduct = new Map<string, { purchases: number; payers: Set<number>; stars: number }>()
+  for (const o of paid) {
+    const row = perProduct.get(o.productId) ?? { purchases: 0, payers: new Set<number>(), stars: 0 }
+    row.purchases += 1
+    row.payers.add(o.telegramUserId)
+    row.stars += o.starsAmount
+    perProduct.set(o.productId, row)
+  }
+  const stars = {
+    opens: inRange.filter((e) => e.e === 'stars_open').length,
+    openUsers: starsOpenUsers.size,
+    invoices: inRange.filter((e) => e.e === 'stars_invoice_created').length,
+    payments: paid.length,
+    payers: payerKeys.size,
+    starsSold,
+    avgStars: paid.length ? round(starsSold / paid.length) : 0,
+    openToInvoice: pct(both(starsOpenUsers, invoiceUsers), starsOpenUsers.size),
+    invoiceToPayment: pct(both(invoiceUsers, payerKeys), invoiceUsers.size),
+    openToPayment: pct(both(starsOpenUsers, payerKeys), starsOpenUsers.size),
+    products: [...perProduct.entries()]
+      .map(([productId, r]) => ({ productId, purchases: r.purchases, payers: r.payers.size, stars: r.stars }))
+      .sort((a, b) => b.stars - a.stars),
+  }
+
   return {
     range,
+    stars,
     from,
     generatedAt: now,
     players: daysActive.size,

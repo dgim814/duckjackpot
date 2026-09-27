@@ -28,6 +28,8 @@ export type AnalyticsEvent =
   | 'stars_open'
   | 'stars_invoice_created'
   | 'stars_payment_success'
+  | 'stars_invoice_cancelled'
+  | 'stars_purchase_error'
 
 export type AnalyticsProps = Partial<{
   level: string
@@ -45,6 +47,10 @@ export type AnalyticsProps = Partial<{
   raffleId: string
   item: string
   stars: number
+  productId: string
+  orderId: string
+  starsAmount: number
+  error: string
 }>
 
 const ANON_KEY = 'duckjackpot.analytics.device'

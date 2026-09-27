@@ -31,7 +31,8 @@ import { discardSuspendedRaid, suspendedRaid } from '../heist/v2/ui/HeistGameV2'
 import { pendingNotifications } from '../heist/notify'
 import { GoalCard } from '../heist/economy/GoalCard'
 import { goalProgress } from '../heist/progress'
-import { requestStarsPurchase, STAR_PACKS } from '../heist/economy/stars'
+import { fetchStarsCatalog, syncStarsPurchases, type StarsCatalog } from '../heist/economy/stars'
+import { StarsBuyButton } from '../heist/economy/StarsBuyButton'
 import { heistSfx, unlockHeistSfx } from '../heist/heistSfx'
 import { BANK_ZONE_COUNT, bankCollectedPotential, bankTotalPotential } from '../heist/phaser/bankLayout'
 import { HEIST_LEVEL_NAME, HEIST_LEVEL_ORDER, continueLevel, heistLevelBrief, heistLevelCards, isGrandLevel, nextHeistLevel, type HeistLevelId } from '../heist/heistLevel'
@@ -288,6 +289,22 @@ export function HeistPage() {
   useEffect(() => {
     if (screen === 'shop') trackScreen('stars_open')
   }, [screen])
+  /** ⭐ Telegram Stars: server catalog, and gear the server says was already paid for. */
+  const [starsCatalog, setStarsCatalog] = useState<StarsCatalog | null>(null)
+  useEffect(() => {
+    let live = true
+    fetchStarsCatalog()
+      .then((c) => live && setStarsCatalog(c))
+      .catch(() => live && setStarsCatalog(null))
+    syncStarsPurchases()
+      .then((r) => {
+        if (live && r?.raised.length) setProgress(r.progress)
+      })
+      .catch(() => undefined)
+    return () => {
+      live = false
+    }
+  }, [])
   const novice = isHeistNovice(progress)
   const levelCards = heistLevelCards(progress)
   /** The first locked level: shown as the next goal (with its brief and a ⭐ preview). */
@@ -490,16 +507,7 @@ export function HeistPage() {
           <p className="mt-1 text-center text-[10px] font-extrabold tracking-[0.18em] text-amber-100/70">{t('heistUpgrades')}</p>
           <Wallet coins={progress.bankedDuckCoin} stars={progress.stars || 0} />
           <p className="mt-2 text-center text-[11px] text-zinc-500">{t('heistStarsHint')}</p>
-          <button
-            type="button"
-            className="mt-3 min-h-12 w-full rounded-xl border border-amber-400/30 px-4 py-3 text-sm font-bold text-amber-100"
-            onClick={() => {
-              const result = requestStarsPurchase(STAR_PACKS[0])
-              if (!result.ok) setShopMsg(t('heistStarsSoon'))
-            }}
-          >
-            {t('heistStarsBuy')}
-          </button>
+          <p className="mt-2 text-center text-[11px] font-semibold text-amber-100/70">{t('starsFreeHint')}</p>
           {shopMsg ? <p className="mt-3 text-center text-sm font-bold text-orange-300">{shopMsg}</p> : null}
           <div className="mt-5 space-y-3">
             {tracks.map((track) => {
@@ -531,14 +539,32 @@ export function HeistPage() {
                       >
                         {t('heistBuyCoins', { n: (coinPrice ?? 0).toLocaleString() })}
                       </button>
-                      <button
-                        type="button"
-                        disabled={(progress.stars || 0) < (starPrice ?? 0)}
-                        className="buy-btn min-h-12 rounded-xl px-3 py-2 text-sm font-black text-zinc-950 disabled:opacity-45"
-                        onClick={() => buyLab(track.stat, 'stars')}
-                      >
-                        {t('heistBuyStars', { n: starPrice ?? 0 })}
-                      </button>
+                      {(() => {
+                        // ⭐ Real Telegram Stars for the tracks the server sells; the rest keep the old button.
+                        const product = starsCatalog?.products.find((p) => p.stat === track.stat)
+                        if (starsCatalog && product) {
+                          return (
+                            <StarsBuyButton
+                              key={`${product.id}-${level}`}
+                              product={product}
+                              catalog={starsCatalog}
+                              level={level}
+                              onDelivered={(next) => setProgress(next)}
+                              onMessage={setShopMsg}
+                            />
+                          )
+                        }
+                        return (
+                          <button
+                            type="button"
+                            disabled={(progress.stars || 0) < (starPrice ?? 0)}
+                            className="buy-btn min-h-12 rounded-xl px-3 py-2 text-sm font-black text-zinc-950 disabled:opacity-45"
+                            onClick={() => buyLab(track.stat, 'stars')}
+                          >
+                            {t('heistBuyStars', { n: starPrice ?? 0 })}
+                          </button>
+                        )
+                      })()}
                     </div>
                   )}
                 </div>

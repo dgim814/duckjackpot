@@ -4,8 +4,36 @@ import { useI18n } from '../../i18n/LanguageProvider'
 
 type Range = 'today' | '7d' | '30d' | 'all'
 
+type StarsBlock = {
+  opens: number
+  openUsers: number
+  invoices: number
+  payments: number
+  payers: number
+  starsSold: number
+  avgStars: number
+  openToInvoice: number
+  invoiceToPayment: number
+  openToPayment: number
+  products: { productId: string; purchases: number; payers: number; stars: number }[]
+}
+
+type AdminOrder = {
+  id: string
+  telegramUserId: number
+  productId: string
+  tier: number
+  starsAmount: number
+  status: string
+  createdAt: number
+  deliveredAt?: number
+  telegramPaymentChargeId?: string
+  failReason?: string
+}
+
 type Summary = {
   range: Range
+  stars: StarsBlock
   generatedAt: number
   players: number
   verifiedPlayers: number
@@ -92,6 +120,33 @@ const L = {
     },
     sec: 'с',
     raidsN: 'рейдов',
+    stars: {
+      title: '⭐ TELEGRAM STARS',
+      opens: 'Открытий экрана Stars',
+      invoices: 'Счетов создано',
+      payments: 'Успешных оплат',
+      payers: 'Платящих игроков',
+      sold: 'Stars продано',
+      avg: 'Stars на покупку',
+      openToInvoice: 'Stars open → invoice',
+      invoiceToPayment: 'Invoice → оплата',
+      openToPayment: 'Stars open → оплата',
+      product: 'ТОВАР',
+      buys: 'ПОКУПОК',
+      buyers: 'ПЛАТЕЛЬЩИКОВ',
+      starsCol: 'STARS',
+      none: 'Покупок пока нет',
+      orders: '⭐ ПЛАТЕЖИ',
+      ordersHint: 'Последние заказы. Telegram ID и номер платежа видны только администратору.',
+      date: 'Дата',
+      user: 'Telegram ID',
+      status: 'Статус',
+      charge: 'Charge ID',
+      noOrders: 'Заказов пока нет',
+      bot: 'Бот',
+      botOk: 'подключён, принимает платежи',
+      botOff: 'НЕ подключён — счета не создаются',
+    },
   },
   en: {
     title: 'Analytics',
@@ -138,6 +193,33 @@ const L = {
     },
     sec: 's',
     raidsN: 'raids',
+    stars: {
+      title: '⭐ TELEGRAM STARS',
+      opens: 'Stars screen opens',
+      invoices: 'Invoices created',
+      payments: 'Successful payments',
+      payers: 'Paying players',
+      sold: 'Stars sold',
+      avg: 'Stars per purchase',
+      openToInvoice: 'Stars open → invoice',
+      invoiceToPayment: 'Invoice → payment',
+      openToPayment: 'Stars open → payment',
+      product: 'PRODUCT',
+      buys: 'PURCHASES',
+      buyers: 'PAYERS',
+      starsCol: 'STARS',
+      none: 'No purchases yet',
+      orders: '⭐ PAYMENTS',
+      ordersHint: 'Latest orders. Telegram IDs and charge IDs are visible to admins only.',
+      date: 'Date',
+      user: 'Telegram ID',
+      status: 'Status',
+      charge: 'Charge ID',
+      noOrders: 'No orders yet',
+      bot: 'Bot',
+      botOk: 'connected, accepting payments',
+      botOff: 'NOT connected — invoices cannot be created',
+    },
   },
 }
 
@@ -159,6 +241,7 @@ export function AnalyticsPage() {
   const [data, setData] = useState<Summary | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [orders, setOrders] = useState<{ orders: AdminOrder[]; bot: { configured: boolean; polling: boolean } } | null>(null)
 
   const load = (r: Range) => {
     setBusy(true)
@@ -168,6 +251,10 @@ export function AnalyticsPage() {
       .then((res) => setData(res.data))
       .catch((err) => setError(formatApiError(err)))
       .finally(() => setBusy(false))
+    api
+      .get<{ orders: AdminOrder[]; bot: { configured: boolean; polling: boolean } }>('/admin/stars/orders')
+      .then((res) => setOrders(res.data))
+      .catch(() => setOrders(null))
   }
   useEffect(() => load(range), [range])
 
@@ -267,6 +354,89 @@ export function AnalyticsPage() {
               <p className="mt-2 text-sm text-zinc-500">{tx.noLevels}</p>
             )}
           </section>
+          <section className="rounded-2xl border border-amber-400/30 bg-zinc-900/80 p-4">
+            <h3 className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-amber-200">{tx.stars.title}</h3>
+            {orders ? (
+              <p className={`mt-1 text-[11px] ${orders.bot.configured && orders.bot.polling ? 'text-emerald-300' : 'text-orange-300'}`}>
+                {tx.stars.bot}: {orders.bot.configured && orders.bot.polling ? tx.stars.botOk : tx.stars.botOff}
+              </p>
+            ) : null}
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <Stat label={tx.stars.opens} value={data.stars.opens} />
+              <Stat label={tx.stars.invoices} value={data.stars.invoices} />
+              <Stat label={tx.stars.payments} value={data.stars.payments} />
+              <Stat label={tx.stars.payers} value={data.stars.payers} />
+              <Stat label={tx.stars.sold} value={`${data.stars.starsSold} ⭐`} />
+              <Stat label={tx.stars.avg} value={data.stars.avgStars} />
+            </div>
+            <ul className="mt-3 space-y-1.5">
+              {(['openToInvoice', 'invoiceToPayment', 'openToPayment'] as const).map((k) => (
+                <li key={k} className="flex items-baseline justify-between gap-2 text-sm">
+                  <span className="text-zinc-300">{tx.stars[k]}</span>
+                  <span className="font-display font-black text-emerald-300">{data.stars[k]}%</span>
+                </li>
+              ))}
+            </ul>
+            <table className="mt-4 w-full text-left text-sm">
+              <thead>
+                <tr className="text-[10px] tracking-[0.12em] text-zinc-500">
+                  <th className="pb-1 font-extrabold">{tx.stars.product}</th>
+                  <th className="pb-1 text-right font-extrabold">{tx.stars.buys}</th>
+                  <th className="pb-1 text-right font-extrabold">{tx.stars.buyers}</th>
+                  <th className="pb-1 text-right font-extrabold">{tx.stars.starsCol}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.stars.products.length ? (
+                  data.stars.products.map((p) => (
+                    <tr key={p.productId} className="border-t border-white/5">
+                      <td className="py-1 text-zinc-200">{p.productId.replace(/_/g, ' ').toUpperCase()}</td>
+                      <td className="py-1 text-right text-zinc-200">{p.purchases}</td>
+                      <td className="py-1 text-right text-zinc-200">{p.payers}</td>
+                      <td className="py-1 text-right text-amber-200">{p.stars} ⭐</td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={4} className="pt-2 text-zinc-500">
+                      {tx.stars.none}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </section>
+
+          <section className="rounded-2xl border border-white/10 bg-zinc-900/80 p-4">
+            <h3 className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-amber-200">{tx.stars.orders}</h3>
+            <p className="mt-1 text-[11px] text-zinc-500">{tx.stars.ordersHint}</p>
+            {orders?.orders.length ? (
+              <ul className="mt-3 space-y-2">
+                {orders.orders.slice(0, 50).map((o) => (
+                  <li key={o.id} className="rounded-xl border border-white/8 bg-black/20 px-3 py-2 text-[12px]">
+                    <div className="flex justify-between gap-2">
+                      <span className="text-zinc-300">{new Date(o.deliveredAt ?? o.createdAt).toLocaleString()}</span>
+                      <span className={o.status === 'delivered' ? 'text-emerald-300' : o.status === 'failed' ? 'text-orange-300' : 'text-zinc-400'}>{o.status}</span>
+                    </div>
+                    <div className="mt-0.5 flex justify-between gap-2">
+                      <span className="text-zinc-200">
+                        {o.productId.replace(/_/g, ' ').toUpperCase()} · {o.tier + 1}
+                      </span>
+                      <span className="text-amber-200">{o.starsAmount} ⭐</span>
+                    </div>
+                    <p className="mt-0.5 break-all text-[10px] text-zinc-500">
+                      {tx.stars.user}: {o.telegramUserId}
+                      {o.telegramPaymentChargeId ? ` · ${tx.stars.charge}: ${o.telegramPaymentChargeId}` : ''}
+                      {o.failReason ? ` · ${o.failReason}` : ''}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-2 text-sm text-zinc-500">{tx.stars.noOrders}</p>
+            )}
+          </section>
+
           <p className="text-[11px] text-zinc-600">
             {tx.events}: {data.events} · {new Date(data.generatedAt).toLocaleString()}
           </p>

@@ -1,7 +1,7 @@
 import cors from 'cors'
 import dotenv from 'dotenv'
 import express from 'express'
-import { botIdentity, notifyPaymentClaimed, notifyPaymentConfirmed, notifyPaymentRejected, notifyTelegramUser, startBot } from './bot.js'
+import { botIdentity, createStarsInvoiceLink, starsBotState, notifyPaymentClaimed, notifyPaymentConfirmed, notifyPaymentRejected, notifyTelegramUser, startBot } from './bot.js'
 import { archiveRaffleCards, findCardById, getUserCards, listAllCards, mergeUserCards, setCardStatusById, setUserCardStatus, upsertUserCard, type StoredCard } from './cardStore.js'
 import { adminPassword, DATA_DIR, getTelegramSettings, maskToken, saveTelegramSettings } from './config.js'
 import { deleteNftFile, getNftFile, isNftRaffleId, listNftMeta, saveNftFile } from './nftStore.js'
@@ -23,6 +23,7 @@ import {
   queueGameplayReset,
 } from './playerResetStore.js'
 import { verifyInitData } from './verifyInitData.js'
+import { allOrders, createOrder, ordersOf, saveOrder, STARS_PRODUCTS, type StarsOrder } from './starsStore.js'
 import { analyticsSummary, recordEvents, userKey, type AnalyticsRange, type IncomingEvent } from './analyticsStore.js'
 
 dotenv.config()
@@ -62,7 +63,7 @@ app.use(
       callback(new Error(`CORS blocked origin: ${origin}`))
     },
     credentials: true,
-    allowedHeaders: ['Content-Type', 'Authorization', 'x-admin-password'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-admin-password', 'X-Telegram-Init-Data'],
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   }),
 )
@@ -347,7 +348,7 @@ app.post('/api/analytics/events', (req, res) => {
     return
   }
   try {
-    const stored = recordEvents(user, body.sessionId, body.events as IncomingEvent[])
+    const stored = recordEvents(user, body.sessionId, body.events as IncomingEvent[], Date.now(), true)
     res.json({ ok: true, stored })
   } catch (err) {
     console.error('[analytics] write failed', err)
@@ -360,11 +361,93 @@ app.get('/api/admin/analytics', (req, res) => {
   const r = String(req.query.range ?? '7d')
   const range: AnalyticsRange = r === 'today' || r === '7d' || r === '30d' || r === 'all' ? r : '7d'
   try {
-    res.json(analyticsSummary(range))
+    res.json(analyticsSummary(range, Date.now(), allOrders()))
   } catch (err) {
     console.error('[analytics] summary failed', err)
     res.status(500).json({ error: 'server_error' })
   }
+})
+
+// ---------- Telegram Stars ----------
+/** The verified Telegram id for a Stars request, or null (then: 401). Never a client-sent id. */
+function starsUser(req: express.Request): number | null {
+  const raw = req.header('x-telegram-init-data') ?? (typeof req.body?.initData === 'string' ? req.body.initData : '')
+  if (!raw) return null
+  return verifyInitData(raw, getTelegramSettings().token)?.id ?? null
+}
+
+const publicOrder = (o: StarsOrder) => ({
+  orderId: o.id,
+  productId: o.productId,
+  tier: o.tier,
+  starsAmount: o.starsAmount,
+  status: o.status,
+  createdAt: o.createdAt,
+  purchasedAt: o.deliveredAt ?? null,
+})
+
+/** Catalog with server prices (read-only; the client shows them, the server charges them). */
+app.get('/api/stars/products', (_req, res) => {
+  const bot = starsBotState()
+  res.json({
+    enabled: bot.configured && bot.polling,
+    products: Object.values(STARS_PRODUCTS).map((p) => ({ id: p.id, stat: p.stat, prices: p.prices, title: p.title, tiers: p.tiers })),
+  })
+})
+
+app.post('/api/stars/create-invoice', async (req, res) => {
+  const telegramUserId = starsUser(req)
+  if (!telegramUserId) {
+    res.status(401).json({ error: 'unauthorized' })
+    return
+  }
+  const bot = starsBotState()
+  if (!bot.configured) {
+    res.status(503).json({ error: 'bot_not_configured' })
+    return
+  }
+  const lang = req.body?.lang === 'en' ? 'en' : 'ru'
+  const made = createOrder(telegramUserId, String(req.body?.productId ?? ''), req.body?.level, lang)
+  if ('error' in made) {
+    res.status(made.error === 'unknown_product' ? 400 : 409).json({ error: made.error })
+    return
+  }
+  const order = made.order
+  try {
+    await saveOrder(order)
+    const invoiceUrl = await createStarsInvoiceLink(order)
+    order.status = 'invoice_created'
+    order.invoiceCreatedAt = Date.now()
+    await saveOrder(order)
+    recordEvents(`tg:${telegramUserId}`, 'server', [{ name: 'stars_invoice_created', props: { productId: order.productId, starsAmount: order.starsAmount, orderId: order.id, tier: String(order.tier) } }])
+    res.json({ orderId: order.id, invoiceUrl, productId: order.productId, tier: order.tier, starsAmount: order.starsAmount })
+  } catch (err) {
+    console.error('[stars] create invoice failed', { order: order.id, err: err instanceof Error ? err.message : String(err) })
+    order.status = 'failed'
+    order.failReason = 'invoice_failed'
+    await saveOrder(order).catch(() => undefined)
+    recordEvents(`tg:${telegramUserId}`, 'server', [{ name: 'stars_purchase_error', props: { productId: order.productId, orderId: order.id, error: 'invoice_failed' } }])
+    res.status(502).json({ error: 'invoice_failed' })
+  }
+})
+
+/** This player's Stars orders — only theirs — and the tier they own per product. */
+app.get('/api/stars/purchases', (req, res) => {
+  const telegramUserId = starsUser(req)
+  if (!telegramUserId) {
+    res.status(401).json({ error: 'unauthorized' })
+    return
+  }
+  const orders = ordersOf(telegramUserId)
+  const owned: Record<string, number> = {}
+  for (const o of orders) if (o.status === 'delivered') owned[o.productId] = Math.max(owned[o.productId] ?? 0, o.tier)
+  res.json({ purchases: orders.slice(0, 50).map(publicOrder), owned })
+})
+
+/** Admin: latest Stars orders with payer id and charge id (for support and refunds). */
+app.get('/api/admin/stars/orders', (req, res) => {
+  if (!requireAdmin(req, res)) return
+  res.json({ orders: allOrders().slice(0, 200), bot: starsBotState() })
 })
 
 app.get('/api/nft', (_req, res) => {

@@ -565,6 +565,26 @@ export function buyLabUpgrade(_progress: PlayerProgress, stat: LabStat, currency
   return { ok: true as const, reason: 'ok' as const, next, price }
 }
 
+/**
+ * Gear bought with Telegram Stars (server-confirmed, from GET /api/stars/purchases): raise each
+ * track to at least the tier the server says was paid for. Never lowers a level, never grants
+ * anything by itself — the tiers come only from delivered server orders. Returns what changed.
+ */
+export function applyStarsOwnership(owned: Partial<Record<'bagLevel' | 'shoesLevel' | 'disguiseLevel' | 'dashLevel', number>>) {
+  const live = loadProgress()
+  const next: PlayerProgress = { ...live, ...keepWallet(live) }
+  const raised: string[] = []
+  for (const [stat, tier] of Object.entries(owned) as ['bagLevel' | 'shoesLevel' | 'disguiseLevel' | 'dashLevel', number][]) {
+    const t = clampLevel(tier)
+    if (t > clampLevel(live[stat])) {
+      next[stat] = t
+      raised.push(stat)
+    }
+  }
+  if (raised.length) saveProgress(next)
+  return { next: raised.length ? next : live, raised }
+}
+
 /** Buy one ⭐ item (pass, boost, continue). Stars only. */
 export function buyStarItem(id: StarItemId) {
   const live = loadProgress()
