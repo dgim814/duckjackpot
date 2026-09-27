@@ -61,6 +61,8 @@ export class Raid {
   paused = false
   /** Tutorial hint on screen: the whole raid is frozen (no pause menu). */
   hold = false
+  /** Why the raid ended in CAUGHT (analytics only). */
+  catchReason: 'guard' | 'police_timer' | null = null
   crack: CrackGame | null = null
   bag = 0
   carried: Carried[] = []
@@ -280,6 +282,7 @@ export class Raid {
       this.caughtFlag = false
       // Right after a paid CONTINUE the duck gets a short grace window to slip away.
       if (this.time >= this.graceUntil) {
+        this.catchReason = 'guard'
         this.finish('caught')
         return
       }
@@ -303,7 +306,10 @@ export class Raid {
     }
     if (this.alert.value >= this.cfg.alert.bandDanger || this.guards.anyChase()) this.stealthBroken = true
 
-    if (this.escapeUntil > 0 && this.time >= this.escapeUntil) this.finish('caught')
+    if (this.escapeUntil > 0 && this.time >= this.escapeUntil) {
+      this.catchReason = 'police_timer'
+      this.finish('caught')
+    }
   }
 
   private guardWorld(): GuardWorld {

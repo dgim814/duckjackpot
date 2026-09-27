@@ -1,3 +1,4 @@
+import { track, trackScreen } from '../analytics/track'
 import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { ScreenHeader } from '../components/ScreenHeader'
@@ -93,6 +94,7 @@ export function BlackMarketPage() {
   const locale = lang === 'ru' ? 'ru' : 'en'
   const fmt = (n: number) => n.toLocaleString(lang === 'ru' ? 'ru-RU' : 'en-US')
   const [progress, setProgress] = useState(loadProgress)
+  useEffect(() => trackScreen('black_market_open'), [])
   useEffect(() => subscribeGameplayReset(() => setProgress(loadProgress())), [])
   const [msg, setMsg] = useState<string | null>(null)
   const goal = goalProgress(progress)
@@ -133,6 +135,7 @@ export function BlackMarketPage() {
     unlockHeistSfx()
     heistSfx.uiTap()
     setProgress(setMyGoal(item.id))
+    track('black_market_goal_selected', { itemId: item.id, price: item.purchasePrice, tier: item.tier })
     setMsg(t('bmGoalChanged', { name: item.name[locale] }))
   }
 
@@ -145,6 +148,7 @@ export function BlackMarketPage() {
     }
     if (!result.ok) return
     setProgress(result.next)
+    track('black_market_purchase', { itemId: item.id, price: item.purchasePrice, tier: item.tier })
     setDone({ item, goalReached: result.goalReached })
     setMsg(t('bmBoughtSub', { name: item.name[locale], n: fmt(item.purchasePrice) }))
     heistSfx.purchase()

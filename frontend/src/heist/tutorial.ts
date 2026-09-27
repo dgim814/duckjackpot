@@ -1,4 +1,5 @@
 import { isGameplayFresh, isHeistNovice, type PlayerProgress } from './progress'
+import { track } from '../analytics/track'
 
 /**
  * In-raid tutorial: one short hint the first time a new player meets each mechanic.
@@ -44,6 +45,7 @@ export function tutorialState(progress: PlayerProgress): Stored {
   if (s) return s
   const fresh: Stored = { v: 1, active: isHeistNovice(progress) && isGameplayFresh(progress), seen: [] }
   write(fresh)
+  if (fresh.active) track('tutorial_start')
   return fresh
 }
 
@@ -60,6 +62,7 @@ export function markTutorialSeen(step: TutorialStep) {
   const s = read() ?? { v: 1 as const, active: true, seen: [] }
   if (s.seen.includes(step)) return
   write({ ...s, seen: [...s.seen, step] })
+  track('tutorial_step', { step })
 }
 
 export function tutorialDone(progress: PlayerProgress) {

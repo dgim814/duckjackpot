@@ -6,7 +6,7 @@ export type TelegramWebUser = {
   firstName?: string
 }
 
-export function verifyInitData(initData: string, botToken: string): TelegramWebUser | null {
+export function verifyInitData(initData: string, botToken: string, maxAgeS = 86_400): TelegramWebUser | null {
   if (!initData || !botToken) return null
   const params = new URLSearchParams(initData)
   const hash = params.get('hash')
@@ -22,7 +22,7 @@ export function verifyInitData(initData: string, botToken: string): TelegramWebU
 
   const authDate = Number(params.get('auth_date') ?? 0)
   if (!Number.isFinite(authDate) || authDate <= 0) return null
-  if (Date.now() / 1000 - authDate > 86_400) return null
+  if (Date.now() / 1000 - authDate > maxAgeS) return null
 
   const raw = params.get('user')
   if (!raw) return null

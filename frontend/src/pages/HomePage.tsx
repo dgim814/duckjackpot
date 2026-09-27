@@ -1,4 +1,5 @@
-import { useCallback, useState } from 'react'
+import { trackScreen } from '../analytics/track'
+import { useCallback, useState, useEffect } from 'react'
 import { useAdmin } from '../admin/AdminProvider'
 import { useCards } from '../cards/CardsProvider'
 import { BuySheet } from '../components/BuySheet'
@@ -11,6 +12,7 @@ import { getRaffle } from '../constants'
 import { useI18n } from '../i18n/LanguageProvider'
 
 export function HomePage() {
+  useEffect(() => trackScreen('nft_drop_open'), [])
   const { t, lang } = useI18n()
   const { raffleId, soldCount, isRunning } = useCards()
   const { raffles } = useAdmin()

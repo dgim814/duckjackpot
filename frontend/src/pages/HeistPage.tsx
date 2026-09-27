@@ -1,3 +1,4 @@
+import { trackScreen } from '../analytics/track'
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { HeistDuck } from '../heist/HeistDuck'
@@ -284,6 +285,9 @@ export function HeistPage() {
   const [raidMods, setRaidMods] = useState<HeistRunMods>(() => runMods(loadProgress()))
   const [resumeRun, setResumeRun] = useState(false)
   const [showOnb, setShowOnb] = useState(false)
+  useEffect(() => {
+    if (screen === 'shop') trackScreen('stars_open')
+  }, [screen])
   const novice = isHeistNovice(progress)
   const levelCards = heistLevelCards(progress)
   /** The first locked level: shown as the next goal (with its brief and a ⭐ preview). */

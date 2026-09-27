@@ -14,13 +14,13 @@ import {
   List,
   LogOut,
   Sparkles,
-  Settings,
-} from 'lucide-react'
+  Settings, BarChart3 } from 'lucide-react'
 
 const NAV = [
   { to: '/admin', labelKey: 'adminNavDash' as const, icon: LayoutDashboard, end: true },
   { to: '/admin/raffles', labelKey: 'adminNavRaffles' as const, icon: Flag, end: false },
   { to: '/admin/nft', labelKey: 'adminNavNft' as const, icon: Image, end: false },
+  { to: '/admin/analytics', labelKey: 'adminNavAnalytics' as const, icon: BarChart3, end: false },
   { to: '/admin/payments', labelKey: 'adminNavPayments' as const, icon: Banknote, end: false },
   { to: '/admin/cards', labelKey: 'adminNavCards' as const, icon: List, end: false },
   { to: '/admin/payouts', labelKey: 'adminNavPayouts' as const, icon: Gift, end: false },

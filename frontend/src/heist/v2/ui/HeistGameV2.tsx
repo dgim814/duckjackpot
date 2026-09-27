@@ -24,6 +24,8 @@ import { buyStarItem, consumeStarItem, loadProgress, markNftCta } from '../../pr
 import { HudStore } from './store'
 import { TutorialOverlay } from './Tutorial'
 import { markTutorialSeen, pendingTutorialSteps, resetHeistTutorial } from '../../tutorial'
+import { track, trackOnce } from '../../../analytics/track'
+import { isHeistNovice } from '../../progress'
 import './v2.css'
 
 type Props = {
@@ -95,6 +97,8 @@ export function HeistGameV2({ running, mods, levelId = 'bank', novice = false, o
   }
   const nftOpen = panel === 'nft'
   const pendingEndRef = useRef<HeistEnd | null>(null)
+  /** Analytics: the raid's final outcome (after a declined ⭐ continue, or the plain end). */
+  const reportRef = useRef<((end: HeistEnd) => void) | null>(null)
   const endedRef = useRef(false)
   const onSuspendRef = useRef(onSuspend)
   onSuspendRef.current = onSuspend
@@ -115,6 +119,28 @@ export function HeistGameV2({ running, mods, levelId = 'bank', novice = false, o
     if (parked) raid.setPaused(false)
     raidRef.current = raid
     endedRef.current = false
+    // Analytics: one raid = one raidId; milestones are reported once per player/device.
+    const raidId = Math.random().toString(36).slice(2, 12)
+    const before = loadProgress()
+    const firstTimer = isHeistNovice(before)
+    if (!parked && !raid.mods.preview) {
+      trackOnce('game_start', 'game_start')
+      trackOnce(`level_start:${levelId}`, 'level_start', { level: levelId })
+      if (!firstTimer) trackOnce('second_raid', 'second_raid', { level: levelId })
+      track('raid_start', { level: levelId, zone: raid.depthBest + 1, raidId })
+    }
+    const report = (end: HeistEnd) => {
+      const base = { level: levelId, zone: raid.zoneMax + 1, raidId, durationMs: end.timeMs }
+      if (end.verdict === 'caught') {
+        track('raid_caught', { ...base, duckCoinLoot: end.coins, catchReason: raid.catchReason ?? 'guard' })
+        return
+      }
+      const loot = end.verdict === 'escaped' ? end.coins + end.bonus + end.objBonus : 0
+      track('raid_exit', { ...base, duckCoinLoot: loot, exitResult: end.verdict, levelCompleted: end.levelCompleted })
+      if (end.verdict !== 'escaped') return
+      if (firstTimer) trackOnce('first_exit', 'first_exit', { level: levelId, duckCoinLoot: loot })
+      if (end.levelCompleted) track('level_complete', { level: levelId, raidId })
+    }
     let ctaShown = false
     input.attachKeyboard()
     const togglePause = () => {
@@ -142,7 +168,10 @@ export function HeistGameV2({ running, mods, levelId = 'bank', novice = false, o
       nftArt: { classic: cardArtRef.current('classic'), fast200: cardArtRef.current('fast200'), fast100: cardArtRef.current('fast100') },
       // NFTs are separate collectibles, never a duck costume: the raid always uses the normal duck.
       skin: null,
-      onNftView: () => openPanel('nft'),
+      onNftView: () => {
+        track('nft_open', { level: levelId })
+        openPanel('nft')
+      },
       onLiftOpen: () => {
         setLiftTick((n) => n + 1)
         openPanel('lift')
@@ -151,6 +180,9 @@ export function HeistGameV2({ running, mods, levelId = 'bank', novice = false, o
       // New players: one hint per mechanic, on its first real encounter (see tutorial.ts).
       tutorial: raid.mods.preview ? null : pendingTutorialSteps(loadProgress()),
       onTutorialSeen: markTutorialSeen,
+      onFirstLoot: () => {
+        if (firstTimer) trackOnce('first_coin', 'first_coin', { level: levelId, raidId })
+      },
       onEnd: (end) => {
         if (endedRef.current) return
         // CAUGHT: offer the ⭐ continue once per raid, if the player can afford it.
@@ -164,9 +196,11 @@ export function HeistGameV2({ running, mods, levelId = 'bank', novice = false, o
           }
         }
         endedRef.current = true
+        reportRef.current?.(end)
         onDoneRef.current(end)
       },
     })
+    reportRef.current = raid.mods.preview ? null : report
     const game = new Phaser.Game({
       type: Phaser.AUTO,
       parent: host,
@@ -327,6 +361,7 @@ export function HeistGameV2({ running, mods, levelId = 'bank', novice = false, o
     setPanel(null)
     if (!end || endedRef.current) return
     endedRef.current = true
+    reportRef.current?.(end)
     onDoneRef.current(end)
   }
   const ctaOpenDrop = () => {

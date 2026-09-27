@@ -43,6 +43,8 @@ export type SceneDeps = {
   /** New player: tutorial steps still to show (null = no tutorial). */
   tutorial?: Set<TutorialStep> | null
   onTutorialSeen?: (step: TutorialStep) => void
+  /** The first coin of this raid went into the bag. */
+  onFirstLoot?: () => void
 }
 
 /** A hint on screen: what it points at, in world coordinates (or a HUD button). */
@@ -307,6 +309,7 @@ export class HeistV2Scene extends Phaser.Scene {
       case 'firstLoot':
         this.exitView.emphasize(5)
         this.firstLootClock = this.clock
+        this.deps.onFirstLoot?.()
         if (raid.novice && !this.tut) this.toast('good', heistT('heistV2FirstLoot'), heistT('heistV2FirstLootSub'), 4.5)
         break
       case 'bagFull':

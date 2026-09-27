@@ -23,6 +23,7 @@ import {
   queueGameplayReset,
 } from './playerResetStore.js'
 import { verifyInitData } from './verifyInitData.js'
+import { analyticsSummary, recordEvents, userKey, type AnalyticsRange, type IncomingEvent } from './analyticsStore.js'
 
 dotenv.config()
 
@@ -321,6 +322,49 @@ app.post('/api/support-bot/webhook', (req, res) => {
     .then(() => console.log('[support-bot] handler done', update.update_id))
     .catch((err) => console.error('[support-bot] handler error', err))
   res.json({ ok: true })
+})
+
+// ---------- analytics ----------
+/** Signed initData → the verified Telegram id (cached briefly; the HMAC is cheap but batches are frequent). */
+const initDataCache = new Map<string, { id: number | null; at: number }>()
+function analyticsTelegramId(initData: unknown): number | null {
+  if (typeof initData !== 'string' || !initData) return null
+  const hit = initDataCache.get(initData)
+  if (hit && Date.now() - hit.at < 10 * 60_000) return hit.id
+  // A Mini App can stay open for days: accept a validly signed initData up to 7 days old.
+  const id = verifyInitData(initData, getTelegramSettings().token, 7 * 86_400)?.id ?? null
+  if (initDataCache.size > 5000) initDataCache.clear()
+  initDataCache.set(initData, { id, at: Date.now() })
+  return id
+}
+
+/** Events from the game. The player is the verified Telegram user; a client-sent id is never trusted. */
+app.post('/api/analytics/events', (req, res) => {
+  const body = (req.body ?? {}) as { initData?: unknown; anonId?: unknown; sessionId?: unknown; events?: unknown }
+  const user = userKey(analyticsTelegramId(body.initData), body.anonId)
+  if (!user || !Array.isArray(body.events)) {
+    res.status(400).json({ error: 'bad_request' })
+    return
+  }
+  try {
+    const stored = recordEvents(user, body.sessionId, body.events as IncomingEvent[])
+    res.json({ ok: true, stored })
+  } catch (err) {
+    console.error('[analytics] write failed', err)
+    res.status(503).json({ error: 'write_failed' })
+  }
+})
+
+app.get('/api/admin/analytics', (req, res) => {
+  if (!requireAdmin(req, res)) return
+  const r = String(req.query.range ?? '7d')
+  const range: AnalyticsRange = r === 'today' || r === '7d' || r === '30d' || r === 'all' ? r : '7d'
+  try {
+    res.json(analyticsSummary(range))
+  } catch (err) {
+    console.error('[analytics] summary failed', err)
+    res.status(500).json({ error: 'server_error' })
+  }
 })
 
 app.get('/api/nft', (_req, res) => {
