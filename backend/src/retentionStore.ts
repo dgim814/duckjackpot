@@ -17,6 +17,9 @@ const LEDGER = join(DIR, 'rewards.ndjson')
 
 export const INVITEE_COINS = Math.max(0, Math.floor(Number(process.env.REFERRAL_INVITEE_COINS ?? 150) || 0))
 export const INVITER_COINS = Math.max(0, Math.floor(Number(process.env.REFERRAL_INVITER_COINS ?? 300) || 0))
+/** Telegram Stars owed for a successful referral. Paid MANUALLY by the operator from their own balance. */
+export const INVITER_STARS = Math.max(0, Math.floor(Number(process.env.REFERRAL_INVITER_STARS ?? 10) || 0))
+export const INVITEE_STARS = Math.max(0, Math.floor(Number(process.env.REFERRAL_INVITEE_STARS ?? 5) || 0))
 /** Most DUCK COIN one raid can really bank (bag 1000 + 10 % clean bonus + objectives), with margin. */
 export const RAID_LOOT_CAP = 1300
 /** A raid shorter than this is not a real raid (the first BANK zone alone takes longer). */
@@ -77,6 +80,8 @@ export type Invite = {
   completedAt?: number
   inviteeGrantId?: string
   inviterGrantId?: string
+  inviteeStarsId?: string
+  inviterStarsId?: string
 }
 
 export type Grant = {
@@ -90,6 +95,28 @@ export type Grant = {
   nonce?: string
 }
 
+export type StarsStatus = 'PENDING' | 'PAID' | 'CANCELLED'
+export type StarsReward = {
+  id: string
+  recipientTelegramId: number
+  usernameSnapshot: string | null
+  nameSnapshot: string | null
+  rewardStars: number
+  role: 'inviter' | 'invitee'
+  /** the referral this reward belongs to (one per invited player) */
+  referralId: string
+  status: StarsStatus
+  createdAt: number
+  /** when the server confirmed every referral condition */
+  verifiedAt: number
+  paidAt?: number
+  paidBy?: string
+  cancelledAt?: number
+  cancelledBy?: string
+  cancelReason?: string
+  notifyResult?: string
+}
+
 type State = {
   v: 1
   players: Record<string, Player>
@@ -97,20 +124,24 @@ type State = {
   /** referral attempts that were refused (self, not new, …) — kept so they can never be retried */
   refused: Record<string, { inviterId: number; at: number; reason: string }>
   grants: Record<string, Grant>
+  /** Stars owed to players (manual payouts). The recipient is the Telegram id; the username is a snapshot. */
+  starsRewards: Record<string, StarsReward>
   codes: Record<string, number>
   linkCreated: Record<string, number>
   backfilledAt?: number
 }
 
 function empty(): State {
-  return { v: 1, players: {}, invites: {}, refused: {}, grants: {}, codes: {}, linkCreated: {} }
+  return { v: 1, players: {}, invites: {}, refused: {}, grants: {}, starsRewards: {}, codes: {}, linkCreated: {} }
 }
 
 function read(): State {
   try {
     if (!existsSync(FILE)) return empty()
     const s = JSON.parse(readFileSync(FILE, 'utf8')) as Partial<State>
-    return { ...empty(), ...s, v: 1 } as State
+    const st = { ...empty(), ...s, v: 1 } as State
+    if (!st.starsRewards) st.starsRewards = {}
+    return st
   } catch (err) {
     // Never start over a broken file: referral rewards depend on it.
     console.error('[retention] state.json unreadable', err)
@@ -314,6 +345,119 @@ export function markChannelVerified(id: number, now = Date.now()) {
 }
 
 /** Both conditions met (channel verified + a real first EXIT): create the two grants once. */
+export const referralIdOf = (inv: Pick<Invite, 'inviteeId'>) => `ref_${inv.inviteeId}`
+
+/** Two Stars records per successful referral, created once (ids kept on the invite). */
+function addStarsRewards(s: State, inv: Invite, now: number) {
+  const mk = (id: number, stars: number, role: StarsReward['role']): StarsReward => {
+    const p = s.players[String(id)]
+    return {
+      id: randomBytes(9).toString('hex'),
+      recipientTelegramId: id,
+      usernameSnapshot: (role === 'invitee' ? inv.inviteeUsername : p?.username) ?? p?.username ?? null,
+      nameSnapshot: (role === 'invitee' ? inv.inviteeName : p?.name) ?? p?.name ?? null,
+      rewardStars: stars,
+      role,
+      referralId: referralIdOf(inv),
+      status: 'PENDING',
+      createdAt: now,
+      verifiedAt: inv.completedAt ?? now,
+    }
+  }
+  if (!inv.inviterStarsId && INVITER_STARS > 0) {
+    const r = mk(inv.inviterId, INVITER_STARS, 'inviter')
+    s.starsRewards[r.id] = r
+    inv.inviterStarsId = r.id
+    logReward({ kind: 'stars_reward_created', reward: r.id, to: r.recipientTelegramId, stars: r.rewardStars, role: r.role, referral: r.referralId })
+  }
+  if (!inv.inviteeStarsId && INVITEE_STARS > 0) {
+    const r = mk(inv.inviteeId, INVITEE_STARS, 'invitee')
+    s.starsRewards[r.id] = r
+    inv.inviteeStarsId = r.id
+    logReward({ kind: 'stars_reward_created', reward: r.id, to: r.recipientTelegramId, stars: r.rewardStars, role: r.role, referral: r.referralId })
+  }
+}
+
+/** Referrals completed before the Stars queue existed get their records once (idempotent). */
+export function backfillStarsRewards() {
+  return enqueueDataOp('retention:stars-backfill', undefined, () => {
+    const s = read()
+    let added = 0
+    for (const inv of Object.values(s.invites)) {
+      if (!inv.completedAt || (inv.inviterStarsId && inv.inviteeStarsId)) continue
+      const before = Object.keys(s.starsRewards).length
+      addStarsRewards(s, inv, inv.completedAt)
+      added += Object.keys(s.starsRewards).length - before
+    }
+    if (added) write(s)
+    return added
+  })
+}
+
+export type StarsView = { id: string; stars: number; role: StarsReward['role']; status: StarsStatus; createdAt: number; paidAt: number | null }
+const starsView = (r: StarsReward): StarsView => ({ id: r.id, stars: r.rewardStars, role: r.role, status: r.status, createdAt: r.createdAt, paidAt: r.paidAt ?? null })
+
+/** The player's own Stars rewards (what they are owed, and what was paid). */
+export function starsRewardsOf(id: number): StarsView[] {
+  return Object.values(read().starsRewards ?? {})
+    .filter((r) => r.recipientTelegramId === id)
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .map(starsView)
+}
+
+export function listStarsRewards(status?: StarsStatus) {
+  const all = Object.values(read().starsRewards ?? {}).sort((a, b) => b.createdAt - a.createdAt)
+  const pending = all.filter((r) => r.status === 'PENDING')
+  const paid = all.filter((r) => r.status === 'PAID')
+  return {
+    summary: {
+      pendingCount: pending.length,
+      pendingStars: pending.reduce((a, r) => a + r.rewardStars, 0),
+      paidCount: paid.length,
+      paidStars: paid.reduce((a, r) => a + r.rewardStars, 0),
+      cancelledCount: all.filter((r) => r.status === 'CANCELLED').length,
+    },
+    rewards: status ? all.filter((r) => r.status === status) : all,
+  }
+}
+
+/**
+ * Operator marks a reward: PENDING → PAID or PENDING → CANCELLED, once. Serialised, so two
+ * simultaneous clicks can never both succeed; a PAID/CANCELLED record never changes again.
+ */
+export function settleStarsReward(rewardId: string, to: 'PAID' | 'CANCELLED', operator: string, reason?: string, now = Date.now()) {
+  return enqueueDataOp('retention:stars-settle', undefined, () => {
+    const s = read()
+    const r = s.starsRewards?.[rewardId]
+    if (!r) return { ok: false as const, error: 'not_found' as const }
+    if (r.status !== 'PENDING') return { ok: false as const, error: r.status === 'PAID' ? ('already_paid' as const) : ('already_cancelled' as const), reward: r }
+    if (to === 'PAID') {
+      r.status = 'PAID'
+      r.paidAt = now
+      r.paidBy = operator
+    } else {
+      r.status = 'CANCELLED'
+      r.cancelledAt = now
+      r.cancelledBy = operator
+      r.cancelReason = reason?.slice(0, 200)
+    }
+    write(s)
+    logReward({ kind: to === 'PAID' ? 'stars_reward_paid' : 'stars_reward_cancelled', reward: r.id, to: r.recipientTelegramId, stars: r.rewardStars, role: r.role, referral: r.referralId, operator, reason })
+    return { ok: true as const, reward: r }
+  })
+}
+
+export function noteStarsNotify(rewardId: string, result: string) {
+  return enqueueDataOp('retention:stars-notify', undefined, () => {
+    const s = read()
+    const r = s.starsRewards?.[rewardId]
+    if (r) {
+      r.notifyResult = result
+      write(s)
+    }
+  })
+}
+
 function completeIfReady(s: State, inv: Invite, now: number) {
   if (inv.completedAt || !inv.channelVerifiedAt || !inv.firstExitAt) return null
   inv.completedAt = now
@@ -331,6 +475,7 @@ function completeIfReady(s: State, inv: Invite, now: number) {
   s.grants[b.id] = b
   inv.inviteeGrantId = a.id
   inv.inviterGrantId = b.id
+  addStarsRewards(s, inv, now)
   logReward({ kind: 'grant_created', grant: a.id, to: a.telegramId, coins: a.coins, reason: a.reason, invitee: inv.inviteeId })
   logReward({ kind: 'grant_created', grant: b.id, to: b.telegramId, coins: b.coins, reason: b.reason, invitee: inv.inviteeId })
   return { invitee: a, inviter: b }
@@ -562,7 +707,8 @@ export function referralSummary(from: number, linksCreated: number) {
     coinsIssued: issued.reduce((a, g) => a + g.coins, 0),
     coinsPending: grants.filter((g) => !g.claimedAt).reduce((a, g) => a + g.coins, 0),
     /** real Telegram Stars cannot be credited to users through the Bot API (see report) */
-    starsIssued: 0,
+    starsIssued: Object.values(s.starsRewards ?? {}).filter((r) => r.status === 'PAID' && (r.paidAt ?? 0) >= from).reduce((a, r) => a + r.rewardStars, 0),
+    starsPending: Object.values(s.starsRewards ?? {}).filter((r) => r.status === 'PENDING').reduce((a, r) => a + r.rewardStars, 0),
     conversion: {
       openedToRegistered: pctOf(inv.length, inv.length + refused.length),
       registeredToVerified: pctOf(verified, inv.length),

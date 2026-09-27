@@ -18,6 +18,7 @@ type Retention = {
     coinsIssued: number
     coinsPending: number
     starsIssued: number
+    starsPending?: number
     conversion: Record<'openedToRegistered' | 'registeredToVerified' | 'verifiedToFirstRaid' | 'firstRaidToFirstExit' | 'firstExitToReward', number>
     players: number
     reachable: number
@@ -55,7 +56,7 @@ const T = {
     coins: '🪙 DUCK COIN за приглашения',
     coinsVal: (a: number, b: number) => `выдано ${a.toLocaleString()} · ожидает ${b.toLocaleString()}`,
     stars: '⭐ Stars за приглашения',
-    starsVal: '0 — Bot API не умеет начислять Stars пользователям',
+    starsVal: (paid: number, pending: number) => `выплачено ⭐${paid} · ожидает ⭐${pending} (выплата вручную)`,
     notif: '🔔 УВЕДОМЛЕНИЯ',
     mode: (on: boolean) => (on ? 'Отправка включена (NOTIFICATIONS_ENABLED=1)' : 'Dry-run: сообщения не отправляются (NOTIFICATIONS_ENABLED не равен 1)'),
     sent: 'Отправлено',
@@ -100,7 +101,7 @@ const T = {
     coins: '🪙 DUCK COIN rewards',
     coinsVal: (a: number, b: number) => `issued ${a.toLocaleString()} · pending ${b.toLocaleString()}`,
     stars: '⭐ Stars rewards',
-    starsVal: '0 — the Bot API cannot credit Stars to users',
+    starsVal: (paid: number, pending: number) => `paid ⭐${paid} · pending ⭐${pending} (manual payout)`,
     notif: '🔔 NOTIFICATIONS',
     mode: (on: boolean) => (on ? 'Sending is ON (NOTIFICATIONS_ENABLED=1)' : 'Dry run: nothing is sent (NOTIFICATIONS_ENABLED is not 1)'),
     sent: 'Sent',
@@ -207,7 +208,7 @@ export function RetentionBlocks({ range, lang }: { range: string; lang: string }
           {tx.coins}: <b>{tx.coinsVal(r.coinsIssued, r.coinsPending)}</b>
         </p>
         <p className="mt-1 text-sm text-zinc-200">
-          {tx.stars}: <b>{tx.starsVal}</b>
+          {tx.stars}: <b>{tx.starsVal(r.starsIssued, r.starsPending ?? 0)}</b>
         </p>
       </section>
       <section className="rounded-2xl border border-sky-300/30 bg-zinc-900/80 p-4">

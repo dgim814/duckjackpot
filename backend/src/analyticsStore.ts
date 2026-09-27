@@ -60,6 +60,9 @@ export const ANALYTICS_EVENTS = [
   'raid_return_notification_sent',
   'leaderboard_opened',
   'leaderboard_position_changed',
+  'stars_reward_pending',
+  'stars_reward_paid',
+  'stars_reward_cancelled',
 ] as const
 export type AnalyticsEventName = (typeof ANALYTICS_EVENTS)[number]
 
@@ -134,7 +137,7 @@ export function userKey(telegramId: number | null, anonId: unknown) {
 }
 
 /** Only the server may record these (invoice made, payment confirmed by Telegram, server errors). */
-const SERVER_ONLY = new Set<string>(['stars_invoice_created', 'stars_payment_success', 'daily_reward_available', 'daily_reward_claimed', 'referral_link_created', 'referral_opened', 'referral_registered', 'referral_channel_verified', 'referral_first_raid', 'referral_first_exit', 'referral_reward_pending', 'referral_reward_success', 'referral_reward_failed', 'notification_sent', 'daily_reward_notification_sent', 'referral_notification_sent', 'overtaken_notification_sent', 'raid_return_notification_sent', 'leaderboard_position_changed', 'notification_opened'])
+const SERVER_ONLY = new Set<string>(['stars_invoice_created', 'stars_payment_success', 'daily_reward_available', 'daily_reward_claimed', 'referral_link_created', 'referral_opened', 'referral_registered', 'referral_channel_verified', 'referral_first_raid', 'referral_first_exit', 'referral_reward_pending', 'referral_reward_success', 'referral_reward_failed', 'notification_sent', 'daily_reward_notification_sent', 'referral_notification_sent', 'overtaken_notification_sent', 'raid_return_notification_sent', 'leaderboard_position_changed', 'notification_opened', 'stars_reward_pending', 'stars_reward_paid', 'stars_reward_cancelled'])
 
 /** Validate and append a batch. Returns how many events were stored. */
 export function recordEvents(user: string, sessionId: unknown, events: IncomingEvent[], now = Date.now(), fromClient = false) {

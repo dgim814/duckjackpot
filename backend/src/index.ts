@@ -31,6 +31,14 @@ import {
   claimGrant,
   INVITEE_COINS,
   INVITER_COINS,
+  INVITER_STARS,
+  INVITEE_STARS,
+  backfillStarsRewards,
+  listStarsRewards,
+  noteStarsNotify,
+  settleStarsReward,
+  starsRewardsOf,
+  type StarsStatus,
   inviteOf,
   invitesBy,
   inviteStatus,
@@ -47,7 +55,7 @@ import {
   type Invite,
   type RaidReport,
 } from './retentionStore.js'
-import { notifyLog, notifyReferralCompleted, notifyTick, setNotificationsEnabled, startNotifier, textFor, type NotifKind } from './notifyService.js'
+import { notifyStarsPaid, notifyLog, notifyReferralCompleted, notifyTick, setNotificationsEnabled, startNotifier, textFor, type NotifKind } from './notifyService.js'
 import { botUsername, channelHealth, checkChannelMember, prepareInviteMessage, sendRetentionMessage } from './bot.js'
 
 dotenv.config()
@@ -540,7 +548,7 @@ const ev = (id: number, name: string, props?: Record<string, string | number | b
 const NOTIF_KINDS: NotifKind[] = ['daily', 'overtaken', 'leader', 'raid_return', 'invite', 'referral_inviter', 'referral_invitee']
 const STATUS_ORDER = ['opened', 'verified', 'played', 'exited', 'rewarded'] as const
 const channelInfo = () => ({ configured: Boolean(channelId()), url: channelUrl() })
-const rewardsInfo = () => ({ inviterCoins: INVITER_COINS, inviteeCoins: INVITEE_COINS, stars: { available: false, inviter: 0, invitee: 0 } })
+const rewardsInfo = () => ({ inviterCoins: INVITER_COINS, inviteeCoins: INVITEE_COINS, stars: { available: INVITER_STARS + INVITEE_STARS > 0, manual: true, inviter: INVITER_STARS, invitee: INVITEE_STARS } })
 const inviteView = (i: Invite | null) =>
   i ? { status: inviteStatus(i), channelVerified: Boolean(i.channelVerifiedAt), firstRaid: Boolean(i.firstRaidAt), firstExit: Boolean(i.firstExitAt), completed: Boolean(i.completedAt) } : null
 
@@ -548,6 +556,8 @@ async function afterCompletion(completed: { invitee: { telegramId: number; coins
   if (!completed) return
   ev(completed.invitee.telegramId, 'referral_reward_pending', { coins: completed.invitee.coins, kind: 'invitee' })
   ev(completed.inviter.telegramId, 'referral_reward_pending', { coins: completed.inviter.coins, kind: 'inviter' })
+  if (INVITEE_STARS) ev(completed.invitee.telegramId, 'stars_reward_pending', { stars: INVITEE_STARS, kind: 'invitee' })
+  if (INVITER_STARS) ev(completed.inviter.telegramId, 'stars_reward_pending', { stars: INVITER_STARS, kind: 'inviter' })
   void notifyReferralCompleted(completed.invitee.telegramId, completed.inviter.telegramId)
 }
 
@@ -578,7 +588,7 @@ app.post('/api/me/session', async (req, res) => {
     }
     const n = String(req.body?.n ?? '')
     if ((NOTIF_KINDS as string[]).includes(n)) ev(u.id, 'notification_opened', { kind: n })
-    res.json({ invitee: inviteView(r.invite), canWrite: r.player.canWrite && !r.player.writeBlocked, muted: Boolean(r.player.muted), grants: pendingGrants(u.id), rewards: rewardsInfo(), channel: channelInfo() })
+    res.json({ invitee: inviteView(r.invite), canWrite: r.player.canWrite && !r.player.writeBlocked, muted: Boolean(r.player.muted), grants: pendingGrants(u.id), rewards: rewardsInfo(), channel: channelInfo(), stars: starsRewardsOf(u.id) })
   } catch (err) {
     console.error('[retention] session failed', err)
     res.status(503).json({ error: 'unavailable' })
@@ -607,6 +617,7 @@ app.get('/api/referral/me', async (req, res) => {
       invitee: inviteView(inviteOf(u.id)),
       grants: pendingGrants(u.id),
       channel: channelInfo(),
+      stars: starsRewardsOf(u.id),
     })
   } catch (err) {
     console.error('[referral] me failed', err)
@@ -628,9 +639,10 @@ app.post('/api/referral/share', async (req, res) => {
     if (!bot) throw new Error('bot_not_configured')
     const url = `https://t.me/${bot}?startapp=ref_${code}`
     const ru = req.body?.lang !== 'en'
+    const st = (n: number) => (n > 0 ? `⭐ ${n} Stars\n` : '')
     const text = ru
-      ? `🦆 DUCKJACKPOT\n\nПопробуй ограбить BANK и забрать DUCK COIN.\n\n🎁 Ты получишь:\n🪙 ${INVITEE_COINS} DUCK COIN\n\nА я получу:\n🪙 ${INVITER_COINS} DUCK COIN`
-      : `🦆 DUCKJACKPOT\n\nTry to rob the BANK and grab DUCK COIN.\n\n🎁 You get:\n🪙 ${INVITEE_COINS} DUCK COIN\n\nAnd I get:\n🪙 ${INVITER_COINS} DUCK COIN`
+      ? `🦆 DUCKJACKPOT\n\nПопробуй ограбить BANK и забрать DUCK COIN.\n\n🎁 Ты получишь:\n${st(INVITEE_STARS)}🪙 ${INVITEE_COINS} DUCK COIN\n\nА я получу:\n${st(INVITER_STARS)}🪙 ${INVITER_COINS} DUCK COIN`
+      : `🦆 DUCKJACKPOT\n\nTry to rob the BANK and grab DUCK COIN.\n\n🎁 You get:\n${st(INVITEE_STARS)}🪙 ${INVITEE_COINS} DUCK COIN\n\nAnd I get:\n${st(INVITER_STARS)}🪙 ${INVITER_COINS} DUCK COIN`
     const id = await prepareInviteMessage(u.id, { title: 'DUCKJACKPOT', text, url, button: ru ? '🦆 ИГРАТЬ' : '🦆 PLAY' })
     res.json({ id, url, text })
   } catch (err) {
@@ -755,6 +767,56 @@ app.post('/api/notifications/prefs', async (req, res) => {
     return
   }
   res.json({ muted: await setMuted(u.id, req.body?.muted === true) })
+})
+
+// ---------- ⭐ Stars reward queue (manual payouts by the operator) ----------
+const STARS_STATUSES: StarsStatus[] = ['PENDING', 'PAID', 'CANCELLED']
+app.get('/api/admin/stars-rewards', (req, res) => {
+  if (!requireAdmin(req, res)) return
+  const q = String(req.query.status ?? '').toUpperCase() as StarsStatus
+  res.json(listStarsRewards(STARS_STATUSES.includes(q) ? q : undefined))
+})
+
+const operatorOf = (raw: unknown) => (typeof raw === 'string' && raw.trim() ? raw.trim().slice(0, 40) : 'admin')
+
+/** The operator sent the Stars from their own Telegram balance: PENDING → PAID once, then tell the player. */
+app.post('/api/admin/stars-rewards/:id/paid', async (req, res) => {
+  if (!requireAdmin(req, res)) return
+  if (req.body?.confirm !== true) {
+    res.status(400).json({ error: 'confirm_required' })
+    return
+  }
+  try {
+    const r = await settleStarsReward(String(req.params.id), 'PAID', operatorOf(req.body?.operator))
+    if (!r.ok) {
+      res.status(r.error === 'not_found' ? 404 : 409).json({ error: r.error })
+      return
+    }
+    const w = r.reward
+    ev(w.recipientTelegramId, 'stars_reward_paid', { stars: w.rewardStars, kind: w.role })
+    const notify = await notifyStarsPaid(w.recipientTelegramId, w.rewardStars, w.role).catch(() => 'failed')
+    await noteStarsNotify(w.id, notify)
+    res.json({ ok: true, reward: { ...w, notifyResult: notify } })
+  } catch (err) {
+    console.error('[stars-reward] paid failed', err)
+    res.status(503).json({ error: 'unavailable' })
+  }
+})
+
+app.post('/api/admin/stars-rewards/:id/cancel', async (req, res) => {
+  if (!requireAdmin(req, res)) return
+  try {
+    const r = await settleStarsReward(String(req.params.id), 'CANCELLED', operatorOf(req.body?.operator), typeof req.body?.reason === 'string' ? req.body.reason : undefined)
+    if (!r.ok) {
+      res.status(r.error === 'not_found' ? 404 : 409).json({ error: r.error })
+      return
+    }
+    ev(r.reward.recipientTelegramId, 'stars_reward_cancelled', { stars: r.reward.rewardStars, kind: r.reward.role })
+    res.json({ ok: true, reward: r.reward })
+  } catch (err) {
+    console.error('[stars-reward] cancel failed', err)
+    res.status(503).json({ error: 'unavailable' })
+  }
 })
 
 app.get('/api/admin/retention', async (req, res) => {
@@ -1272,6 +1334,7 @@ app.use((err: unknown, _req: express.Request, res: express.Response, next: expre
 void backfillOnce({ dailyIds: dailyUsers().map((d) => d.telegramId), starsIds: [...new Set(allOrders().map((o) => o.telegramUserId))] })
   .then((r) => console.log('[retention] backfill', r))
   .catch((err) => console.error('[retention] backfill failed', err))
+void backfillStarsRewards().then((n) => n && console.log('[retention] stars rewards backfilled', n))
 startNotifier()
 
 app.listen(port, '0.0.0.0', () => {

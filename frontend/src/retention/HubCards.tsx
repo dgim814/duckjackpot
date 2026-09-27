@@ -16,6 +16,7 @@ import {
   type InviteeView,
   type ReferralMe,
   type Rewards,
+  type StarsView,
 } from './api'
 
 /** A bottom sheet over the hub (closes on the backdrop), clear of the nav and the home indicator. */
@@ -66,7 +67,8 @@ export function ChannelStepCard({ invitee, channel, rewards, onUpdate }: { invit
         <>
           <p className="text-[12px] font-black tracking-[0.06em] text-sky-100">{t('chTitle')}</p>
           <p className="mt-1 text-[12px] leading-snug text-sky-100/75">{t('chText')}</p>
-          <p className="mt-1 font-display text-[15px] font-black text-amber-100">{t('refCoins', { n: rewards.inviteeCoins })}</p>
+          {rewards.stars.invitee > 0 ? <p className="mt-1 font-display text-[15px] font-black text-sky-100">{t('refStars', { n: rewards.stars.invitee })}</p> : null}
+          <p className="mt-0.5 font-display text-[15px] font-black text-amber-100">{t('refCoins', { n: rewards.inviteeCoins })}</p>
           {channel.url ? (
             <div className="mt-2 grid grid-cols-2 gap-2">
               <button type="button" className="min-h-11 rounded-xl bg-sky-300 px-2 text-[12px] font-black text-zinc-950" onClick={() => tg().openTelegramLink(channel.url!)}>
@@ -122,6 +124,16 @@ function MyInvites({ data, onClose }: { data: ReferralMe | null; onClose: () => 
           <p className="mt-3 text-[11px] font-extrabold tracking-[0.12em] text-amber-200">{t('refRewards')}</p>
           <p className="mt-1 text-[13px] font-bold text-emerald-300">{t('refReceived', { n: data.coins.received })}</p>
           <p className="text-[13px] font-bold text-amber-100/80">{t('refPending', { n: data.coins.pending })}</p>
+          {(() => {
+            const mine = (data.stars ?? []).filter((r) => r.role === 'inviter')
+            const sum = (st: StarsView['status']) => mine.filter((r) => r.status === st).reduce((a, r) => a + r.stars, 0)
+            return mine.length ? (
+              <>
+                <p className="mt-1 text-[13px] font-bold text-emerald-300">{t('refStarsPaid', { n: sum('PAID') })}</p>
+                <p className="text-[13px] font-bold text-sky-100/80">{t('refStarsPending', { n: sum('PENDING') })}</p>
+              </>
+            ) : null
+          })()}
           <ul className="mt-3 space-y-1.5">
             {data.invites.length ? (
               data.invites.map((i, k) => (
@@ -182,14 +194,17 @@ export function ReferralCard({ rewards }: { rewards: Rewards }) {
       <div className="mt-2 grid grid-cols-2 gap-2">
         <div className="rounded-xl bg-black/30 px-2.5 py-1.5">
           <p className="text-[10px] font-bold text-zinc-400">{t('refYouGet')}</p>
+          {rewards.stars.inviter > 0 ? <p className="font-display text-[13px] font-black text-sky-100">{t('refStars', { n: rewards.stars.inviter })}</p> : null}
           <p className="font-display text-[13px] font-black text-amber-50">{t('refCoins', { n: rewards.inviterCoins })}</p>
         </div>
         <div className="rounded-xl bg-black/30 px-2.5 py-1.5">
           <p className="text-[10px] font-bold text-zinc-400">{t('refFriendGets')}</p>
+          {rewards.stars.invitee > 0 ? <p className="font-display text-[13px] font-black text-sky-100">{t('refStars', { n: rewards.stars.invitee })}</p> : null}
           <p className="font-display text-[13px] font-black text-amber-50">{t('refCoins', { n: rewards.inviteeCoins })}</p>
         </div>
       </div>
       <p className="mt-1.5 text-[10px] leading-snug text-zinc-500">{t('refRule')}</p>
+      {rewards.stars.available ? <p className="mt-0.5 text-[10px] leading-snug text-zinc-500">{t('refStarsNote')}</p> : null}
       <div className="mt-2 grid grid-cols-2 gap-2">
         <button type="button" className="buy-btn min-h-11 rounded-xl px-2 text-[12px] font-black text-zinc-950" onClick={() => void invite()}>
           {t('refInvite')}
@@ -286,5 +301,34 @@ export function NotifyOptIn({ canWrite }: { canWrite: boolean }) {
     >
       {t('notifyAsk')}
     </button>
+  )
+}
+
+/**
+ * ⭐ Stars this player is owed for a referral. Never shown as received until the operator
+ * marked the payout as sent (PAID); a paid notice stays for a week.
+ */
+export function StarsRewardNotice({ rewards }: { rewards: StarsView[] }) {
+  const { t } = useI18n()
+  const recent = rewards.filter((r) => r.status === 'PENDING' || (r.status === 'PAID' && Date.now() - (r.paidAt ?? 0) < 7 * 86_400_000))
+  if (!recent.length) return null
+  return (
+    <section className="stars-notice mt-3 space-y-2">
+      {recent.map((r) =>
+        r.status === 'PENDING' ? (
+          <div key={r.id} className="rounded-2xl border border-sky-300/40 bg-sky-400/[0.07] px-3 py-2.5 text-left">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[12px] font-black text-sky-100">{t('starsOwedTitle')}</p>
+              <span className="shrink-0 rounded-full bg-amber-300/20 px-2 py-0.5 text-[10px] font-black text-amber-200">{t('starsPending')}</span>
+            </div>
+            <p className="mt-1 text-[12px] leading-snug text-sky-100/80">{t('starsOwedText', { n: r.stars })}</p>
+          </div>
+        ) : (
+          <div key={r.id} className="rounded-2xl border border-emerald-300/40 bg-emerald-400/[0.07] px-3 py-2.5 text-left">
+            <p className="text-[12px] font-black text-emerald-300">{t('starsPaid', { n: r.stars })}</p>
+          </div>
+        ),
+      )}
+    </section>
   )
 }

@@ -4,7 +4,7 @@ import { recordEvents } from './analyticsStore.js'
 import { DATA_DIR } from './config.js'
 import { sendRetentionMessage, type SendResult } from './bot.js'
 import { DAILY_REWARD, DAILY_REWARD_MS, dailyUsers } from './dailyRewardStore.js'
-import { allState, INVITEE_COINS, INVITER_COINS, leaderboard, markWriteBlocked, updateNotif, type Player } from './retentionStore.js'
+import { allState, INVITEE_COINS, INVITEE_STARS, INVITER_COINS, INVITER_STARS, leaderboard, markWriteBlocked, updateNotif, type Player } from './retentionStore.js'
 
 /**
  * Telegram bot notifications, never spam:
@@ -83,12 +83,12 @@ const TEXT: Record<NotifKind, Record<'ru' | 'en', { text: string; button: string
     en: { text: `🔔 DUCKJACKPOT\n\n👥 INVITE A FRIEND\n\nYour friend gets 🪙 ${INVITEE_COINS} DUCK COIN,\nand you get 🪙 ${INVITER_COINS} DUCK COIN.`, button: '👥 INVITE' },
   },
   referral_inviter: {
-    ru: { text: `👥 ДРУГ ЗАВЕРШИЛ ПЕРВЫЙ РЕЙД\n\nТвоя награда:\n🪙 +${INVITER_COINS} DUCK COIN`, button: '🎁 ЗАБРАТЬ НАГРАДУ' },
-    en: { text: `👥 YOUR FRIEND FINISHED THEIR FIRST RAID\n\nYour reward:\n🪙 +${INVITER_COINS} DUCK COIN`, button: '🎁 CLAIM REWARD' },
+    ru: { text: `👥 ДРУГ ЗАВЕРШИЛ ПЕРВЫЙ РЕЙД\n\nТвоя награда:\n🪙 +${INVITER_COINS} DUCK COIN${INVITER_STARS ? `\n⭐ ${INVITER_STARS} Stars — подтверждено, выплата в течение 24 часов` : ''}`, button: '🎁 ЗАБРАТЬ НАГРАДУ' },
+    en: { text: `👥 YOUR FRIEND FINISHED THEIR FIRST RAID\n\nYour reward:\n🪙 +${INVITER_COINS} DUCK COIN${INVITER_STARS ? `\n⭐ ${INVITER_STARS} Stars — confirmed, paid out within 24 hours` : ''}`, button: '🎁 CLAIM REWARD' },
   },
   referral_invitee: {
-    ru: { text: `🎉 ПЕРВЫЙ РЕЙД ЗАВЕРШЁН\n\nТвоя награда:\n🪙 +${INVITEE_COINS} DUCK COIN`, button: '🎁 ЗАБРАТЬ НАГРАДУ' },
-    en: { text: `🎉 FIRST RAID COMPLETE\n\nYour reward:\n🪙 +${INVITEE_COINS} DUCK COIN`, button: '🎁 CLAIM REWARD' },
+    ru: { text: `🎉 ПЕРВЫЙ РЕЙД ЗАВЕРШЁН\n\nТвоя награда:\n🪙 +${INVITEE_COINS} DUCK COIN${INVITEE_STARS ? `\n⭐ ${INVITEE_STARS} Stars — подтверждено, выплата в течение 24 часов` : ''}`, button: '🎁 ЗАБРАТЬ НАГРАДУ' },
+    en: { text: `🎉 FIRST RAID COMPLETE\n\nYour reward:\n🪙 +${INVITEE_COINS} DUCK COIN${INVITEE_STARS ? `\n⭐ ${INVITEE_STARS} Stars — confirmed, paid out within 24 hours` : ''}`, button: '🎁 CLAIM REWARD' },
   },
 }
 
@@ -216,4 +216,16 @@ export function startNotifier() {
     notifyTick().catch((err) => console.error('[notify] tick failed', err))
   }, every)
   console.log('[notify] scheduler', { everyMs: every, enabled: enabled() })
+}
+
+/** Sent once, only after the operator confirmed the Stars were really sent (a transactional message). */
+export async function notifyStarsPaid(to: number, stars: number, role: 'inviter' | 'invitee') {
+  const p = allState().players[String(to)]
+  const ru = (p?.lang ?? 'ru') === 'ru'
+  const tail = role === 'inviter' ? (ru ? 'Спасибо за приглашение друга! 🦆' : 'Thanks for inviting a friend! 🦆') : ru ? 'Добро пожаловать в DuckJackpot! 🦆' : 'Welcome to DuckJackpot! 🦆'
+  const text = ru ? `✓ НАГРАДА ВЫПЛАЧЕНА\n\nТебе отправлено ⭐${stars} Stars.\n\n${tail}` : `✓ REWARD PAID\n\nYou were sent ⭐${stars} Stars.\n\n${tail}`
+  const result = await sendRetentionMessage(to, text, { text: '🦆 DUCKJACKPOT', query: 'n=stars_paid' })
+  if (result === 'blocked') await markWriteBlocked(to)
+  if (result === 'sent') recordEvents(`tg:${to}`, 'server', [{ name: 'notification_sent', props: { kind: 'stars_paid' } }])
+  return result
 }

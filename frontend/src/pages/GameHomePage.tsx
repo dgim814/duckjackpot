@@ -19,7 +19,7 @@ import { useI18n } from '../i18n/LanguageProvider'
 import { perfMark, perfMarkPainted } from '../perf/transition'
 import { inTelegram, launchNotification, onSession, patchSession, type Session } from '../retention/api'
 import { claimGrants } from '../retention/grants'
-import { ChannelStepCard, LeaderboardSheet, NotifyOptIn, ReferralCard } from '../retention/HubCards'
+import { ChannelStepCard, LeaderboardSheet, NotifyOptIn, ReferralCard, StarsRewardNotice } from '../retention/HubCards'
 
 /** What the hub's one main button does: resume a parked raid, or play the current level. */
 function primaryAction(progress: PlayerProgress) {
@@ -220,7 +220,8 @@ export function GameHomePage() {
       {session?.invitee ? (
         <ChannelStepCard invitee={session.invitee} channel={session.channel} rewards={session.rewards} onUpdate={(v) => patchSession({ invitee: v })} />
       ) : null}
-      {inTelegram() ? <ReferralCard rewards={session?.rewards ?? { inviterCoins: 300, inviteeCoins: 150, stars: { available: false, inviter: 0, invitee: 0 } }} /> : null}
+      {session?.stars?.length ? <StarsRewardNotice rewards={session.stars} /> : null}
+      {inTelegram() ? <ReferralCard rewards={session?.rewards ?? { inviterCoins: 300, inviteeCoins: 150, stars: { available: true, manual: true, inviter: 10, invitee: 5 } }} /> : null}
 
       {/* SECONDARY: short labels only; details live in their own screens */}
       <div className="mt-3 grid grid-cols-3 gap-2">
