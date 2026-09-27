@@ -498,7 +498,8 @@ export async function botUsername() {
 }
 
 /** A share-ready invite (message + ▶ button) the player sends with Telegram's native share sheet. */
-export async function prepareInviteMessage(userId: number, t: { title: string; text: string; url: string; button: string }) {
+/** Rows of URL buttons, top to bottom (e.g. 📢 channel, then 🦆 play with the startapp referral link). */
+export async function prepareInviteMessage(userId: number, t: { title: string; text: string; buttons: { text: string; url: string }[] }) {
   const { token } = getTelegramSettings()
   if (!token) throw new Error('bot_not_configured')
   const r = await telegramApi<{ id: string }>(token, 'savePreparedInlineMessage', {
@@ -508,7 +509,7 @@ export async function prepareInviteMessage(userId: number, t: { title: string; t
       id: `inv${Date.now().toString(36)}`,
       title: t.title,
       input_message_content: { message_text: t.text },
-      reply_markup: { inline_keyboard: [[{ text: t.button, url: t.url }]] },
+      reply_markup: { inline_keyboard: t.buttons.map((b) => [{ text: b.text, url: b.url }]) },
     },
     allow_user_chats: true,
     allow_group_chats: true,

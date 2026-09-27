@@ -640,11 +640,18 @@ app.post('/api/referral/share', async (req, res) => {
     const url = `https://t.me/${bot}?startapp=ref_${code}`
     const ru = req.body?.lang !== 'en'
     const st = (n: number) => (n > 0 ? `⭐ ${n} Stars\n` : '')
+    const stars = INVITER_STARS + INVITEE_STARS > 0
     const text = ru
-      ? `🦆 DUCKJACKPOT\n\nПопробуй ограбить BANK и забрать DUCK COIN.\n\n🎁 Ты получишь:\n${st(INVITEE_STARS)}🪙 ${INVITEE_COINS} DUCK COIN\n\nА я получу:\n${st(INVITER_STARS)}🪙 ${INVITER_COINS} DUCK COIN`
-      : `🦆 DUCKJACKPOT\n\nTry to rob the BANK and grab DUCK COIN.\n\n🎁 You get:\n${st(INVITEE_STARS)}🪙 ${INVITEE_COINS} DUCK COIN\n\nAnd I get:\n${st(INVITER_STARS)}🪙 ${INVITER_COINS} DUCK COIN`
-    const id = await prepareInviteMessage(u.id, { title: 'DUCKJACKPOT', text, url, button: ru ? '🦆 ИГРАТЬ' : '🦆 PLAY' })
-    res.json({ id, url, text })
+      ? `🦆 DUCKJACKPOT\n\nПопробуй ограбить BANK и забрать DUCK COIN.\n\n🎁 Ты получишь:\n${st(INVITEE_STARS)}🪙 ${INVITEE_COINS} DUCK COIN\n\n🏆 А я получу:\n${st(INVITER_STARS)}🪙 ${INVITER_COINS} DUCK COIN\n\nЧтобы получить награду:\n1️⃣ Подпишись на канал DuckJackpot\n2️⃣ Нажми «🦆 ИГРАТЬ»\n3️⃣ Сделай первый успешный EXIT${stars ? '\n\n⭐ Stars выплачиваются вручную в течение 24 часов.' : ''}`
+      : `🦆 DUCKJACKPOT\n\nTry to rob the BANK and grab DUCK COIN.\n\n🎁 You get:\n${st(INVITEE_STARS)}🪙 ${INVITEE_COINS} DUCK COIN\n\n🏆 And I get:\n${st(INVITER_STARS)}🪙 ${INVITER_COINS} DUCK COIN\n\nTo get the reward:\n1️⃣ Follow the DuckJackpot channel\n2️⃣ Tap “🦆 PLAY”\n3️⃣ Make your first successful EXIT${stars ? '\n\n⭐ Stars are paid out manually within 24 hours.' : ''}`
+    // 📢 opens the channel only; the server still checks the real subscription later. 🦆 keeps startapp=ref_<code>.
+    const buttons = [
+      { text: ru ? '📢 ПОДПИСАТЬСЯ НА КАНАЛ' : '📢 FOLLOW THE CHANNEL', url: channelUrl() },
+      { text: ru ? '🦆 ИГРАТЬ' : '🦆 PLAY', url },
+    ]
+    const id = await prepareInviteMessage(u.id, { title: 'DUCKJACKPOT', text, buttons })
+    // Plain-share fallback (no buttons there): the channel link goes into the text.
+    res.json({ id, url, text: `${text}\n\n📢 ${channelUrl()}`, buttons })
   } catch (err) {
     console.error('[referral] share failed', err instanceof Error ? err.message : err)
     res.status(502).json({ error: 'share_unavailable' })
