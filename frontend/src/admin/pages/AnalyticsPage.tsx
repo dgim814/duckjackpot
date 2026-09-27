@@ -38,6 +38,8 @@ type AdminOrder = {
 type Summary = {
   range: Range
   stars: StarsBlock
+  daily: { available: number; claimed: number; claims: number; conversion: number; coins: number }
+  hub: { ctaShown: number; ctaClicked: number; clicks: number; conversion: number }
   generatedAt: number
   players: number
   verifiedPlayers: number
@@ -124,6 +126,21 @@ const L = {
     },
     sec: 'с',
     raidsN: 'рейдов',
+    daily: {
+      title: '🎁 DAILY REWARD',
+      available: 'Доступна (игроков)',
+      claimed: 'Забрали (игроков)',
+      claims: 'Выдач всего',
+      coins: 'DUCK COIN выдано',
+      conversion: 'Доступна → забрали',
+    },
+    hub: {
+      title: '▶ ГЛАВНАЯ КНОПКА HUB',
+      shown: 'Увидели (игроков)',
+      clicked: 'Нажали (игроков)',
+      clicks: 'Нажатий',
+      conversion: 'Увидели → нажали',
+    },
     stars: {
       title: '⭐ TELEGRAM STARS',
       ctaShown: 'Stars CTA показан (игроков)',
@@ -201,6 +218,21 @@ const L = {
     },
     sec: 's',
     raidsN: 'raids',
+    daily: {
+      title: '🎁 DAILY REWARD',
+      available: 'Available (players)',
+      claimed: 'Claimed (players)',
+      claims: 'Total claims',
+      coins: 'DUCK COIN given',
+      conversion: 'Available → claimed',
+    },
+    hub: {
+      title: '▶ HUB MAIN BUTTON',
+      shown: 'Saw it (players)',
+      clicked: 'Tapped it (players)',
+      clicks: 'Taps',
+      conversion: 'Saw → tapped',
+    },
     stars: {
       title: '⭐ TELEGRAM STARS',
       ctaShown: 'Stars CTA shown (players)',
@@ -365,6 +397,31 @@ export function AnalyticsPage() {
             ) : (
               <p className="mt-2 text-sm text-zinc-500">{tx.noLevels}</p>
             )}
+          </section>
+          <section className="rounded-2xl border border-emerald-400/30 bg-zinc-900/80 p-4">
+            <h3 className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-emerald-200">{tx.daily.title}</h3>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <Stat label={tx.daily.available} value={data.daily?.available ?? 0} />
+              <Stat label={tx.daily.claimed} value={data.daily?.claimed ?? 0} />
+              <Stat label={tx.daily.claims} value={data.daily?.claims ?? 0} />
+              <Stat label={tx.daily.coins} value={(data.daily?.coins ?? 0).toLocaleString()} />
+            </div>
+            <p className="mt-3 flex items-baseline justify-between gap-2 text-sm">
+              <span className="text-zinc-300">{tx.daily.conversion}</span>
+              <span className="font-display font-black text-emerald-300">{data.daily?.conversion ?? 0}%</span>
+            </p>
+          </section>
+          <section className="rounded-2xl border border-amber-400/30 bg-zinc-900/80 p-4">
+            <h3 className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-amber-200">{tx.hub.title}</h3>
+            <div className="mt-3 grid grid-cols-3 gap-2">
+              <Stat label={tx.hub.shown} value={data.hub?.ctaShown ?? 0} />
+              <Stat label={tx.hub.clicked} value={data.hub?.ctaClicked ?? 0} />
+              <Stat label={tx.hub.clicks} value={data.hub?.clicks ?? 0} />
+            </div>
+            <p className="mt-3 flex items-baseline justify-between gap-2 text-sm">
+              <span className="text-zinc-300">{tx.hub.conversion}</span>
+              <span className="font-display font-black text-emerald-300">{data.hub?.conversion ?? 0}%</span>
+            </p>
           </section>
           <section className="rounded-2xl border border-amber-400/30 bg-zinc-900/80 p-4">
             <h3 className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-amber-200">{tx.stars.title}</h3>

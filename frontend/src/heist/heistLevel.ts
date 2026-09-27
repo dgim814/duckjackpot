@@ -100,3 +100,16 @@ export function continueLevel(progress: PlayerProgress, id: HeistLevelId): Heist
   if (next && isLevelComplete(progress, id) && isLevelUnlocked(progress, next)) return next
   return id
 }
+
+/** Deepest zone reached so far (0-based) in a level. */
+export function heistLevelDepth(progress: PlayerProgress, id: HeistLevelId) {
+  if (id === 'bank') return progress.bankDepth ?? 0
+  if (id === 'mansion') return progress.mansionDepth ?? 0
+  return progress.worlds?.[id]?.depth ?? 0
+}
+
+/** The level the hub's main button plays: the first open level not finished yet (else the last one). */
+export function currentHeistLevel(progress: PlayerProgress): HeistLevelId {
+  for (const id of HEIST_LEVEL_ORDER) if (isLevelUnlocked(progress, id) && !isLevelComplete(progress, id)) return id
+  return HEIST_LEVEL_ORDER[HEIST_LEVEL_ORDER.length - 1]
+}

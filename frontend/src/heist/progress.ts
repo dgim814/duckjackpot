@@ -51,6 +51,8 @@ export type PlayerProgress = {
   onboardingSeen: boolean
   /** 🎯 MY GOAL: the Black Market lot the player chose to save up for. null = none chosen. */
   myGoalId: string | null
+  /** 🎁 Daily reward claim ids the server granted and this wallet already credited (latest few). */
+  dailyClaimIds: string[]
 }
 
 export type ValuableKind = 'watch' | 'jewel' | 'art' | 'relic' | 'crown'
@@ -154,6 +156,7 @@ const emptyProgress = (): PlayerProgress => ({
   nftCtaAt: 0,
   onboardingSeen: false,
   myGoalId: null,
+  dailyClaimIds: [],
 })
 
 function readOwned(raw: unknown): OwnedCollection {
@@ -325,6 +328,7 @@ export function loadProgress(): PlayerProgress {
       nftCtaAt: Math.max(0, Number((parsed as { nftCtaAt?: unknown }).nftCtaAt) || 0),
       onboardingSeen: Boolean((parsed as { onboardingSeen?: unknown }).onboardingSeen),
       myGoalId: readGoal((parsed as { myGoalId?: unknown }).myGoalId),
+      dailyClaimIds: readIdList((parsed as { dailyClaimIds?: unknown }).dailyClaimIds).slice(-10),
     }
     const before = JSON.stringify(readOwned(parsed.ownedArt))
     if (before !== JSON.stringify(ownedArt)) saveProgress(next)
@@ -726,6 +730,25 @@ export function bankCoins(progress: PlayerProgress, gained: number, objectives?:
   }
   saveProgress(next)
   return next
+}
+
+/**
+ * 🎁 Credit a daily reward the SERVER granted. Keyed by its claim id, so a re-render, a reload
+ * or a replayed response can never add it twice. The amount is capped to the known reward.
+ */
+export const DAILY_REWARD_COINS = 150
+export function creditDailyReward(claimId: string, amount: number) {
+  const live = loadProgress()
+  if (!claimId || live.dailyClaimIds.includes(claimId)) return { credited: false as const, next: live }
+  const add = Math.max(0, Math.min(DAILY_REWARD_COINS, Math.floor(amount) || 0))
+  const next: PlayerProgress = {
+    ...live,
+    ...keepWallet(live),
+    bankedDuckCoin: live.bankedDuckCoin + add,
+    dailyClaimIds: [...live.dailyClaimIds, claimId].slice(-10),
+  }
+  saveProgress(next)
+  return { credited: true as const, next }
 }
 
 export function buyCatalogItem(_progress: PlayerProgress, itemId: string) {

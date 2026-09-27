@@ -1,6 +1,6 @@
 import { trackScreen } from '../analytics/track'
-import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { HeistDuck } from '../heist/HeistDuck'
 import { HeistGame, type HeistEnd } from '../heist/HeistGame'
 import { bindHeistI18n } from '../heist/heistI18n'
@@ -34,9 +34,10 @@ import { goalProgress } from '../heist/progress'
 import { fetchStarsCatalog, syncStarsPurchases, type StarsCatalog } from '../heist/economy/stars'
 import { StarsBuyButton } from '../heist/economy/StarsBuyButton'
 import { labCueActive, noteLabOpened, noteSuccessfulExit, takeResultCta, trackCtaClick, useCtaView } from '../heist/economy/starsDiscovery'
+import { DuckLabEntry } from '../heist/economy/DuckLabEntry'
 import { heistSfx, unlockHeistSfx } from '../heist/heistSfx'
 import { BANK_ZONE_COUNT, bankCollectedPotential, bankTotalPotential } from '../heist/phaser/bankLayout'
-import { HEIST_LEVEL_NAME, HEIST_LEVEL_ORDER, continueLevel, heistLevelBrief, heistLevelCards, isGrandLevel, nextHeistLevel, type HeistLevelId } from '../heist/heistLevel'
+import { HEIST_LEVEL_NAME, HEIST_LEVEL_ORDER, continueLevel, currentHeistLevel, heistLevelBrief, heistLevelCards, isGrandLevel, nextHeistLevel, type HeistLevelId } from '../heist/heistLevel'
 import { useI18n } from '../i18n/LanguageProvider'
 import { ThiefStatus } from '../heist/economy/ThiefStatus'
 
@@ -98,33 +99,6 @@ function Wallet({ coins }: { coins: number }) {
         <p className="text-[9px] font-extrabold tracking-[0.16em] text-sky-200/80">{t('labStarsChip')}</p>
         <p className="mt-1 text-[11px] font-bold leading-tight text-sky-100">{t('labStarsChipSub')}</p>
       </div>
-    </div>
-  )
-}
-
-/** ⭐ DUCK LAB on the hub: always there, small; a one-time glow after the first successful EXIT. */
-function DuckLabEntry({ cue, onOpen }: { cue: boolean; onOpen: () => void }) {
-  const { t } = useI18n()
-  const ref = useCtaView('hub')
-  return (
-    <div ref={ref} className={`duck-lab-entry mt-3 rounded-2xl border px-3 py-3 text-left ${cue ? 'is-cue border-sky-300/70 bg-sky-400/10' : 'border-sky-300/35 bg-sky-400/[0.06]'}`}>
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-[11px] font-extrabold tracking-[0.16em] text-sky-200">⭐ DUCK LAB</p>
-        {cue ? <span className="rounded-full bg-sky-300 px-2 py-0.5 text-[9px] font-black tracking-[0.08em] text-zinc-950">{t('labNew')}</span> : null}
-      </div>
-      <p className="font-display mt-1 text-base font-black text-white">{t('labTitle')}</p>
-      <p className="mt-0.5 text-[11px] font-semibold text-sky-100/80">{t('labTracks')}</p>
-      <p className="mt-0.5 text-[11px] text-sky-100/60">{t('labFast')}</p>
-      <button
-        type="button"
-        className="mt-2 min-h-11 w-full rounded-xl border border-sky-300/50 bg-sky-300/15 px-3 py-2 text-[13px] font-black text-sky-50"
-        onClick={() => {
-          trackCtaClick('hub')
-          onOpen()
-        }}
-      >
-        {t('labOpen')}
-      </button>
     </div>
   )
 }
@@ -335,7 +309,10 @@ export function HeistPage() {
   const [shopMsg, setShopMsg] = useState<string | null>(null)
   /** Set by the raid that just finished the BANK: the HUB highlights MANSION once. */
   const [justUnlocked, setJustUnlocked] = useState<HeistLevelId | null>(null)
-  const [screen, setScreen] = useState<Screen>(() => (isHeistNovice(loadProgress()) ? 'play' : 'lobby'))
+  const location = useLocation()
+  /** From the hub: { play: level, resume } starts that raid at once; { open: 'lab' } opens DUCK LAB. */
+  const hubIntent = (location.state ?? null) as { play?: HeistLevelId; resume?: boolean; open?: 'lab' } | null
+  const [screen, setScreen] = useState<Screen>(() => (hubIntent?.open === 'lab' ? 'shop' : isHeistNovice(loadProgress()) ? 'play' : 'lobby'))
   const [raidMods, setRaidMods] = useState<HeistRunMods>(() => runMods(loadProgress()))
   const [resumeRun, setResumeRun] = useState(false)
   const [showOnb, setShowOnb] = useState(false)
@@ -369,6 +346,11 @@ export function HeistPage() {
   /** The first locked level: shown as the next goal (with its brief and a ⭐ preview). */
   const nextLocked = levelCards.find((c) => c.locked)?.id ?? null
   const parked = screen === 'lobby' ? suspendedRaid() : null
+  const currentLevel = currentHeistLevel(progress)
+  const currentStarted = currentLevel === 'bank' ? (progress.bankEscapes ?? 0) > 0 || (progress.bankDepth ?? 0) > 0 : levelDepth(progress, currentLevel) > 0
+  const lobbyLabel = parked
+    ? t('hubPlayResume')
+    : t(currentStarted ? 'hubPlayContinue' : 'hubPlayEnter', { level: t(HEIST_LEVEL_NAME[currentLevel]) })
   // One in-app notification at most (the park card and the loot banner cover the others).
   const topNote = pendingNotifications(progress, { raidParked: Boolean(parked) })[0] ?? null
 
@@ -434,6 +416,21 @@ export function HeistPage() {
     setRunKey((n) => n + 1)
     setScreen('play')
   }
+
+  // Hub intent is used once, then dropped from history (a reload or Back must not restart a raid).
+  const intentDone = useRef(false)
+  useEffect(() => {
+    if (intentDone.current || !hubIntent) return
+    intentDone.current = true
+    const target = hubIntent.play
+    const already = screen === 'play' && levelId === target && !hubIntent.resume
+    if (target && !already && HEIST_LEVEL_ORDER.includes(target) && heistLevelCards(loadProgress()).some((c) => c.id === target && !c.locked)) {
+      const parked = suspendedRaid()
+      playLevel(target, { resume: Boolean(hubIntent.resume && parked && parked.levelId === target) })
+    }
+    navigate('/heist', { replace: true, state: null })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const openUpgrades = () => {
     setEnd(null)
@@ -922,6 +919,16 @@ export function HeistPage() {
           <p className="text-center text-[11px] font-extrabold uppercase tracking-[0.2em] text-amber-200">{t('heistKicker')}</p>
           <h1 className="font-display mt-1 text-center text-3xl font-black text-amber-50">{t('heistTitle')}</h1>
           <Wallet coins={progress.bankedDuckCoin} />
+          {/* The main action first: play the current level without scrolling past the details. */}
+          <button
+            type="button"
+            className={`buy-btn mt-3 min-h-[3.5rem] w-full rounded-2xl px-3 py-3 font-display font-black leading-tight text-zinc-950 ${
+              lobbyLabel.length > 16 ? 'text-[15px] tracking-[0.02em]' : 'text-lg tracking-[0.08em]'
+            }`}
+            onClick={() => (parked ? playLevel(parked.levelId, { resume: true }) : playLevel(currentLevel))}
+          >
+            {lobbyLabel}
+          </button>
           <DuckLabEntry
             cue={labCue}
             onOpen={() => {

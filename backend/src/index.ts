@@ -25,6 +25,7 @@ import {
 import { verifyInitData } from './verifyInitData.js'
 import { allOrders, createOrder, ordersOf, saveOrder, STARS_PRODUCTS, type StarsOrder } from './starsStore.js'
 import { analyticsSummary, recordEvents, userKey, type AnalyticsRange, type IncomingEvent } from './analyticsStore.js'
+import { claimDaily, dailyStatus, isNonce } from './dailyRewardStore.js'
 
 dotenv.config()
 
@@ -448,6 +449,54 @@ app.get('/api/stars/purchases', (req, res) => {
 app.get('/api/admin/stars/orders', (req, res) => {
   if (!requireAdmin(req, res)) return
   res.json({ orders: allOrders().slice(0, 200), bot: starsBotState() })
+})
+
+// ---------- 🎁 daily reward ----------
+/** Verified Telegram id only (a Mini App may stay open for days: signed initData up to 7 days old). */
+function dailyUser(req: express.Request): number | null {
+  const raw = req.header('x-telegram-init-data') ?? (typeof req.body?.initData === 'string' ? req.body.initData : '')
+  if (!raw) return null
+  return verifyInitData(raw, getTelegramSettings().token, 7 * 86_400)?.id ?? null
+}
+
+app.post('/api/daily-reward/status', async (req, res) => {
+  const telegramId = dailyUser(req)
+  if (!telegramId) {
+    res.status(401).json({ error: 'unauthorized' })
+    return
+  }
+  try {
+    const { firstAvailable, ...status } = await dailyStatus(telegramId)
+    if (firstAvailable) recordEvents(`tg:${telegramId}`, 'server', [{ name: 'daily_reward_available', props: { reward: status.amount, currency: 'DUCK_COIN' } }])
+    res.json(status)
+  } catch (err) {
+    console.error('[daily] status failed', err)
+    res.status(503).json({ error: 'unavailable' })
+  }
+})
+
+/** +150 DUCK COIN once per 24 h. The server decides; the client credits only a granted claim id. */
+app.post('/api/daily-reward/claim', async (req, res) => {
+  const telegramId = dailyUser(req)
+  if (!telegramId) {
+    res.status(401).json({ error: 'unauthorized' })
+    return
+  }
+  const nonce = req.body?.nonce
+  if (!isNonce(nonce)) {
+    res.status(400).json({ error: 'bad_request' })
+    return
+  }
+  try {
+    const result = await claimDaily(telegramId, nonce)
+    if (result.granted && !result.replay) {
+      recordEvents(`tg:${telegramId}`, 'server', [{ name: 'daily_reward_claimed', props: { reward: result.amount, currency: 'DUCK_COIN' } }])
+    }
+    res.json(result)
+  } catch (err) {
+    console.error('[daily] claim failed', err)
+    res.status(503).json({ error: 'unavailable' })
+  }
 })
 
 app.get('/api/nft', (_req, res) => {

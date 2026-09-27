@@ -632,3 +632,35 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .duck-lab-entry.is-cue { animation: none; }
 }
+
+/* 🎁 Daily reward: a soft pulse while it is due, "+150" floating off the balance after the claim. */
+.daily-card.is-due {
+  animation: daily-due 2.4s ease-in-out infinite;
+}
+@keyframes daily-due {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(110, 231, 183, 0.25), 0 0 12px rgba(52, 211, 153, 0.15); }
+  50% { box-shadow: 0 0 0 1px rgba(110, 231, 183, 0.5), 0 0 24px rgba(52, 211, 153, 0.35); }
+}
+.coin-gain {
+  animation: coin-gain 1.8s ease-out forwards;
+  text-shadow: 0 0 14px rgba(52, 211, 153, 0.6);
+}
+@keyframes coin-gain {
+  0% { opacity: 0; transform: translateY(10px) scale(0.8); }
+  15% { opacity: 1; transform: translateY(0) scale(1.15); }
+  70% { opacity: 1; transform: translateY(-4px) scale(1); }
+  100% { opacity: 0; transform: translateY(-16px) scale(1); }
+}
+.coin-bump {
+  display: inline-block;
+  animation: coin-bump 0.6s ease-out;
+}
+@keyframes coin-bump {
+  0% { transform: scale(1); }
+  35% { transform: scale(1.12); }
+  100% { transform: scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .daily-card.is-due, .coin-gain, .coin-bump { animation: none; }
+  .coin-gain { opacity: 1; }
+}

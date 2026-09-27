@@ -1,4 +1,4 @@
-import { isGameplayFresh, isHeistNovice, type PlayerProgress } from './progress'
+import { DAILY_REWARD_COINS, isGameplayFresh, isHeistNovice, type PlayerProgress } from './progress'
 import { track } from '../analytics/track'
 
 /**
@@ -43,7 +43,10 @@ function write(s: Stored) {
 export function tutorialState(progress: PlayerProgress): Stored {
   const s = read()
   if (s) return s
-  const fresh: Stored = { v: 1, active: isHeistNovice(progress) && isGameplayFresh(progress), seen: [] }
+  // 🎁 Daily reward coins claimed on the hub before the first raid do not make a player "not new".
+  const gifted = (progress.dailyClaimIds?.length ?? 0) * DAILY_REWARD_COINS
+  const beforeGifts = { ...progress, bankedDuckCoin: Math.max(0, progress.bankedDuckCoin - gifted) }
+  const fresh: Stored = { v: 1, active: isHeistNovice(progress) && isGameplayFresh(beforeGifts), seen: [] }
   write(fresh)
   if (fresh.active) track('tutorial_start')
   return fresh

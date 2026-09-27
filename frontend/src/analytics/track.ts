@@ -32,6 +32,8 @@ export type AnalyticsEvent =
   | 'stars_purchase_error'
   | 'stars_cta_view'
   | 'stars_cta_click'
+  | 'hub_primary_cta_view'
+  | 'hub_primary_cta_click'
 
 export type AnalyticsProps = Partial<{
   level: string

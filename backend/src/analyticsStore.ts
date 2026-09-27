@@ -35,6 +35,10 @@ export const ANALYTICS_EVENTS = [
   'stars_purchase_error',
   'stars_cta_view',
   'stars_cta_click',
+  'daily_reward_available',
+  'daily_reward_claimed',
+  'hub_primary_cta_view',
+  'hub_primary_cta_click',
 ] as const
 export type AnalyticsEventName = (typeof ANALYTICS_EVENTS)[number]
 
@@ -62,6 +66,8 @@ const PROPS: Record<string, 'str' | 'num' | 'bool'> = {
   purchaseStatus: 'str',
   error: 'str',
   placement: 'str',
+  reward: 'num',
+  currency: 'str',
 }
 
 export type StoredEvent = {
@@ -103,7 +109,7 @@ export function userKey(telegramId: number | null, anonId: unknown) {
 }
 
 /** Only the server may record these (invoice made, payment confirmed by Telegram, server errors). */
-const SERVER_ONLY = new Set<string>(['stars_invoice_created', 'stars_payment_success'])
+const SERVER_ONLY = new Set<string>(['stars_invoice_created', 'stars_payment_success', 'daily_reward_available', 'daily_reward_claimed'])
 
 /** Validate and append a batch. Returns how many events were stored. */
 export function recordEvents(user: string, sessionId: unknown, events: IncomingEvent[], now = Date.now(), fromClient = false) {
@@ -279,9 +285,32 @@ export function analyticsSummary(range: AnalyticsRange, now = Date.now(), orders
       .sort((a, b) => b.stars - a.stars),
   }
 
+  // 🎁 daily reward: both events are written by the server only (status check / confirmed grant)
+  const dailyAvailUsers = usersWith('daily_reward_available')
+  const dailyClaims = inRange.filter((e) => e.e === 'daily_reward_claimed')
+  const dailyClaimUsers = new Set(dailyClaims.map((e) => e.u))
+  const daily = {
+    available: dailyAvailUsers.size,
+    claimed: dailyClaimUsers.size,
+    claims: dailyClaims.length,
+    conversion: pct(both(dailyAvailUsers, dailyClaimUsers), dailyAvailUsers.size),
+    coins: dailyClaims.reduce((a, e) => a + Number(e.p?.reward ?? 0), 0),
+  }
+  // ▶ the hub's one main button (ENTER BANK / the current level)
+  const hubViewUsers = usersWith('hub_primary_cta_view')
+  const hubClickUsers = usersWith('hub_primary_cta_click')
+  const hub = {
+    ctaShown: hubViewUsers.size,
+    ctaClicked: hubClickUsers.size,
+    clicks: inRange.filter((e) => e.e === 'hub_primary_cta_click').length,
+    conversion: pct(both(hubViewUsers, hubClickUsers), hubViewUsers.size),
+  }
+
   return {
     range,
     stars,
+    daily,
+    hub,
     from,
     generatedAt: now,
     players: daysActive.size,
