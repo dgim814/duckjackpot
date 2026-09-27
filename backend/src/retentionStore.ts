@@ -499,7 +499,7 @@ export function leaderboard(dailyCoins: Map<number, number>): BoardRow[] {
 function publicName(p: Player) {
   const n = (p.name || '').trim()
   if (n) return n.length > 14 ? `${n.slice(0, 13)}…` : n
-  return `Thief #${String(p.id).slice(-4)}`
+  return `Thief #${(p.refCode || codeFor(p.id)).slice(0, 4).toUpperCase()}`
 }
 
 export function allState() {
