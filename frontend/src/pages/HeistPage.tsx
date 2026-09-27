@@ -40,6 +40,7 @@ import { BANK_ZONE_COUNT, bankCollectedPotential, bankTotalPotential } from '../
 import { HEIST_LEVEL_NAME, HEIST_LEVEL_ORDER, continueLevel, currentHeistLevel, heistLevelBrief, heistLevelCards, isGrandLevel, nextHeistLevel, type HeistLevelId } from '../heist/heistLevel'
 import { useI18n } from '../i18n/LanguageProvider'
 import { ThiefStatus } from '../heist/economy/ThiefStatus'
+import { perfMark, perfMarkPainted } from '../perf/transition'
 
 /** Goal, guards and cameras of a level, so the player picks the risk knowingly. */
 function LevelBrief({ id, cap }: { id: HeistLevelId; cap: number }) {
@@ -296,7 +297,7 @@ function formatTime(ms: number) {
   return `${String(m).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
 }
 
-type Screen = 'lobby' | 'play' | 'result' | 'shop'
+type Screen = 'boot' | 'lobby' | 'play' | 'result' | 'shop'
 
 export function HeistPage() {
   const { t } = useI18n()
@@ -312,12 +313,24 @@ export function HeistPage() {
   const location = useLocation()
   /** From the hub: { play: level, resume } starts that raid at once; { open: 'lab' } opens DUCK LAB. */
   const hubIntent = (location.state ?? null) as { play?: HeistLevelId; resume?: boolean; open?: 'lab' } | null
-  const [screen, setScreen] = useState<Screen>(() => (hubIntent?.open === 'lab' ? 'shop' : isHeistNovice(loadProgress()) ? 'play' : 'lobby'))
+  const routeMarked = useRef(false)
+  if (!routeMarked.current) {
+    routeMarked.current = true
+    perfMark('GAME_ROUTE_START')
+  }
+  // A hub ▶ tap goes straight to the game surface ('boot'): the lobby is never built just to be replaced.
+  const [screen, setScreen] = useState<Screen>(() =>
+    hubIntent?.open === 'lab' ? 'shop' : hubIntent?.play ? 'boot' : isHeistNovice(loadProgress()) ? 'play' : 'lobby',
+  )
   const [raidMods, setRaidMods] = useState<HeistRunMods>(() => runMods(loadProgress()))
   const [resumeRun, setResumeRun] = useState(false)
   const [showOnb, setShowOnb] = useState(false)
   const [labCue, setLabCue] = useState(() => labCueActive(loadProgress().bankEscapes ?? 0))
   const [resultCta, setResultCta] = useState(false)
+  useEffect(() => {
+    if (screen === 'lobby') perfMarkPainted('LOBBY_FIRST_RENDER')
+    if (screen === 'result') perfMarkPainted('RESULT_FIRST_RENDER')
+  }, [screen])
   useEffect(() => {
     if (screen !== 'shop') return
     trackScreen('stars_open')
@@ -373,6 +386,7 @@ export function HeistPage() {
   }
 
   const onDone = (next: HeistEnd) => {
+    perfMark('GAME_EXIT_SAVE_START')
     if (next.verdict === 'aborted') {
       setEnd(null)
       setScreen('lobby')
@@ -393,6 +407,7 @@ export function HeistPage() {
       setProgress(updated)
       if (next.levelCompleted) setJustUnlocked(nextHeistLevel(levelId))
       setEnd({ ...next, banked: updated.bankedDuckCoin })
+      perfMark('GAME_EXIT_SAVE_END')
     } else {
       const live = loadProgress()
       setProgress(live)
@@ -402,6 +417,7 @@ export function HeistPage() {
   }
 
   const playLevel = (id: HeistLevelId, opts: { preview?: boolean; resume?: boolean } = {}) => {
+    perfMark('PLAY_LEVEL')
     setJustUnlocked(null)
     unlockHeistSfx()
     heistSfx.uiTap()
@@ -423,11 +439,10 @@ export function HeistPage() {
     if (intentDone.current || !hubIntent) return
     intentDone.current = true
     const target = hubIntent.play
-    const already = screen === 'play' && levelId === target && !hubIntent.resume
-    if (target && !already && HEIST_LEVEL_ORDER.includes(target) && heistLevelCards(loadProgress()).some((c) => c.id === target && !c.locked)) {
+    if (target && HEIST_LEVEL_ORDER.includes(target) && heistLevelCards(loadProgress()).some((c) => c.id === target && !c.locked)) {
       const parked = suspendedRaid()
       playLevel(target, { resume: Boolean(hubIntent.resume && parked && parked.levelId === target) })
-    }
+    } else if (screen === 'boot') setScreen(isHeistNovice(loadProgress()) ? 'play' : 'lobby')
     navigate('/heist', { replace: true, state: null })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -487,6 +502,10 @@ export function HeistPage() {
     playLevel(id, { preview: true })
   }
 
+  if (screen === 'boot') {
+    return <section className="relative h-[calc(100dvh-4.75rem-var(--safe-bottom))] overflow-hidden bg-[#120c10]" />
+  }
+
   if (screen === 'play') {
     return (
       <section
@@ -502,6 +521,7 @@ export function HeistPage() {
           onDone={onDone}
           resume={resumeRun}
           onSuspend={() => {
+            perfMark('GAME_EXIT_SAVE_START')
             setResumeRun(false)
             setProgress(loadProgress())
             setScreen('lobby')
@@ -925,7 +945,11 @@ export function HeistPage() {
             className={`buy-btn mt-3 min-h-[3.5rem] w-full rounded-2xl px-3 py-3 font-display font-black leading-tight text-zinc-950 ${
               lobbyLabel.length > 16 ? 'text-[15px] tracking-[0.02em]' : 'text-lg tracking-[0.08em]'
             }`}
-            onClick={() => (parked ? playLevel(parked.levelId, { resume: true }) : playLevel(currentLevel))}
+            onClick={() => {
+              perfMark('HUB_CLICK')
+              if (parked) playLevel(parked.levelId, { resume: true })
+              else playLevel(currentLevel)
+            }}
           >
             {lobbyLabel}
           </button>

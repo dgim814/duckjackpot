@@ -16,6 +16,7 @@ import { heistRank } from '../heist/rank'
 import { heistSfx, unlockHeistSfx } from '../heist/heistSfx'
 import { suspendedRaid } from '../heist/v2/ui/HeistGameV2'
 import { useI18n } from '../i18n/LanguageProvider'
+import { perfMark, perfMarkPainted } from '../perf/transition'
 
 /** What the hub's one main button does: resume a parked raid, or play the current level. */
 function primaryAction(progress: PlayerProgress) {
@@ -108,6 +109,10 @@ export function GameHomePage() {
   const [progress, setProgress] = useState(loadProgress)
   const [gain, setGain] = useState<{ n: number; key: number } | null>(null)
   useEffect(() => subscribeGameplayReset(() => setProgress(loadProgress())), [])
+  useEffect(() => {
+    perfMark('HUB_MOUNT')
+    perfMarkPainted('HUB_FIRST_RENDER')
+  }, [])
   const daily = useDailyReward((next, amount) => {
     setProgress(next)
     setGain({ n: amount, key: Date.now() })
@@ -136,6 +141,7 @@ export function GameHomePage() {
     navigate(path, state ? { state } : undefined)
   }
   const play = () => {
+    perfMark('HUB_CLICK')
     track('hub_primary_cta_click', { level: action.level })
     // Straight into the raid: no lobby to read or scroll through first.
     tap('/heist', { play: action.level, resume: action.resume })

@@ -26,6 +26,7 @@ import { TutorialOverlay } from './Tutorial'
 import { markTutorialSeen, pendingTutorialSteps, resetHeistTutorial } from '../../tutorial'
 import { track, trackOnce } from '../../../analytics/track'
 import { isHeistNovice } from '../../progress'
+import { perfMark } from '../../../perf/transition'
 import './v2.css'
 
 type Props = {
@@ -110,6 +111,7 @@ export function HeistGameV2({ running, mods, levelId = 'bank', novice = false, o
     const host = canvasRef.current
     const root = rootRef.current
     if (!host || !root || !running) return
+    perfMark('GAME_COMPONENT_MOUNT')
     destroyLive()
 
     // PAUSE → HUB parked this raid: pick it up exactly where it was.
@@ -215,6 +217,7 @@ export function HeistGameV2({ running, mods, levelId = 'bank', novice = false, o
       scene,
     })
     live = { game, raid, scene, input }
+    perfMark('GAME_PHASER_CREATED')
     sceneRef.current = scene
 
     // NFT Drop offer: after a good stretch of active play, at most once per 24 h, never mid-panel.
@@ -265,6 +268,7 @@ export function HeistGameV2({ running, mods, levelId = 'bank', novice = false, o
     ;(window as Window & { __heistTutorial?: unknown }).__heistTutorial = { reset: () => resetHeistTutorial(true), off: () => resetHeistTutorial(false) }
 
     return () => {
+      perfMark('GAME_DESTROY_START')
       window.clearInterval(cta)
       ro.disconnect()
       document.removeEventListener('visibilitychange', onVis)
@@ -286,6 +290,7 @@ export function HeistGameV2({ running, mods, levelId = 'bank', novice = false, o
         /* ignore */
       }
       if (import.meta.env.DEV) delete (window as Window & { __v2?: unknown }).__v2
+      perfMark('GAME_DESTROY_END')
     }
   }, [running, mods, levelId, novice, hud, input, resume])
 
@@ -299,6 +304,7 @@ export function HeistGameV2({ running, mods, levelId = 'bank', novice = false, o
   const abort = () => {
     const raid = raidRef.current
     if (!raid) return
+    perfMark('GAME_EXIT_CLICK')
     raid.setPaused(false)
     raid.abort()
   }
@@ -317,6 +323,7 @@ export function HeistGameV2({ running, mods, levelId = 'bank', novice = false, o
   const toHub = () => {
     const raid = raidRef.current
     if (!raid || raid.ended) return
+    perfMark('GAME_EXIT_CLICK')
     raid.setPaused(true)
     suspended = { raid, levelId }
     onSuspendRef.current?.()

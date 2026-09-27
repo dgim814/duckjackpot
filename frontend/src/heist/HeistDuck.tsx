@@ -4,6 +4,30 @@ import { cropOpaque, punchBackdrop } from './sprite'
 const SPRITE = '/heist/duck.png'
 
 /**
+ * The backdrop punch + crop walks every pixel of a 1254×1254 PNG: do it once per session and
+ * let every duck on every screen (hub, lobby) just scale the cached result.
+ */
+let prepared: Promise<HTMLCanvasElement | HTMLImageElement | null> | null = null
+function preparedDuck() {
+  if (!prepared) {
+    prepared = new Promise((resolve) => {
+      const img = new Image()
+      img.onload = () => {
+        if (img.naturalWidth <= 0 || img.naturalHeight <= 0) return resolve(null)
+        const punched = punchBackdrop(img)
+        resolve(cropOpaque(punched instanceof HTMLCanvasElement ? punched : img))
+      }
+      img.onerror = () => {
+        prepared = null
+        resolve(null)
+      }
+      img.src = SPRITE
+    })
+  }
+  return prepared
+}
+
+/**
  * Draws the duck at its natural aspect ratio. Size lives in React style so CSS
  * never falls back to the canvas default 300×150 box.
  */
@@ -21,15 +45,10 @@ export function HeistDuck({
   const [box, setBox] = useState({ w: 0, h: 0 })
 
   useEffect(() => {
-    const canvas = ref.current
-    if (!canvas) return
-    const img = new Image()
-    const paint = () => {
-      const iw = img.naturalWidth
-      const ih = img.naturalHeight
-      if (iw <= 0 || ih <= 0) return
-      const punched = punchBackdrop(img)
-      const src = cropOpaque(punched instanceof HTMLCanvasElement ? punched : img)
+    let live = true
+    void preparedDuck().then((src) => {
+      const canvas = ref.current
+      if (!live || !canvas || !src) return
       const sw = src.width
       const sh = src.height
       if (sw <= 0 || sh <= 0) return
@@ -48,10 +67,10 @@ export function HeistDuck({
       ctx.drawImage(src, 0, 0, w, h)
       setBox({ w, h })
       setOk(true)
+    })
+    return () => {
+      live = false
     }
-    img.onload = paint
-    img.src = SPRITE
-    if (img.complete) paint()
   }, [size, fit])
 
   return (

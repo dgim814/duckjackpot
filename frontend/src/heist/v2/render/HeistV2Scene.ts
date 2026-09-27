@@ -18,6 +18,7 @@ import { CameraRig } from './CameraRig'
 import { FxLayer } from './Fx'
 import { CamView, CoinLayer, DEPTH, DoorView, ExitView, FoliageLayer, NftVaultView, SafeView, buildGround, buildLabels, nftTextureKey } from './Props'
 import { buildTextures } from './textures'
+import { perfMark } from '../../../perf/transition'
 import { WorldBaker } from './WorldBaker'
 import { MechanicsLayer } from './Mechanics'
 
@@ -118,11 +119,14 @@ export class HeistV2Scene extends Phaser.Scene {
     this.deps = deps
   }
 
+  private perfTicked = false
+
   get raid() {
     return this.deps.raid
   }
 
   preload() {
+    perfMark('GAME_ASSETS_START')
     this.load.spritesheet('duck_sheet', '/heist/duck_sheet.png', { frameWidth: 256, frameHeight: 256 })
     this.load.spritesheet('guard_sheet', '/heist/guard_sheet.png', { frameWidth: 256, frameHeight: 256 })
     loadDuckCoinImages(this)
@@ -141,6 +145,8 @@ export class HeistV2Scene extends Phaser.Scene {
   }
 
   create() {
+    perfMark('GAME_ASSETS_READY')
+    this.game.events.once(Phaser.Core.Events.POST_RENDER, () => perfMark('GAME_FIRST_FRAME'))
     const raid = this.raid
     const L = raid.level
     const v = raid.cfg.vision
@@ -185,6 +191,7 @@ export class HeistV2Scene extends Phaser.Scene {
       this.baker.destroy()
     })
     this.renderFrame(0, 1)
+    perfMark('GAME_SCENE_BUILT')
   }
 
   private onResize(size: Phaser.Structs.Size) {
@@ -223,6 +230,10 @@ export class HeistV2Scene extends Phaser.Scene {
   }
 
   update(_time: number, deltaMs: number) {
+    if (!this.perfTicked) {
+      this.perfTicked = true
+      perfMark('GAME_INTERACTIVE')
+    }
     const raid = this.raid
     const dt = Math.min(0.25, Math.max(0, deltaMs / 1000))
     this.clock += dt
@@ -253,7 +264,8 @@ export class HeistV2Scene extends Phaser.Scene {
     if (this.tut && !this.hint && !frozen && !raid.ended && !raid.crack && this.clock >= this.tutReadyAt) this.checkTutorial()
     this.audio.sync(raid)
 
-    if (raid.ended && this.endAt < 0) this.endAt = this.clock + END_DELAY
+    // The ending beat is for escapes and arrests; a quit from the pause menu leaves at once.
+    if (raid.ended && this.endAt < 0) this.endAt = this.clock + (raid.result?.verdict === 'aborted' ? 0.001 : END_DELAY)
     if (this.endAt > 0 && this.clock >= this.endAt && !this.delivered && raid.result) {
       this.delivered = true
       this.deps.onEnd(raid.result)
