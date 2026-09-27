@@ -58,6 +58,8 @@ export type Player = {
   escapeDayCount?: number
   refCode: string
   notif: NotifState
+  /** Black Market goal as the device reports it — used only for the wording of a reminder */
+  goal?: { name: string; left: number }
 }
 
 export type InviteStatus = 'opened' | 'verified' | 'played' | 'exited' | 'rewarded'
@@ -218,6 +220,7 @@ export type SessionInput = {
   via?: 'startapp' | 'start'
   /** client hint: no escape yet and nothing banked (required in addition to the server check) */
   novice?: boolean
+  goal?: { name: string; left: number } | null
 }
 
 export type ReferralOutcome =
@@ -258,6 +261,8 @@ export function touchSession(input: SessionInput, now = Date.now()) {
     p.lastSeenAt = now
     if (input.name) p.name = input.name.slice(0, 64)
     if (input.username) p.username = input.username.slice(0, 64)
+    if (input.goal === null) p.goal = undefined
+    else if (input.goal) p.goal = { name: input.goal.name.slice(0, 60), left: Math.max(0, Math.min(10_000_000, Math.floor(input.goal.left))) }
     if (input.lang) p.lang = /^ru|^uk|^be|^kk/i.test(input.lang) ? 'ru' : 'en'
     if (input.allowsWriteToPm) p.canWrite = true
     // Opening the app again after a 403 means the chat may work again: try once more later.

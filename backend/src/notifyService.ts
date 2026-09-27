@@ -1,4 +1,7 @@
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { recordEvents } from './analyticsStore.js'
+import { DATA_DIR } from './config.js'
 import { sendRetentionMessage, type SendResult } from './bot.js'
 import { DAILY_REWARD, DAILY_REWARD_MS, dailyUsers } from './dailyRewardStore.js'
 import { allState, INVITEE_COINS, INVITER_COINS, leaderboard, markWriteBlocked, updateNotif, type Player } from './retentionStore.js'
@@ -26,16 +29,42 @@ const BOARD_WATCH = 50
 
 export type NotifKind = 'daily' | 'overtaken' | 'leader' | 'raid_return' | 'invite' | 'referral_inviter' | 'referral_invitee'
 
-const enabled = () => process.env.NOTIFICATIONS_ENABLED === '1'
+/**
+ * On/off: NOTIFICATIONS_ENABLED=1 / 0 in the environment wins; otherwise the admin switch
+ * (DATA_DIR/retention/notify.json), off by default.
+ */
+const SETTINGS = join(DATA_DIR, 'retention', 'notify.json')
+function adminSwitch() {
+  try {
+    return existsSync(SETTINGS) && (JSON.parse(readFileSync(SETTINGS, 'utf8')) as { enabled?: boolean }).enabled === true
+  } catch {
+    return false
+  }
+}
+export function notifySource(): 'env' | 'admin' {
+  const env = (process.env.NOTIFICATIONS_ENABLED ?? '').trim()
+  return env === '1' || env === '0' ? 'env' : 'admin'
+}
+const enabled = () => {
+  const env = (process.env.NOTIFICATIONS_ENABLED ?? '').trim()
+  if (env === '1') return true
+  if (env === '0') return false
+  return adminSwitch()
+}
+export function setNotificationsEnabled(on: boolean) {
+  mkdirSync(join(DATA_DIR, 'retention'), { recursive: true })
+  writeFileSync(SETTINGS, JSON.stringify({ enabled: on, at: Date.now() }))
+  return enabled()
+}
 const dryLog: { t: number; to: number; kind: NotifKind; result: string }[] = []
 export function notifyLog() {
-  return { enabled: enabled(), recent: dryLog.slice(-100) }
+  return { enabled: enabled(), source: notifySource(), recent: dryLog.slice(-100) }
 }
 
 const TEXT: Record<NotifKind, Record<'ru' | 'en', { text: string; button: string }>> = {
   daily: {
-    ru: { text: `🔔 DUCKJACKPOT\n\n🎁 Не забудь забрать награду!\n\nСегодня тебя ждёт:\n🪙 +${DAILY_REWARD} DUCK COIN`, button: '🎁 ЗАБРАТЬ НАГРАДУ' },
-    en: { text: `🔔 DUCKJACKPOT\n\n🎁 Don't forget your reward!\n\nWaiting for you today:\n🪙 +${DAILY_REWARD} DUCK COIN`, button: '🎁 CLAIM REWARD' },
+    ru: { text: `🎁 НЕ ЗАБУДЬ ЗАБРАТЬ НАГРАДУ\n\nТвои +${DAILY_REWARD} DUCK COIN уже ждут тебя.`, button: '🎁 ЗАБРАТЬ НАГРАДУ' },
+    en: { text: `🎁 DON'T FORGET YOUR REWARD\n\nYour +${DAILY_REWARD} DUCK COIN are waiting for you.`, button: '🎁 CLAIM REWARD' },
   },
   overtaken: {
     ru: { text: '🔔 DUCKJACKPOT\n\n💰 ТЕБЯ ОБОГНАЛИ\n\nДругой вор накопил больше DUCK COIN.\nВернись и попробуй вернуть своё место.', button: '🏆 МОЙ РЕЙТИНГ' },
@@ -54,12 +83,12 @@ const TEXT: Record<NotifKind, Record<'ru' | 'en', { text: string; button: string
     en: { text: `🔔 DUCKJACKPOT\n\n👥 INVITE A FRIEND\n\nYour friend gets 🪙 ${INVITEE_COINS} DUCK COIN,\nand you get 🪙 ${INVITER_COINS} DUCK COIN.`, button: '👥 INVITE' },
   },
   referral_inviter: {
-    ru: { text: `🔔 DUCKJACKPOT\n\n👥 Твой друг завершил первый рейд!\n\n🎁 Тебе доступна награда:\n🪙 +${INVITER_COINS} DUCK COIN`, button: '🎁 ЗАБРАТЬ НАГРАДУ' },
-    en: { text: `🔔 DUCKJACKPOT\n\n👥 Your friend finished their first raid!\n\n🎁 Your reward is ready:\n🪙 +${INVITER_COINS} DUCK COIN`, button: '🎁 CLAIM REWARD' },
+    ru: { text: `👥 ДРУГ ЗАВЕРШИЛ ПЕРВЫЙ РЕЙД\n\nТвоя награда:\n🪙 +${INVITER_COINS} DUCK COIN`, button: '🎁 ЗАБРАТЬ НАГРАДУ' },
+    en: { text: `👥 YOUR FRIEND FINISHED THEIR FIRST RAID\n\nYour reward:\n🪙 +${INVITER_COINS} DUCK COIN`, button: '🎁 CLAIM REWARD' },
   },
   referral_invitee: {
-    ru: { text: `🔔 DUCKJACKPOT\n\n🎉 Первый рейд завершён!\n\nТебе доступно:\n🪙 +${INVITEE_COINS} DUCK COIN`, button: '🎁 ЗАБРАТЬ НАГРАДУ' },
-    en: { text: `🔔 DUCKJACKPOT\n\n🎉 First raid complete!\n\nYour reward:\n🪙 +${INVITEE_COINS} DUCK COIN`, button: '🎁 CLAIM REWARD' },
+    ru: { text: `🎉 ПЕРВЫЙ РЕЙД ЗАВЕРШЁН\n\nТвоя награда:\n🪙 +${INVITEE_COINS} DUCK COIN`, button: '🎁 ЗАБРАТЬ НАГРАДУ' },
+    en: { text: `🎉 FIRST RAID COMPLETE\n\nYour reward:\n🪙 +${INVITEE_COINS} DUCK COIN`, button: '🎁 CLAIM REWARD' },
   },
 }
 
@@ -82,8 +111,20 @@ export function quietHours(now: number) {
   return h >= 22 || h < 9
 }
 
+/** The message for a kind; "time for a heist" becomes "keep saving for your goal" when the player has one. */
+export function textFor(kind: NotifKind, p?: Pick<Player, 'lang' | 'goal'>) {
+  const lang = p?.lang ?? 'ru'
+  const g = p?.goal
+  if (kind === 'raid_return' && g && g.left > 0) {
+    return lang === 'ru'
+      ? { text: `💎 ПРОДОЛЖИ КОПИТЬ НА ЦЕЛЬ\n\n${g.name}\nОсталось: 🪙 ${g.left.toLocaleString('ru-RU')} DUCK COIN\n\nBANK ждёт.`, button: '🦆 ИГРАТЬ' }
+      : { text: `💎 KEEP SAVING FOR YOUR GOAL\n\n${g.name}\nLeft: 🪙 ${g.left.toLocaleString('en-US')} DUCK COIN\n\nThe BANK is waiting.`, button: '🦆 PLAY' }
+  }
+  return TEXT[kind][lang]
+}
+
 async function deliver(p: Player, kind: NotifKind, now: number): Promise<SendResult | 'dry_run'> {
-  const t = TEXT[kind][p.lang ?? 'ru']
+  const t = textFor(kind, p)
   let result: SendResult | 'dry_run' = 'dry_run'
   if (enabled()) result = await sendRetentionMessage(p.id, t.text, { text: t.button, query: `n=${kind}` })
   dryLog.push({ t: now, to: p.id, kind, result })

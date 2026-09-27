@@ -1,6 +1,6 @@
 import { getChat, rememberChat } from './chatStore.js'
 import { getUserCards, type StoredCard } from './cardStore.js'
-import { getTelegramSettings } from './config.js'
+import { channelId, getTelegramSettings } from './config.js'
 import { recordEvents } from './analyticsStore.js'
 import { touchSession } from './retentionStore.js'
 import { applySuccessfulPayment, checkPreCheckout, invoiceTexts, STARS_PRODUCTS, type PreCheckout, type StarsOrder, type SuccessfulPayment } from './starsStore.js'
@@ -458,7 +458,7 @@ export type ChannelCheck = { ok: true; subscribed: boolean; status: string } | {
 /** Official check: getChatMember on the configured channel. The bot must be an admin there. */
 export async function checkChannelMember(userId: number): Promise<ChannelCheck> {
   const { token } = getTelegramSettings()
-  const channel = (process.env.TELEGRAM_CHANNEL_ID ?? '').trim()
+  const channel = channelId()
   if (!token) return { ok: false, error: 'bot_not_configured' }
   if (!channel) return { ok: false, error: 'channel_not_configured' }
   try {
@@ -477,7 +477,7 @@ export async function checkChannelMember(userId: number): Promise<ChannelCheck> 
 /** Channel health for the admin: does the channel exist and is the bot an administrator there? */
 export async function channelHealth() {
   const { token } = getTelegramSettings()
-  const channel = (process.env.TELEGRAM_CHANNEL_ID ?? '').trim()
+  const channel = channelId()
   if (!token) return { configured: false, error: 'bot_not_configured' }
   if (!channel) return { configured: false, error: 'TELEGRAM_CHANNEL_ID is not set' }
   try {

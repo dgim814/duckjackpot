@@ -1,7 +1,8 @@
+import { STORAGE_KEYS } from './constants'
 import { TonConnectUIProvider } from '@tonconnect/ui-react'
 import WebApp from '@twa-dev/sdk'
 import { startSession } from './retention/api'
-import { isHeistNovice, loadProgress } from './heist/progress'
+import { goalProgress, isHeistNovice, loadProgress } from './heist/progress'
 import { bootTelegramApp } from './telegram/webapp'
 import { useEffect, type ReactNode } from 'react'
 import { HashRouter, Navigate, Route, Routes, useNavigate } from 'react-router-dom'
@@ -44,7 +45,16 @@ function TelegramBoot({ children }: { children: ReactNode }) {
     bootTelegramApp()
     captureTelegramUser()
     // Retention session (referral from the signed start_param, notification opens): fire-and-forget.
-    startSession(isHeistNovice(loadProgress()))
+    const p = loadProgress()
+    const g = goalProgress(p)
+    const lang = (() => {
+      try {
+        return localStorage.getItem(STORAGE_KEYS.lang) === 'en' ? 'en' : 'ru'
+      } catch {
+        return 'ru'
+      }
+    })()
+    startSession(isHeistNovice(p), g && !g.reached ? { name: g.item.name[lang], left: g.left } : null)
     void consumePendingGameplayReset()
   }, [])
   return children

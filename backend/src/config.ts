@@ -85,3 +85,11 @@ export function supportBotWebhookUrl() {
 export function supportBotWebhookSecret() {
   return (process.env.SUPPORT_BOT_WEBHOOK_SECRET ?? '').trim()
 }
+
+/** Official DuckJackpot channel (public, so the Bot API accepts its @username). Env overrides. */
+export function channelId() {
+  return (process.env.TELEGRAM_CHANNEL_ID ?? '').trim() || '@DuckJackpot'
+}
+export function channelUrl() {
+  return (process.env.TELEGRAM_CHANNEL_URL ?? '').trim() || 'https://t.me/DuckJackpot'
+}

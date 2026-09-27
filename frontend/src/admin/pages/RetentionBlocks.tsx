@@ -24,6 +24,7 @@ type Retention = {
   }
   notifications: {
     enabled: boolean
+    source?: 'env' | 'admin'
     sent: Record<string, number>
     opened: Record<string, number>
     actions: Record<string, number>
@@ -67,6 +68,20 @@ const T = {
     chBad: 'Бот не администратор канала — подписку проверить нельзя',
     chNone: 'TELEGRAM_CHANNEL_ID не задан',
     recent: 'Последние решения',
+    chName: (c: string) => `✓ ${c}`,
+    chAdmin: '✓ Бот — администратор',
+    chCheck: '✓ Проверка подписки доступна',
+    test: 'Тестовое уведомление',
+    testId: 'Telegram ID (пусто = ADMIN_TELEGRAM_ID)',
+    testSend: '🔔 ОТПРАВИТЬ ТЕСТ',
+    testRes: (r: string) => (r === 'sent' ? '✓ Отправлено — проверь Telegram' : r === 'blocked' ? 'Бот не может написать: открой @DuckJackpotBot и нажми Start' : `Не отправлено: ${r}`),
+    auto: 'Автоматические уведомления',
+    on: 'ВКЛ',
+    off: 'ВЫКЛ',
+    enable: 'ВКЛЮЧИТЬ',
+    disable: 'ВЫКЛЮЧИТЬ',
+    confirmOn: 'Включить автоматические уведомления для всех игроков, которые разрешили боту писать? (с антиспам-правилами)',
+    envLock: 'Управляется переменной NOTIFICATIONS_ENABLED в Railway',
   },
   en: {
     ref: '👥 REFERRALS',
@@ -98,6 +113,20 @@ const T = {
     chBad: 'The bot is not a channel admin — subscriptions cannot be checked',
     chNone: 'TELEGRAM_CHANNEL_ID is not set',
     recent: 'Recent decisions',
+    chName: (c: string) => `✓ ${c}`,
+    chAdmin: '✓ The bot is an administrator',
+    chCheck: '✓ Subscription check available',
+    test: 'Test notification',
+    testId: 'Telegram ID (empty = ADMIN_TELEGRAM_ID)',
+    testSend: '🔔 SEND TEST',
+    testRes: (r: string) => (r === 'sent' ? '✓ Sent — check Telegram' : r === 'blocked' ? 'The bot cannot write: open @DuckJackpotBot and press Start' : `Not sent: ${r}`),
+    auto: 'Automatic notifications',
+    on: 'ON',
+    off: 'OFF',
+    enable: 'ENABLE',
+    disable: 'DISABLE',
+    confirmOn: 'Enable automatic notifications for every player who allowed the bot to write? (anti-spam rules apply)',
+    envLock: 'Controlled by NOTIFICATIONS_ENABLED on Railway',
   },
 }
 
@@ -118,12 +147,32 @@ const kinds = (m: Record<string, number>) =>
 export function RetentionBlocks({ range, lang }: { range: string; lang: string }) {
   const tx = lang === 'ru' ? T.ru : T.en
   const [d, setD] = useState<Retention | null>(null)
-  useEffect(() => {
+  const [testId, setTestId] = useState('')
+  const [kind, setKind] = useState('daily')
+  const [testMsg, setTestMsg] = useState<string | null>(null)
+  const load = () =>
     api
       .get<Retention>('/admin/retention', { params: { range } })
       .then((r) => setD(r.data))
       .catch(() => setD(null))
+  useEffect(() => {
+    void load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [range])
+  const sendTest = () => {
+    setTestMsg('…')
+    api
+      .post<{ result: string }>('/admin/notifications/test', { telegramId: testId.trim() || undefined, kind, lang })
+      .then((r) => setTestMsg(tx.testRes(r.data.result)))
+      .catch((err) => setTestMsg(tx.testRes(String(err?.response?.data?.error ?? 'error'))))
+  }
+  const toggle = (on: boolean) => {
+    if (on && !window.confirm(tx.confirmOn)) return
+    api
+      .post('/admin/notifications/settings', { enabled: on })
+      .then(() => load())
+      .catch(() => undefined)
+  }
   if (!d) return null
   const r = d.referrals
   const n = d.notifications
@@ -163,7 +212,40 @@ export function RetentionBlocks({ range, lang }: { range: string; lang: string }
       </section>
       <section className="rounded-2xl border border-sky-300/30 bg-zinc-900/80 p-4">
         <h3 className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-sky-200">{tx.notif}</h3>
+        <div className="mt-2 flex items-center justify-between gap-2 rounded-xl border border-white/10 bg-black/30 px-3 py-2">
+          <span className="text-sm text-zinc-200">
+            {tx.auto}: <b className={n.enabled ? 'text-emerald-300' : 'text-orange-300'}>{n.enabled ? tx.on : tx.off}</b>
+          </span>
+          {n.source === 'env' ? (
+            <span className="text-[11px] text-zinc-400">{tx.envLock}</span>
+          ) : (
+            <button type="button" className="rounded-lg border border-sky-300/50 px-3 py-1.5 text-[12px] font-black text-sky-100" onClick={() => toggle(!n.enabled)}>
+              {n.enabled ? tx.disable : tx.enable}
+            </button>
+          )}
+        </div>
         <p className={`mt-1 text-[12px] font-bold ${n.enabled ? 'text-emerald-300' : 'text-orange-300'}`}>{tx.mode(n.enabled)}</p>
+        <div className="mt-3 rounded-xl border border-white/10 bg-black/30 p-3">
+          <p className="text-[11px] font-extrabold uppercase tracking-[0.12em] text-zinc-300">{tx.test}</p>
+          <input
+            value={testId}
+            onChange={(e) => setTestId(e.target.value.replace(/[^0-9]/g, ''))}
+            placeholder={tx.testId}
+            inputMode="numeric"
+            className="mt-2 w-full rounded-lg border border-white/15 bg-zinc-950 px-3 py-2 text-sm text-zinc-100"
+          />
+          <select value={kind} onChange={(e) => setKind(e.target.value)} className="mt-2 w-full rounded-lg border border-white/15 bg-zinc-950 px-3 py-2 text-sm text-zinc-100">
+            {['daily', 'referral_inviter', 'referral_invitee', 'raid_return', 'overtaken', 'leader', 'invite'].map((k) => (
+              <option key={k} value={k}>
+                {k}
+              </option>
+            ))}
+          </select>
+          <button type="button" onClick={sendTest} className="mt-2 min-h-10 w-full rounded-lg bg-sky-300 text-[13px] font-black text-zinc-950">
+            {tx.testSend}
+          </button>
+          {testMsg ? <p className="mt-2 text-[12px] font-bold text-zinc-200">{testMsg}</p> : null}
+        </div>
         <p className="mt-2 text-sm text-zinc-200">
           {tx.sent}: {kinds(n.sent)}
         </p>
@@ -197,9 +279,17 @@ export function RetentionBlocks({ range, lang }: { range: string; lang: string }
       </section>
       <section className="rounded-2xl border border-white/10 bg-zinc-900/80 p-4">
         <h3 className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-zinc-200">{tx.channel}</h3>
-        <p className={`mt-1 text-sm font-bold ${d.channel.botIsAdmin ? 'text-emerald-300' : 'text-orange-300'}`}>
-          {!d.channel.configured ? tx.chNone : d.channel.botIsAdmin ? tx.chOk(d.channel.channel ?? '') : `${tx.chBad}${d.channel.error ? ` (${d.channel.error})` : ''}`}
-        </p>
+        {d.channel.botIsAdmin ? (
+          <div className="mt-1 space-y-0.5 text-sm font-bold text-emerald-300">
+            <p>{tx.chName(d.channel.channel ?? '')}</p>
+            <p>{tx.chAdmin}</p>
+            <p>{tx.chCheck}</p>
+          </div>
+        ) : (
+          <p className="mt-1 text-sm font-bold text-orange-300">
+            {!d.channel.configured ? tx.chNone : `${tx.chBad}${d.channel.error ? ` (${d.channel.error})` : ''}`}
+          </p>
+        )}
       </section>
     </>
   )

@@ -3,7 +3,7 @@ import dotenv from 'dotenv'
 import express from 'express'
 import { botIdentity, createStarsInvoiceLink, starsBotState, notifyPaymentClaimed, notifyPaymentConfirmed, notifyPaymentRejected, notifyTelegramUser, startBot } from './bot.js'
 import { archiveRaffleCards, findCardById, getUserCards, listAllCards, mergeUserCards, setCardStatusById, setUserCardStatus, upsertUserCard, type StoredCard } from './cardStore.js'
-import { adminPassword, DATA_DIR, getTelegramSettings, maskToken, saveTelegramSettings } from './config.js'
+import { adminPassword, channelId, channelUrl, DATA_DIR, getTelegramSettings, maskToken, saveTelegramSettings } from './config.js'
 import { deleteNftFile, getNftFile, isNftRaffleId, listNftMeta, saveNftFile } from './nftStore.js'
 import { handleSupportUpdate, isSupportWebhookAuthorized, startSupportBot, type SupportTelegramUpdate } from './supportBot.js'
 import { getPayWallets, isTonPayAddress, isTronPayAddress, loadWalletsFromDisk, savePayWallets, walletsFilePath } from './walletsStore.js'
@@ -47,7 +47,7 @@ import {
   type Invite,
   type RaidReport,
 } from './retentionStore.js'
-import { notifyLog, notifyReferralCompleted, notifyTick, startNotifier, type NotifKind } from './notifyService.js'
+import { notifyLog, notifyReferralCompleted, notifyTick, setNotificationsEnabled, startNotifier, textFor, type NotifKind } from './notifyService.js'
 import { botUsername, channelHealth, checkChannelMember, prepareInviteMessage, sendRetentionMessage } from './bot.js'
 
 dotenv.config()
@@ -539,7 +539,7 @@ const ev = (id: number, name: string, props?: Record<string, string | number | b
 }
 const NOTIF_KINDS: NotifKind[] = ['daily', 'overtaken', 'leader', 'raid_return', 'invite', 'referral_inviter', 'referral_invitee']
 const STATUS_ORDER = ['opened', 'verified', 'played', 'exited', 'rewarded'] as const
-const channelInfo = () => ({ configured: Boolean((process.env.TELEGRAM_CHANNEL_ID ?? '').trim()), url: (process.env.TELEGRAM_CHANNEL_URL ?? '').trim() || null })
+const channelInfo = () => ({ configured: Boolean(channelId()), url: channelUrl() })
 const rewardsInfo = () => ({ inviterCoins: INVITER_COINS, inviteeCoins: INVITEE_COINS, stars: { available: false, inviter: 0, invitee: 0 } })
 const inviteView = (i: Invite | null) =>
   i ? { status: inviteStatus(i), channelVerified: Boolean(i.channelVerifiedAt), firstRaid: Boolean(i.firstRaidAt), firstExit: Boolean(i.firstExitAt), completed: Boolean(i.completedAt) } : null
@@ -551,6 +551,15 @@ async function afterCompletion(completed: { invitee: { telegramId: number; coins
   void notifyReferralCompleted(completed.invitee.telegramId, completed.inviter.telegramId)
 }
 
+/** The device's Black Market goal (display only: it words a reminder, never a reward). */
+function readGoal(raw: unknown): { name: string; left: number } | null | undefined {
+  if (raw === null) return null
+  if (!raw || typeof raw !== 'object') return undefined
+  const g = raw as { name?: unknown; left?: unknown }
+  if (typeof g.name !== 'string' || !g.name.trim() || typeof g.left !== 'number' || !Number.isFinite(g.left)) return undefined
+  return { name: g.name.trim(), left: g.left }
+}
+
 /** App opened: register the player, apply a referral from the signed start_param once. */
 app.post('/api/me/session', async (req, res) => {
   const u = tgUser(req)
@@ -560,7 +569,7 @@ app.post('/api/me/session', async (req, res) => {
   }
   const m = /^ref_([A-Za-z0-9]{6,16})$/.exec(u.startParam ?? '')
   try {
-    const r = await touchSession({ id: u.id, name: u.firstName, username: u.username, allowsWriteToPm: u.allowsWriteToPm, lang: u.languageCode, refCode: m?.[1], via: 'startapp', novice: typeof req.body?.novice === 'boolean' ? req.body.novice : undefined })
+    const r = await touchSession({ id: u.id, name: u.firstName, username: u.username, allowsWriteToPm: u.allowsWriteToPm, lang: u.languageCode, refCode: m?.[1], via: 'startapp', novice: typeof req.body?.novice === 'boolean' ? req.body.novice : undefined, goal: readGoal(req.body?.goal) })
     if (m) {
       if (r.freshInvite) {
         ev(u.id, 'referral_opened')
@@ -759,14 +768,37 @@ app.get('/api/admin/retention', async (req, res) => {
 /** Admin: send one notification to a given Telegram id now (to test on your own account). */
 app.post('/api/admin/notifications/test', async (req, res) => {
   if (!requireAdmin(req, res)) return
-  const id = Number(req.body?.telegramId)
+  // Empty id → the admin's own Telegram (ADMIN_TELEGRAM_ID). A test is sent even while reminders are off.
+  const id = Number(req.body?.telegramId || process.env.ADMIN_TELEGRAM_ID)
   const kind = String(req.body?.kind ?? 'daily') as NotifKind
   if (!Number.isInteger(id) || id <= 0 || !NOTIF_KINDS.includes(kind)) {
-    res.status(400).json({ error: 'bad_request' })
+    res.status(400).json({ error: req.body?.telegramId ? 'bad_request' : 'no_admin_telegram_id' })
     return
   }
-  const text = kind === 'daily' ? '🔔 DUCKJACKPOT\n\n🎁 Не забудь забрать награду!\n\nСегодня тебя ждёт:\n🪙 +150 DUCK COIN' : `🔔 DUCKJACKPOT (test: ${kind})`
-  res.json({ result: await sendRetentionMessage(id, text, { text: '🦆 DUCKJACKPOT', query: `n=${kind}` }) })
+  const t = textFor(kind, { lang: req.body?.lang === 'en' ? 'en' : 'ru' })
+  const result = await sendRetentionMessage(id, t.text, { text: t.button, query: `n=${kind}` })
+  console.log('[notify] admin test', { kind, result })
+  res.json({ result, to: id === Number(process.env.ADMIN_TELEGRAM_ID) ? 'admin' : 'custom' })
+})
+
+app.get('/api/admin/notifications/settings', (req, res) => {
+  if (!requireAdmin(req, res)) return
+  res.json(notifyLog())
+})
+
+/** Admin switch for automatic notifications (NOTIFICATIONS_ENABLED=1/0 in the environment wins). */
+app.post('/api/admin/notifications/settings', (req, res) => {
+  if (!requireAdmin(req, res)) return
+  const on = setNotificationsEnabled(req.body?.enabled === true)
+  res.json({ ...notifyLog(), enabled: on })
+})
+
+/** Public, no secrets: is the channel check usable right now (the bot is an admin there)? */
+let channelCache: { at: number; v: Awaited<ReturnType<typeof channelHealth>> } | null = null
+app.get('/api/referral/channel-status', async (_req, res) => {
+  if (!channelCache || Date.now() - channelCache.at > 60_000) channelCache = { at: Date.now(), v: await channelHealth() }
+  const h = channelCache.v as { configured: boolean; channel?: string; botStatus?: string; botIsAdmin?: boolean; error?: string }
+  res.json({ channel: channelId(), url: channelUrl(), botStatus: h.botStatus ?? null, botIsAdmin: Boolean(h.botIsAdmin), subscriptionCheck: Boolean(h.botIsAdmin) ? 'available' : 'unavailable', error: h.botIsAdmin ? undefined : h.error })
 })
 
 /** Admin / tests: run one notification pass now. */

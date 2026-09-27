@@ -58,9 +58,9 @@ export function launchNotification() {
   }
 }
 
-export function startSession(novice: boolean) {
+export function startSession(novice: boolean, goal: { name: string; left: number } | null = null) {
   if (session || !inTelegram()) return session
-  session = post<Session>('/me/session', { novice, n: launchNotification() })
+  session = post<Session>('/me/session', { novice, n: launchNotification(), goal })
     .then((s) => {
       last = s
       for (const l of listeners) l(s)
