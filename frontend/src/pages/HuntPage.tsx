@@ -139,7 +139,7 @@ export function HuntPage() {
 
   if (screen === 'hunt') {
     return (
-      <section className="relative h-[calc(100dvh-4.75rem-env(safe-area-inset-bottom))] overflow-hidden bg-[#5ec8ff]">
+      <section className="relative h-[calc(100dvh-4.75rem-var(--safe-bottom))] overflow-hidden bg-[#5ec8ff]">
         <HuntGame
           key={attemptRef.current?.id ?? 'hunt'}
           running
@@ -165,7 +165,7 @@ export function HuntPage() {
 
   if (screen === 'result') {
     return (
-      <section className="relative flex h-[calc(100dvh-4.75rem-env(safe-area-inset-bottom))] items-center justify-center overflow-hidden bg-[#0b1c28] px-5">
+      <section className="relative flex h-[calc(100dvh-4.75rem-var(--safe-bottom))] items-center justify-center overflow-hidden bg-[#0b1c28] px-5">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_20%,rgba(255,193,7,0.28),transparent_55%)]" />
         <div className="relative w-full max-w-sm rounded-3xl border border-amber-400/50 bg-[#101820]/90 p-6 text-center shadow-[0_0_80px_rgba(255,193,7,0.25)]">
           <p className="font-display text-4xl font-black text-amber-300">{verdict === 'perfect' ? t('huntPerfect') : t('huntSoClose')}</p>
@@ -185,7 +185,7 @@ export function HuntPage() {
   }
 
   return (
-    <section className="relative h-[calc(100dvh-4.75rem-env(safe-area-inset-bottom))] overflow-hidden bg-[#120c10]">
+    <section className="relative h-[calc(100dvh-4.75rem-var(--safe-bottom))] overflow-hidden bg-[#120c10]">
       <button
         type="button"
         onClick={() => {
@@ -193,7 +193,7 @@ export function HuntPage() {
           setHuntSoundEnabled(next)
           setSoundOn(next)
         }}
-        className="absolute right-3 top-[max(8px,env(safe-area-inset-top))] z-20 inline-flex items-center gap-1 rounded-full border border-amber-400/30 bg-black/45 px-3 py-1.5 text-[11px] font-bold text-amber-200"
+        className="absolute right-3 top-[calc(var(--safe-top)+8px)] z-20 inline-flex items-center gap-1 rounded-full border border-amber-400/30 bg-black/45 px-3 py-1.5 text-[11px] font-bold text-amber-200"
       >
         {soundOn ? <Volume2 size={14} /> : <VolumeX size={14} />}
       </button>

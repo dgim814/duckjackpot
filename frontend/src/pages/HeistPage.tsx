@@ -33,6 +33,7 @@ import { GoalCard } from '../heist/economy/GoalCard'
 import { goalProgress } from '../heist/progress'
 import { fetchStarsCatalog, syncStarsPurchases, type StarsCatalog } from '../heist/economy/stars'
 import { StarsBuyButton } from '../heist/economy/StarsBuyButton'
+import { labCueActive, noteLabOpened, noteSuccessfulExit, takeResultCta, trackCtaClick, useCtaView } from '../heist/economy/starsDiscovery'
 import { heistSfx, unlockHeistSfx } from '../heist/heistSfx'
 import { BANK_ZONE_COUNT, bankCollectedPotential, bankTotalPotential } from '../heist/phaser/bankLayout'
 import { HEIST_LEVEL_NAME, HEIST_LEVEL_ORDER, continueLevel, heistLevelBrief, heistLevelCards, isGrandLevel, nextHeistLevel, type HeistLevelId } from '../heist/heistLevel'
@@ -83,7 +84,7 @@ const FEATURE_KEY: Partial<Record<HeistLevelId, MessageKey>> = {
 }
 
 /** 💰 DUCK COIN and ⭐ Stars side by side, never mixed. */
-function Wallet({ coins, stars }: { coins: number; stars: number }) {
+function Wallet({ coins }: { coins: number }) {
   const { t } = useI18n()
   return (
     <div className="mt-3 grid grid-cols-2 gap-2">
@@ -92,11 +93,60 @@ function Wallet({ coins, stars }: { coins: number; stars: number }) {
         <p className="font-display text-lg font-black text-amber-100">{coins.toLocaleString()}</p>
         <p className="text-[9px] leading-tight text-amber-100/55">{t('coinRole')}</p>
       </div>
-      <div className="rounded-xl border border-sky-300/30 bg-black/30 px-3 py-2 text-center">
-        <p className="text-[9px] font-extrabold tracking-[0.16em] text-sky-200/80">⭐ {t('heistWalletStars')}</p>
-        <p className="font-display text-lg font-black text-sky-100">{stars.toLocaleString()}</p>
-        <p className="text-[9px] leading-tight text-sky-100/55">{t('starsRole')}</p>
+      {/* Telegram Stars live in Telegram, not in the game: no in-game "Stars 0" balance. */}
+      <div className="flex flex-col justify-center rounded-xl border border-sky-300/30 bg-black/30 px-3 py-2 text-center">
+        <p className="text-[9px] font-extrabold tracking-[0.16em] text-sky-200/80">{t('labStarsChip')}</p>
+        <p className="mt-1 text-[11px] font-bold leading-tight text-sky-100">{t('labStarsChipSub')}</p>
       </div>
+    </div>
+  )
+}
+
+/** ⭐ DUCK LAB on the hub: always there, small; a one-time glow after the first successful EXIT. */
+function DuckLabEntry({ cue, onOpen }: { cue: boolean; onOpen: () => void }) {
+  const { t } = useI18n()
+  const ref = useCtaView('hub')
+  return (
+    <div ref={ref} className={`duck-lab-entry mt-3 rounded-2xl border px-3 py-3 text-left ${cue ? 'is-cue border-sky-300/70 bg-sky-400/10' : 'border-sky-300/35 bg-sky-400/[0.06]'}`}>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[11px] font-extrabold tracking-[0.16em] text-sky-200">⭐ DUCK LAB</p>
+        {cue ? <span className="rounded-full bg-sky-300 px-2 py-0.5 text-[9px] font-black tracking-[0.08em] text-zinc-950">{t('labNew')}</span> : null}
+      </div>
+      <p className="font-display mt-1 text-base font-black text-white">{t('labTitle')}</p>
+      <p className="mt-0.5 text-[11px] font-semibold text-sky-100/80">{t('labTracks')}</p>
+      <p className="mt-0.5 text-[11px] text-sky-100/60">{t('labFast')}</p>
+      <button
+        type="button"
+        className="mt-2 min-h-11 w-full rounded-xl border border-sky-300/50 bg-sky-300/15 px-3 py-2 text-[13px] font-black text-sky-50"
+        onClick={() => {
+          trackCtaClick('hub')
+          onOpen()
+        }}
+      >
+        {t('labOpen')}
+      </button>
+    </div>
+  )
+}
+
+/** ⭐ On a successful EXIT, before the player has ever opened DUCK LAB (capped, never a modal). */
+function StarsResultCta({ onOpen }: { onOpen: () => void }) {
+  const { t } = useI18n()
+  const ref = useCtaView('result')
+  return (
+    <div ref={ref} className="mb-3 rounded-2xl border border-sky-300/40 bg-sky-400/[0.07] px-3 py-3 text-left">
+      <p className="text-[12px] font-black tracking-[0.06em] text-sky-100">{t('labCtaTitle')}</p>
+      <p className="mt-1 text-[12px] leading-snug text-sky-100/75">{t('labCtaText')}</p>
+      <button
+        type="button"
+        className="mt-2 min-h-11 w-full rounded-xl border border-sky-300/50 bg-sky-300/15 px-3 py-2 text-[13px] font-black text-sky-50"
+        onClick={() => {
+          trackCtaClick('result')
+          onOpen()
+        }}
+      >
+        {t('labCtaOpen')}
+      </button>
     </div>
   )
 }
@@ -220,15 +270,18 @@ function RaidNext({
   gained,
   onMarket,
   onUpgrades,
+  starsCta = false,
 }: {
   progress: ReturnType<typeof loadProgress>
   gained: number
+  starsCta?: boolean
   onMarket: () => void
   onUpgrades: () => void
 }) {
   const { t } = useI18n()
   return (
     <div className="raid-next">
+      {starsCta ? <StarsResultCta onOpen={onUpgrades} /> : null}
       <ThiefStatus progress={progress} compact />
       <GoalCard progress={progress} gained={gained} onMarket={onMarket} actions={false} />
       <div className="mt-3 grid grid-cols-2 gap-2">
@@ -286,8 +339,14 @@ export function HeistPage() {
   const [raidMods, setRaidMods] = useState<HeistRunMods>(() => runMods(loadProgress()))
   const [resumeRun, setResumeRun] = useState(false)
   const [showOnb, setShowOnb] = useState(false)
+  const [labCue, setLabCue] = useState(() => labCueActive(loadProgress().bankEscapes ?? 0))
+  const [resultCta, setResultCta] = useState(false)
   useEffect(() => {
-    if (screen === 'shop') trackScreen('stars_open')
+    if (screen !== 'shop') return
+    trackScreen('stars_open')
+    // Opening DUCK LAB once ends the discovery cues for good.
+    noteLabOpened()
+    setLabCue(false)
   }, [screen])
   /** ⭐ Telegram Stars: server catalog, and gear the server says was already paid for. */
   const [starsCatalog, setStarsCatalog] = useState<StarsCatalog | null>(null)
@@ -338,7 +397,11 @@ export function HeistPage() {
       navigate('/')
       return
     }
+    setResultCta(false)
     if (next.verdict === 'escaped') {
+      noteSuccessfulExit()
+      setResultCta(!next.preview && takeResultCta())
+      setLabCue(labCueActive(1))
       const gained = next.coins + next.bonus + next.objBonus
       let updated = bankCoins(progress, gained, next.objectives)
       if (levelId === 'bank') updated = noteBankEscape(updated)
@@ -381,7 +444,7 @@ export function HeistPage() {
   let pinned: { hint?: string } | null = null
   const raidNext = (gained: number, hint?: string) => {
     pinned = { hint }
-    return <RaidNext progress={progress} gained={gained} onMarket={openMarket} onUpgrades={openUpgrades} />
+    return <RaidNext progress={progress} gained={gained} onMarket={openMarket} onUpgrades={openUpgrades} starsCta={resultCta} />
   }
 
   const buyLab = (stat: LabStat, currency: Currency) => {
@@ -430,7 +493,7 @@ export function HeistPage() {
   if (screen === 'play') {
     return (
       <section
-        className="relative h-[calc(100dvh-4.75rem-env(safe-area-inset-bottom))] overflow-hidden overscroll-none bg-[#120c10]"
+        className="relative h-[calc(100dvh-4.75rem-var(--safe-bottom))] overflow-hidden overscroll-none bg-[#120c10]"
         style={{ touchAction: 'none', overscrollBehavior: 'none' }}
       >
         <HeistGame
@@ -501,12 +564,11 @@ export function HeistPage() {
       { id: 'previewPass', name: 'heistItemPreviewPass' },
     ]
     return (
-      <section className="relative h-[calc(100dvh-4.75rem-env(safe-area-inset-bottom))] overflow-y-auto bg-[#120c10] px-5 py-6">
+      <section className="relative h-[calc(100dvh-4.75rem-var(--safe-bottom))] overflow-y-auto bg-[#120c10] px-5 pb-6 pt-[calc(var(--safe-top)+24px)]">
         <div className="mx-auto w-full max-w-sm">
           <p className="text-center text-[11px] font-extrabold tracking-[0.2em] text-amber-200">{t('heistLab')}</p>
           <p className="mt-1 text-center text-[10px] font-extrabold tracking-[0.18em] text-amber-100/70">{t('heistUpgrades')}</p>
-          <Wallet coins={progress.bankedDuckCoin} stars={progress.stars || 0} />
-          <p className="mt-2 text-center text-[11px] text-zinc-500">{t('heistStarsHint')}</p>
+          <Wallet coins={progress.bankedDuckCoin} />
           <p className="mt-2 text-center text-[11px] font-semibold text-amber-100/70">{t('starsFreeHint')}</p>
           {shopMsg ? <p className="mt-3 text-center text-sm font-bold text-orange-300">{shopMsg}</p> : null}
           <div className="mt-5 space-y-3">
@@ -837,7 +899,7 @@ export function HeistPage() {
     )
     const bar = pinned as { hint?: string } | null
     return (
-      <section className="relative flex h-[calc(100dvh-4.75rem-env(safe-area-inset-bottom))] flex-col items-center justify-center overflow-hidden bg-[#120c10] px-4 pb-3 pt-[calc(max(env(safe-area-inset-top),var(--tg-content-safe-area-inset-top,0px))+12px)]">
+      <section className="relative flex h-[calc(100dvh-4.75rem-var(--safe-bottom))] flex-col items-center justify-center overflow-hidden bg-[#120c10] px-4 pb-3 pt-[calc(var(--safe-top)+12px)]">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_20%,rgba(255,193,7,0.22),transparent_55%)]" />
         {/* The result scrolls inside the card; ▶ continue stays pinned at its bottom, never under the nav. */}
         <div className="relative flex max-h-full min-h-0 w-full max-w-sm flex-col overflow-hidden rounded-3xl border border-amber-400/40 bg-[#101014]/92 text-center shadow-[0_0_60px_rgba(255,176,40,0.12)]">
@@ -849,9 +911,9 @@ export function HeistPage() {
   }
 
   return (
-    <section className="relative h-[calc(100dvh-4.75rem-env(safe-area-inset-bottom))] overflow-y-auto bg-[#120c10]">
+    <section className="relative h-[calc(100dvh-4.75rem-var(--safe-bottom))] overflow-y-auto bg-[#120c10]">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(255,107,0,0.18),transparent_50%)]" />
-      <div className="relative mx-auto flex min-h-full w-full max-w-sm flex-col items-center px-5 pb-6 pt-4">
+      <div className="relative mx-auto flex min-h-full w-full max-w-sm flex-col items-center px-5 pb-6 pt-[calc(var(--safe-top)+16px)]">
         <HeistDuck className="hero-duck mb-1 block" size={120} fit="height" />
         <div className="w-full rounded-3xl border border-amber-400/35 bg-[#120c10]/88 p-4 backdrop-blur-md">
           <div className="mb-3 flex justify-center">
@@ -859,7 +921,14 @@ export function HeistPage() {
           </div>
           <p className="text-center text-[11px] font-extrabold uppercase tracking-[0.2em] text-amber-200">{t('heistKicker')}</p>
           <h1 className="font-display mt-1 text-center text-3xl font-black text-amber-50">{t('heistTitle')}</h1>
-          <Wallet coins={progress.bankedDuckCoin} stars={progress.stars || 0} />
+          <Wallet coins={progress.bankedDuckCoin} />
+          <DuckLabEntry
+            cue={labCue}
+            onOpen={() => {
+              setShopMsg(null)
+              setScreen('shop')
+            }}
+          />
           <ThiefStatus progress={progress} />
           <GoalCard progress={progress} onMarket={openMarket} collection />
           <div className="mt-1 flex justify-between text-sm text-zinc-300">

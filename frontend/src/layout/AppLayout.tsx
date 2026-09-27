@@ -7,7 +7,7 @@ export function AppLayout() {
 
   return (
     <div className="mx-auto min-h-dvh max-w-lg">
-      <div className={hunt ? '' : 'pb-[calc(4.75rem+env(safe-area-inset-bottom))]'}>
+      <div className={hunt ? '' : 'pb-[calc(4.75rem+var(--safe-bottom))]'}>
         <Outlet />
       </div>
       <BottomNav />

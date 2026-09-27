@@ -111,7 +111,7 @@ export function AdminLayout() {
   const location = useLocation()
 
   return (
-    <div className="mx-auto min-h-dvh max-w-3xl px-4 pb-10 pt-[max(12px,env(safe-area-inset-top))]">
+    <div className="mx-auto min-h-dvh max-w-3xl px-4 pb-10 pt-[calc(var(--safe-top)+12px)]">
       <header className="mb-5 flex items-center justify-between gap-3">
         <div>
           <p className="text-[10px] font-extrabold tracking-[0.2em] text-zinc-500">DUCKJACKPOT</p>

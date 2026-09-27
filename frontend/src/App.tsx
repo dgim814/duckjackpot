@@ -1,5 +1,6 @@
 import { TonConnectUIProvider } from '@tonconnect/ui-react'
 import WebApp from '@twa-dev/sdk'
+import { bootTelegramApp } from './telegram/webapp'
 import { useEffect, type ReactNode } from 'react'
 import { HashRouter, Navigate, Route, Routes, useNavigate } from 'react-router-dom'
 import { AdminProvider } from './admin/AdminProvider'
@@ -38,10 +39,7 @@ const manifestUrl = `${window.location.origin}/tonconnect-manifest.json`
 
 function TelegramBoot({ children }: { children: ReactNode }) {
   useEffect(() => {
-    WebApp.ready()
-    WebApp.expand()
-    WebApp.setHeaderColor('#09080c')
-    WebApp.setBackgroundColor('#09080c')
+    bootTelegramApp()
     captureTelegramUser()
     void consumePendingGameplayReset()
   }, [])

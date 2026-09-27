@@ -5,6 +5,10 @@ import { useI18n } from '../../i18n/LanguageProvider'
 type Range = 'today' | '7d' | '30d' | 'all'
 
 type StarsBlock = {
+  ctaShown: number
+  ctaClicked: number
+  ctaClickPct: number
+  ctaToOpen: number
   opens: number
   openUsers: number
   invoices: number
@@ -122,6 +126,10 @@ const L = {
     raidsN: 'рейдов',
     stars: {
       title: '⭐ TELEGRAM STARS',
+      ctaShown: 'Stars CTA показан (игроков)',
+      ctaClicked: 'Stars CTA нажат (игроков)',
+      ctaClickPct: 'CTA → нажатие',
+      ctaToOpen: 'CTA → Stars open',
       opens: 'Открытий экрана Stars',
       invoices: 'Счетов создано',
       payments: 'Успешных оплат',
@@ -195,6 +203,10 @@ const L = {
     raidsN: 'raids',
     stars: {
       title: '⭐ TELEGRAM STARS',
+      ctaShown: 'Stars CTA shown (players)',
+      ctaClicked: 'Stars CTA clicked (players)',
+      ctaClickPct: 'CTA → click',
+      ctaToOpen: 'CTA → Stars open',
       opens: 'Stars screen opens',
       invoices: 'Invoices created',
       payments: 'Successful payments',
@@ -362,6 +374,8 @@ export function AnalyticsPage() {
               </p>
             ) : null}
             <div className="mt-3 grid grid-cols-2 gap-2">
+              <Stat label={tx.stars.ctaShown} value={data.stars.ctaShown} />
+              <Stat label={tx.stars.ctaClicked} value={data.stars.ctaClicked} />
               <Stat label={tx.stars.opens} value={data.stars.opens} />
               <Stat label={tx.stars.invoices} value={data.stars.invoices} />
               <Stat label={tx.stars.payments} value={data.stars.payments} />
@@ -370,7 +384,7 @@ export function AnalyticsPage() {
               <Stat label={tx.stars.avg} value={data.stars.avgStars} />
             </div>
             <ul className="mt-3 space-y-1.5">
-              {(['openToInvoice', 'invoiceToPayment', 'openToPayment'] as const).map((k) => (
+              {(['ctaClickPct', 'ctaToOpen', 'openToInvoice', 'invoiceToPayment', 'openToPayment'] as const).map((k) => (
                 <li key={k} className="flex items-baseline justify-between gap-2 text-sm">
                   <span className="text-zinc-300">{tx.stars[k]}</span>
                   <span className="font-display font-black text-emerald-300">{data.stars[k]}%</span>

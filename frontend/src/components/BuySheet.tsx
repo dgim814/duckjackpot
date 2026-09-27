@@ -290,7 +290,7 @@ export function BuySheet({ open, onClose }: BuySheetProps) {
         onClick={onClose}
       />
       <div
-        className="relative z-10 flex max-h-[90dvh] w-full max-w-lg flex-col overflow-y-auto rounded-t-3xl border border-amber-400/25 bg-[#141218] pb-[max(16px,env(safe-area-inset-bottom))] shadow-2xl"
+        className="relative z-10 flex max-h-[90dvh] w-full max-w-lg flex-col overflow-y-auto rounded-t-3xl border border-amber-400/25 bg-[#141218] pb-[max(16px,var(--safe-bottom))] shadow-2xl"
         onClick={(event) => event.stopPropagation()}
         onTouchStart={onSheetTouchStart}
         onTouchEnd={onSheetTouchEnd}

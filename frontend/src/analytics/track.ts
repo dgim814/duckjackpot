@@ -30,6 +30,8 @@ export type AnalyticsEvent =
   | 'stars_payment_success'
   | 'stars_invoice_cancelled'
   | 'stars_purchase_error'
+  | 'stars_cta_view'
+  | 'stars_cta_click'
 
 export type AnalyticsProps = Partial<{
   level: string
@@ -51,6 +53,7 @@ export type AnalyticsProps = Partial<{
   orderId: string
   starsAmount: number
   error: string
+  placement: string
 }>
 
 const ANON_KEY = 'duckjackpot.analytics.device'

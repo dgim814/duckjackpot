@@ -16,7 +16,7 @@ export function ScreenHeader({
   kickerClassName?: string
 }) {
   return (
-    <header className="flex items-start justify-between gap-3 pt-[max(12px,env(safe-area-inset-top))]">
+    <header className="flex items-start justify-between gap-3 pt-[calc(var(--safe-top)+12px)]">
       <div className="min-w-0 pr-2">
         {kicker ? (
           <p className={kickerClassName ?? 'text-xs font-semibold uppercase tracking-[0.22em] text-orange-400/80'}>

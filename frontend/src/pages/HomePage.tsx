@@ -101,7 +101,7 @@ export function HomePage() {
         type="button"
         onClick={() => setBuyOpen(true)}
         disabled={!isRunning}
-        className="buy-btn sticky bottom-[calc(4.85rem+env(safe-area-inset-bottom))] z-20 mt-3 w-full rounded-2xl px-4 py-3.5 text-zinc-950 shadow-[0_8px_24px_rgba(0,0,0,0.45)] disabled:opacity-50"
+        className="buy-btn sticky bottom-[calc(4.85rem+var(--safe-bottom))] z-20 mt-3 w-full rounded-2xl px-4 py-3.5 text-zinc-950 shadow-[0_8px_24px_rgba(0,0,0,0.45)] disabled:opacity-50"
       >
         <span className="block font-display text-lg font-extrabold leading-tight">
           {buyLabel}

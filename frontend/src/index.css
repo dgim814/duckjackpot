@@ -1,6 +1,17 @@
 @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Unbounded:wght@500;600;700;800&display=swap');
 @import "tailwindcss";
 
+/*
+ * Safe insets, one definition for the whole app. Device inset (notch / Dynamic Island / home
+ * indicator: Telegram's --tg-safe-area-*, or the browser's env()) PLUS Telegram's content inset
+ * (its floating controls in fullscreen, --tg-content-safe-area-*). Both are 0 in a normal window.
+ */
+:root {
+  --safe-top: calc(max(var(--tg-safe-area-inset-top, 0px), env(safe-area-inset-top, 0px)) + var(--tg-content-safe-area-inset-top, 0px));
+  --safe-bottom: calc(max(var(--tg-safe-area-inset-bottom, 0px), env(safe-area-inset-bottom, 0px)) + var(--tg-content-safe-area-inset-bottom, 0px));
+}
+
+
 @theme {
   --font-display: "Unbounded", ui-sans-serif, system-ui, sans-serif;
   --font-sans: "Manrope", ui-sans-serif, system-ui, sans-serif;
@@ -249,8 +260,6 @@ body {
   background:
     radial-gradient(900px 280px at 50% -12%, rgba(212, 175, 88, 0.1), transparent 58%),
     linear-gradient(180deg, #0b0907 0%, #070605 42%, #050403 100%);
-  margin-left: -1rem;
-  margin-right: -1rem;
   padding-left: 1rem;
   padding-right: 1rem;
   min-height: 100%;
@@ -487,7 +496,7 @@ body {
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
-  padding: calc(max(env(safe-area-inset-top), var(--tg-content-safe-area-inset-top, 0px)) + 64px) 16px calc(env(safe-area-inset-bottom) + 28px);
+  padding: calc(var(--safe-top) + 64px) 16px calc(var(--safe-bottom) + 28px);
 }
 .bm-sheet {
   max-width: 420px;
@@ -498,7 +507,7 @@ body {
 }
 .bm-sheet-x {
   position: absolute;
-  top: calc(max(env(safe-area-inset-top), var(--tg-content-safe-area-inset-top, 0px)) + 10px);
+  top: calc(var(--safe-top) + 10px);
   right: 14px;
   width: 46px;
   height: 46px;
@@ -609,4 +618,17 @@ body {
 }
 .bm-vip-frame.lot-art-photo img {
   border-radius: 11px;
+}
+
+/* ⭐ DUCK LAB discovery cue: one soft glow after the first successful EXIT, gone once the lab is opened. */
+.duck-lab-entry.is-cue {
+  box-shadow: 0 0 0 1px rgba(125, 211, 252, 0.35), 0 0 22px rgba(56, 189, 248, 0.3);
+  animation: duck-lab-cue 2.6s ease-in-out infinite;
+}
+@keyframes duck-lab-cue {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(125, 211, 252, 0.3), 0 0 14px rgba(56, 189, 248, 0.2); }
+  50% { box-shadow: 0 0 0 1px rgba(125, 211, 252, 0.55), 0 0 26px rgba(56, 189, 248, 0.4); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .duck-lab-entry.is-cue { animation: none; }
 }

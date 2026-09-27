@@ -33,6 +33,8 @@ export const ANALYTICS_EVENTS = [
   'stars_payment_success',
   'stars_invoice_cancelled',
   'stars_purchase_error',
+  'stars_cta_view',
+  'stars_cta_click',
 ] as const
 export type AnalyticsEventName = (typeof ANALYTICS_EVENTS)[number]
 
@@ -59,6 +61,7 @@ const PROPS: Record<string, 'str' | 'num' | 'bool'> = {
   telegramPaymentChargeId: 'str',
   purchaseStatus: 'str',
   error: 'str',
+  placement: 'str',
 }
 
 export type StoredEvent = {
@@ -254,7 +257,13 @@ export function analyticsSummary(range: AnalyticsRange, now = Date.now(), orders
     row.stars += o.starsAmount
     perProduct.set(o.productId, row)
   }
+  const ctaViewUsers = usersWith('stars_cta_view')
+  const ctaClickUsers = usersWith('stars_cta_click')
   const stars = {
+    ctaShown: ctaViewUsers.size,
+    ctaClicked: ctaClickUsers.size,
+    ctaClickPct: pct(both(ctaViewUsers, ctaClickUsers), ctaViewUsers.size),
+    ctaToOpen: pct(both(ctaViewUsers, starsOpenUsers), ctaViewUsers.size),
     opens: inRange.filter((e) => e.e === 'stars_open').length,
     openUsers: starsOpenUsers.size,
     invoices: inRange.filter((e) => e.e === 'stars_invoice_created').length,
