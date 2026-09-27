@@ -163,6 +163,53 @@ function NextLevelBox({ id, onPlay }: { id: HeistLevelId; onPlay?: () => void })
 }
 
 /**
+ * BANK after a successful EXIT: what the zones mean. Zones already reached have given
+ * their loot; the next loot is deeper; the job is all 20. Reads the saved depth only.
+ */
+function BankProgress({ depth, banked }: { depth: number; banked: number }) {
+  const { t } = useI18n()
+  const n = Math.min(BANK_ZONE_COUNT, Math.max(1, depth + 1))
+  const next = n + 1
+  const nextLine =
+    n >= BANK_ZONE_COUNT
+      ? t('bankFinalLoot', { n: BANK_ZONE_COUNT })
+      : next === BANK_ZONE_COUNT
+        ? t('bankLastZone', { n: next })
+        : t('bankNextLoot', { n: next })
+  return (
+    <div className="mt-5 space-y-2 text-left">
+      <div className="rounded-2xl border border-amber-400/35 bg-[#16120c] px-3 py-3">
+        <p className="text-[11px] font-extrabold tracking-[0.14em] text-emerald-300">{t('bankZoneCleared', { n })}</p>
+        <p className="font-display mt-0.5 text-base font-black text-amber-100">{nextLine}</p>
+        <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/10">
+          <div className="h-full rounded-full bg-gradient-to-r from-amber-300 to-amber-500" style={{ width: `${(n / BANK_ZONE_COUNT) * 100}%` }} />
+        </div>
+        <div className="mt-2 grid grid-cols-2 gap-2">
+          <div>
+            <p className="text-[10px] font-extrabold tracking-[0.14em] text-zinc-500">{t('bankProgressLabel')}</p>
+            <p className="font-display text-lg font-black text-white">{t('bankProgressZones', { n, max: BANK_ZONE_COUNT })}</p>
+          </div>
+          <div>
+            <p className="text-[10px] font-extrabold tracking-[0.14em] text-zinc-500">{t('bankSavedLabel')}</p>
+            <p className="font-display text-lg font-black text-amber-200">
+              {banked} <span className="text-[10px] tracking-[0.12em] text-amber-300/80">DUCK COIN</span>
+            </p>
+          </div>
+        </div>
+      </div>
+      <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-2.5">
+        <p className="text-[11px] font-extrabold tracking-[0.14em] text-zinc-300">{t('bankClearedTitle')}</p>
+        <p className="mt-0.5 text-[12px] leading-snug text-zinc-400">{t('bankClearedText')}</p>
+      </div>
+      <div className="rounded-2xl border border-amber-400/25 bg-amber-400/5 px-3 py-2.5">
+        <p className="text-[11px] font-extrabold tracking-[0.14em] text-amber-200">{t('bankTaskTitle')}</p>
+        <p className="mt-0.5 text-[12px] leading-snug text-amber-50/85">{t('bankTaskText', { max: BANK_ZONE_COUNT })}</p>
+      </div>
+    </div>
+  )
+}
+
+/**
  * What next after a successful EXIT: fortune, the player's own goal, then one clear
  * order of actions — ▶ keep raiding (a NEW raid, not a resume), Black Market, upgrades.
  */
@@ -173,10 +220,13 @@ function RaidNext({
   onContinue,
   onMarket,
   onUpgrades,
+  hint,
 }: {
   progress: ReturnType<typeof loadProgress>
   gained: number
   levelId: HeistLevelId
+  /** What the next raid is for, when there is something concrete to say (BANK: go deeper). */
+  hint?: string
   onContinue: (id: HeistLevelId) => void
   onMarket: () => void
   onUpgrades: () => void
@@ -191,7 +241,7 @@ function RaidNext({
       <button type="button" className="buy-btn raid-continue mt-4 w-full rounded-2xl px-4 py-3.5 text-[15px] font-black text-zinc-950" onClick={() => onContinue(target)}>
         {target === levelId ? t('raidContinue') : t('raidContinueNext', { level: t(HEIST_LEVEL_NAME[target]) })}
       </button>
-      <p className="mt-1 text-[11px] font-semibold text-amber-100/70">{goal && !goal.reached ? t('raidContinueHint') : t('raidContinueHintNoGoal')}</p>
+      <p className="mt-1 text-[11px] font-semibold text-amber-100/70">{hint ?? (goal && !goal.reached ? t('raidContinueHint') : t('raidContinueHintNoGoal'))}</p>
       <div className="mt-3 grid grid-cols-2 gap-2">
         <button type="button" className="min-h-14 rounded-2xl border border-amber-400/45 bg-amber-400/10 px-2 py-2 text-amber-100" onClick={onMarket}>
           <span className="block text-[12px] font-black">{t('raidMarketBtn')}</span>
@@ -301,8 +351,8 @@ export function HeistPage() {
     setShopMsg(null)
     setScreen('shop')
   }
-  const raidNext = (gained: number) => (
-    <RaidNext progress={progress} gained={gained} levelId={levelId} onContinue={(id) => playLevel(id)} onMarket={openMarket} onUpgrades={openUpgrades} />
+  const raidNext = (gained: number, hint?: string) => (
+    <RaidNext progress={progress} gained={gained} levelId={levelId} onContinue={(id) => playLevel(id)} onMarket={openMarket} onUpgrades={openUpgrades} hint={hint} />
   )
 
   const buyLab = (stat: LabStat, currency: Currency) => {
@@ -613,7 +663,7 @@ export function HeistPage() {
             <>
               <p className="text-4xl">🏆</p>
               <p className="font-display mt-2 text-3xl font-black text-amber-300">{t('heistBankDoneTitle')}</p>
-              <p className="mt-2 text-sm font-semibold text-amber-100">{t('heistBankDoneSub')}</p>
+              <p className="mt-2 text-sm font-semibold text-amber-100">{t('heistBankDoneSub', { max: BANK_ZONE_COUNT })}</p>
               <div className="mt-6 flex items-baseline justify-between gap-3 text-left">
                 <span className="text-[11px] font-extrabold tracking-[0.16em] text-zinc-500">{t('heistCarriedOut')}</span>
                 <span className="font-display text-2xl font-black text-white">
@@ -649,21 +699,21 @@ export function HeistPage() {
                   {gained} {t('heistDuckCoin')}
                 </span>
               </div>
-              <div className="mt-3 flex items-baseline justify-between gap-3 text-left">
-                <span className="text-[11px] font-extrabold tracking-[0.16em] text-zinc-500">{t('heistThiefScore')}</span>
-                <span className="font-display text-2xl font-black text-amber-200">{end.banked}</span>
-              </div>
               {progress.bankComplete ? (
-                <p className="mt-5 text-sm font-semibold text-amber-100">
-                  {t('heistBankCompleteTitle')} · {t('heistMansionUnlocked')}
-                </p>
+                <>
+                  <div className="mt-3 flex items-baseline justify-between gap-3 text-left">
+                    <span className="text-[11px] font-extrabold tracking-[0.16em] text-zinc-500">{t('heistThiefScore')}</span>
+                    <span className="font-display text-2xl font-black text-amber-200">{end.banked}</span>
+                  </div>
+                  <p className="mt-5 text-sm font-semibold text-amber-100">
+                    {t('heistBankCompleteTitle')} · {t('heistMansionUnlocked')}
+                  </p>
+                </>
               ) : (
-                <p className="mt-5 text-sm font-semibold text-zinc-300">
-                  {t('heistBankContinue')} · {t('heistBankZone', { n: Math.min(BANK_ZONE_COUNT, Math.max(1, (progress.bankDepth ?? 0) + 1)), max: BANK_ZONE_COUNT })}
-                </p>
+                <BankProgress depth={progress.bankDepth ?? 0} banked={end.banked} />
               )}
               {/* The player's own goal — never one the game picked for them. */}
-              {raidNext(gained)}
+              {raidNext(gained, progress.bankComplete ? undefined : t('bankContinueHint'))}
             </>
           ) : bankRun ? (
             <>
