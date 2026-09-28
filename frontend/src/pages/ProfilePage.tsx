@@ -6,6 +6,7 @@ import { User } from 'lucide-react'
 import { api } from '../api/client'
 import { ScreenHeader } from '../components/ScreenHeader'
 import { ProfileSupporter } from '../support/SupportStore'
+import { MyNftSection } from '../nftSale/NftSaleEntry'
 import { SupportBlock } from '../components/SupportBlock'
 import { useAgreement } from '../i18n/AgreementProvider'
 import { useI18n } from '../i18n/LanguageProvider'
@@ -67,6 +68,8 @@ export function ProfilePage() {
           <TonConnectButton />
         </div>
       </div>
+
+      <MyNftSection />
 
       <div className="mt-4">
         <SupportBlock />

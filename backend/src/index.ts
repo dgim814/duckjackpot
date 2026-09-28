@@ -62,6 +62,7 @@ import {
 } from './retentionStore.js'
 import { notifyPayoutPaid, notifyLog, notifyReferralCompleted, notifyTick, setNotificationsEnabled, startNotifier, textFor, type NotifKind } from './notifyService.js'
 import { botUsername, channelHealth, checkChannelMember, prepareInviteMessage, sendRetentionMessage } from './bot.js'
+import { nftSaleRouter, startNftSaleWorker } from './nftSale/index.js'
 
 dotenv.config()
 
@@ -1544,6 +1545,9 @@ app.post('/api/admin/raffles/:raffleId/draw', async (req, res) => {
   }
 })
 
+// 🖼 NFT SALE (Phase 1, TON testnet only): separate module, off unless NFT_SALE_ENABLED=true.
+app.use(nftSaleRouter({ telegramUser: resolveTelegramUser, requireAdmin }))
+
 // Every failure answers JSON (never Express's HTML page with a stack trace), so the
 // admin sees the real reason: oversized upload, bad JSON or a blocked origin.
 app.use((err: unknown, _req: express.Request, res: express.Response, next: express.NextFunction) => {
@@ -1575,6 +1579,7 @@ void backfillOnce({ dailyIds: dailyUsers().map((d) => d.telegramId), starsIds: [
 void backfillMissionProgress().then((n) => n && console.log('[retention] mission progress backfilled', n))
 void migrateStarsModel().then((r) => r.done && console.log('[retention] stars model v2', r))
 startNotifier()
+startNftSaleWorker()
 
 app.listen(port, '0.0.0.0', () => {
   loadWalletsFromDisk()

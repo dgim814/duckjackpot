@@ -14,6 +14,7 @@ import {
   List,
   LogOut,
   Sparkles,
+  Gem,
   Settings, BarChart3 } from 'lucide-react'
 
 const NAV = [
@@ -25,6 +26,7 @@ const NAV = [
   { to: '/admin/cards', labelKey: 'adminNavCards' as const, icon: List, end: false },
   { to: '/admin/payouts', labelKey: 'adminNavPayouts' as const, icon: Gift, end: false },
   { to: '/admin/bonus', labelKey: 'adminNavBonus' as const, icon: Sparkles, end: false },
+  { to: '/admin/nftsale', label: 'NFT SALE', icon: Gem, end: false },
   { to: '/admin/settings', labelKey: 'adminNavSettings' as const, icon: Settings, end: false },
 ]
 
@@ -141,7 +143,8 @@ export function AdminLayout() {
       </header>
 
       <nav className="mb-5 flex gap-1 overflow-x-auto pb-1">
-        {NAV.map(({ to, labelKey, icon: Icon, end }) => {
+        {NAV.map((item) => {
+          const { to, icon: Icon, end } = item
           const active = end ? location.pathname === to : location.pathname.startsWith(to)
           return (
             <Link
@@ -153,7 +156,7 @@ export function AdminLayout() {
               ].join(' ')}
             >
               <Icon size={14} />
-              {t(labelKey)}
+              {'label' in item ? item.label : t(item.labelKey)}
             </Link>
           )
         })}

@@ -21,6 +21,7 @@ import { inTelegram, launchNotification, onSession, patchSession, referralMe, ty
 import { claimGrants } from '../retention/grants'
 import { LeaderboardSheet, NotifyOptIn, ReferralCard, ReferralMissionCard } from '../retention/HubCards'
 import { SupportCard } from '../support/SupportStore'
+import { NftSaleHubCard } from '../nftSale/NftSaleEntry'
 
 /** What the hub's one main button does: resume a parked raid, or play the current level. */
 function primaryAction(progress: PlayerProgress) {
@@ -245,6 +246,8 @@ export function GameHomePage() {
       {inTelegram() ? <ReferralCard friends={friends} progress={session?.starsProgress} onProgress={(p) => patchSession({ starsProgress: p })} rewards={session?.rewards ?? { inviterCoins: 300, inviteeCoins: 150, stars: { available: true, manual: true, perFriend: 5, payout: 50, inviter: 5, invitee: 0 }, missionCoins: 650 }} /> : null}
       {/* 💎 voluntary support: a secondary block under the referral card, never the main action */}
       {inTelegram() ? <SupportCard /> : null}
+      {/* 🖼 NFT SALE (testnet): shown only when the backend has NFT_SALE_ENABLED */}
+      <NftSaleHubCard onOpen={() => tap('/nft-sale')} />
 
       {/* SECONDARY: short labels only; details live in their own screens */}
       <div className="mt-3 grid grid-cols-3 gap-2">

@@ -78,6 +78,19 @@ export const ANALYTICS_EVENTS = [
   'support_payment_cancelled',
   'support_payment_failed',
   'supporter_status_granted',
+  // 🖼 NFT SALE (testnet, Phase 1) — separate from the NFT Drop and from Stars revenue
+  'nft_sale_open',
+  'nft_wallet_connect_started',
+  'nft_wallet_connected',
+  'nft_product_view',
+  'nft_order_created',
+  'nft_payment_started',
+  'nft_payment_confirmed',
+  'nft_payment_failed',
+  'nft_mint_started',
+  'nft_mint_confirmed',
+  'nft_delivery_success',
+  'nft_delivery_failed',
 ] as const
 export type AnalyticsEventName = (typeof ANALYTICS_EVENTS)[number]
 
@@ -111,6 +124,7 @@ const PROPS: Record<string, 'str' | 'num' | 'bool'> = {
   rank: 'num',
   prevRank: 'num',
   coins: 'num',
+  edition: 'num',
 }
 
 export type StoredEvent = {
@@ -152,7 +166,7 @@ export function userKey(telegramId: number | null, anonId: unknown) {
 }
 
 /** Only the server may record these (invoice made, payment confirmed by Telegram, server errors). */
-const SERVER_ONLY = new Set<string>(['stars_invoice_created', 'stars_payment_success', 'daily_reward_available', 'daily_reward_claimed', 'referral_link_created', 'referral_opened', 'referral_registered', 'referral_channel_verified', 'referral_first_raid', 'referral_first_exit', 'referral_reward_pending', 'referral_reward_success', 'referral_reward_failed', 'notification_sent', 'daily_reward_notification_sent', 'referral_notification_sent', 'overtaken_notification_sent', 'raid_return_notification_sent', 'leaderboard_position_changed', 'notification_opened', 'stars_reward_pending', 'stars_reward_paid', 'stars_reward_cancelled', 'successful_referral', 'referral_stars_earned', 'referral_payout_ready', 'referral_payout_requested', 'referral_payout_paid', 'referral_payout_cancelled', 'referral_first_50_reached', 'support_invoice_created', 'support_payment_success', 'supporter_status_granted'])
+const SERVER_ONLY = new Set<string>(['stars_invoice_created', 'stars_payment_success', 'daily_reward_available', 'daily_reward_claimed', 'referral_link_created', 'referral_opened', 'referral_registered', 'referral_channel_verified', 'referral_first_raid', 'referral_first_exit', 'referral_reward_pending', 'referral_reward_success', 'referral_reward_failed', 'notification_sent', 'daily_reward_notification_sent', 'referral_notification_sent', 'overtaken_notification_sent', 'raid_return_notification_sent', 'leaderboard_position_changed', 'notification_opened', 'stars_reward_pending', 'stars_reward_paid', 'stars_reward_cancelled', 'successful_referral', 'referral_stars_earned', 'referral_payout_ready', 'referral_payout_requested', 'referral_payout_paid', 'referral_payout_cancelled', 'referral_first_50_reached', 'support_invoice_created', 'support_payment_success', 'supporter_status_granted', 'nft_wallet_connected', 'nft_order_created', 'nft_payment_confirmed', 'nft_payment_failed', 'nft_mint_started', 'nft_mint_confirmed', 'nft_delivery_success', 'nft_delivery_failed'])
 
 /** Validate and append a batch. Returns how many events were stored. */
 export function recordEvents(user: string, sessionId: unknown, events: IncomingEvent[], now = Date.now(), fromClient = false) {
@@ -418,4 +432,13 @@ export function supportSummary(range: AnalyticsRange, orders: SupportOrderLike[]
     invoices: events.filter((e) => e.e === 'support_invoice_created').length,
     cancelled: events.filter((e) => e.e === 'support_payment_cancelled').length,
   }
+}
+
+/** 🖼 NFT Sale funnel (testnet): event counts only — no revenue, never mixed with Stars. */
+export function nftSaleFunnel(range: AnalyticsRange, now = Date.now()) {
+  const from = rangeStart(range, now)
+  const events = readAll().filter((e) => e.t >= from && e.e.startsWith('nft_') && e.e !== 'nft_open' && e.e !== 'nft_drop_open')
+  const out: Record<string, number> = {}
+  for (const e of events) out[e.e] = (out[e.e] ?? 0) + 1
+  return { events: out, revenue: { real: 0, note: 'TESTNET / ZERO REAL REVENUE' } }
 }

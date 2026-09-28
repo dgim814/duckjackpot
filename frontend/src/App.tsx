@@ -18,6 +18,8 @@ import { PaymentsPage } from './admin/pages/PaymentsPage'
 import { PayoutsPage } from './admin/pages/PayoutsPage'
 import { BonusAdminPage } from './admin/pages/BonusAdminPage'
 import { AdminSettingsPage } from './admin/pages/AdminSettingsPage'
+import { NftSaleAdminPage } from './nftSale/NftSaleAdminPage'
+import { NftSalePage } from './nftSale/NftSalePage'
 import { CardsProvider } from './cards/CardsProvider'
 import { consumePendingGameplayReset } from './heist/consumeGameplayReset'
 import { captureTelegramUser } from './telegram/user'
@@ -92,6 +94,7 @@ export default function App() {
                   <Route path="payouts" element={<PayoutsPage />} />
                   <Route path="bonus" element={<BonusAdminPage />} />
                   <Route path="settings" element={<AdminSettingsPage />} />
+                  <Route path="nftsale" element={<NftSaleAdminPage />} />
                 </Route>
               </Route>
               <Route path="/agreement" element={<AgreementPage />} />
@@ -104,6 +107,7 @@ export default function App() {
               >
                 <Route path="/" element={<GameHomePage />} />
                 <Route path="/drop" element={<HomePage />} />
+                <Route path="/nft-sale" element={<NftSalePage />} />
                 <Route path="/nft" element={<Navigate to="/drop" replace />} />
                 <Route path="/heist" element={<HeistPage />} />
                 <Route path="/market" element={<BlackMarketPage />} />

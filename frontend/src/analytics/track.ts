@@ -42,6 +42,10 @@ export type AnalyticsEvent =
   | 'support_payment_started'
   | 'support_payment_cancelled'
   | 'support_payment_failed'
+  | 'nft_sale_open'
+  | 'nft_wallet_connect_started'
+  | 'nft_product_view'
+  | 'nft_payment_started'
 
 export type AnalyticsProps = Partial<{
   level: string
@@ -65,6 +69,7 @@ export type AnalyticsProps = Partial<{
   error: string
   placement: string
   kind: string
+  edition: number
 }>
 
 const ANON_KEY = 'duckjackpot.analytics.device'
