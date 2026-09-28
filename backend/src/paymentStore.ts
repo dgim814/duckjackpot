@@ -129,3 +129,14 @@ export function setPaymentNotify(id: string, notifyStatus: string) {
     writeAll(payments)
   })
 }
+
+/** The server moved a claimed card to a free number on activation: keep the payment in sync. */
+export function setPaymentSerial(id: string, serial: number) {
+  return enqueueDataOp('serial', id, () => {
+    const payments = readAll(true)
+    const index = payments.findIndex((item) => item.id === id)
+    if (index < 0) return
+    payments[index] = { ...payments[index], serial }
+    writeAll(payments)
+  })
+}

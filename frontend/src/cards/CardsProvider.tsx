@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useAdmin } from '../admin/AdminProvider'
 import { getRaffle, RAFFLES, STORAGE_KEYS, type RaffleId } from '../constants'
-import { fetchMyServerCards, syncCardsToBot } from '../telegram/syncCards'
+import { fetchMyServerCards, recheckPendingTonOrders, syncCardsToBot } from '../telegram/syncCards'
 import { captureTelegramUser } from '../telegram/user'
 
 export type PayAsset = 'TON' | 'USDT'
@@ -33,6 +33,8 @@ type CardsContextValue = {
   isRunning: boolean
   mintCard: (paidWith: PayAsset, extra?: { txHash?: string }) => OwnedCard
   createPendingUsdt: (baseUsdt: number) => OwnedCard
+  /** A card the SERVER issued (verified payment). Returns it as stored locally. */
+  addServerCard: (card: OwnedCard) => OwnedCard
   confirmCardPayment: (id: string, extra?: { txHash?: string }) => OwnedCard
   refreshFromServer: () => Promise<void>
   archiveRaffleCards: (id: RaffleId) => void
@@ -305,6 +307,12 @@ export function CardsProvider({ children }: { children: ReactNode }) {
         admin.incrementSold(current.raffleId)
         return updated
       },
+      addServerCard: (card) => {
+        const next = mergeRemoteCards(cards, [card])
+        setCards(next)
+        persist(next)
+        return next.find((c) => c.id === card.id) ?? card
+      },
       refreshFromServer: async () => {
         try {
           const remote = await fetchMyServerCards()
@@ -346,6 +354,19 @@ export function CardsProvider({ children }: { children: ReactNode }) {
         return next
       })
     }
+    // TON orders paid in a previous session: the server decides whether they were paid.
+    void recheckPendingTonOrders().then((paid) => {
+      if (!paid.length) return
+      setCards((prev) => {
+        const next = mergeRemoteCards(prev, paid)
+        try {
+          localStorage.setItem(STORAGE_KEYS.cards, JSON.stringify(next))
+        } catch {
+          /* ignore */
+        }
+        return next
+      })
+    })
     const pull = () => {
       void fetchMyServerCards()
         .then((remote) => {

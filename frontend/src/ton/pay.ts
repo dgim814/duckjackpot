@@ -156,30 +156,8 @@ export async function buildUsdtTransaction(params: {
   }
 }
 
-function bocHash(boc: string) {
-  try {
-    return Cell.fromBase64(boc).hash().toString('hex')
-  } catch {
-    return boc.slice(0, 64)
-  }
-}
-
-export async function waitForTonTransaction(boc: string, timeoutMs = 75_000) {
-  const hash = bocHash(boc)
-  const started = Date.now()
-  while (Date.now() - started < timeoutMs) {
-    try {
-      const res = await fetch(`https://tonapi.io/v2/blockchain/messages/${hash}`, {
-        cache: 'no-store',
-      })
-      if (res.ok) return hash
-    } catch {
-      /* network */
-    }
-    await new Promise((resolve) => setTimeout(resolve, 2500))
-  }
-  return hash
-}
+// Note: there is no client-side "wait for the transaction" any more. Whether a TON payment
+// happened is decided by the server (/api/payments/ton/confirm), never by a client timeout.
 
 export function paymentComment(raffleId: string, serialHint: string) {
   return `DuckJackpot ${raffleId} ${serialHint}`.slice(0, 120)

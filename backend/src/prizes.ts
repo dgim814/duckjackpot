@@ -24,3 +24,10 @@ export const RAFFLE_PRIZES: Record<string, Array<{ place: number; amount: string
     { place: 3, amount: '50 USDT' },
   ],
 }
+
+/** Card prices in RUB (same as the frontend RAFFLES); the server quotes TON from these. */
+export const RAFFLE_PRICE_RUB: Record<string, number> = {
+  classic: 1000,
+  fast200: 400,
+  fast100: 500,
+}

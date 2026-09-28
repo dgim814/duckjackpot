@@ -217,7 +217,8 @@ function readState(): AdminState {
           : fallback.winners,
       content: parsed.content ?? {},
       rateOverride: override ?? null,
-      testPayMode: parsed.testPayMode === true,
+      // Test payments exist only in a development build (a production build ignores a stored flag).
+      testPayMode: import.meta.env.DEV && parsed.testPayMode === true,
       merchantWallet: '',
       usdtTrc20Address: '',
     }

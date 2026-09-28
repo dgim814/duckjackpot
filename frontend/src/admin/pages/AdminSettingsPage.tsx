@@ -32,15 +32,18 @@ export function AdminSettingsPage() {
       <section className="rounded-2xl border border-white/10 bg-zinc-900/80 p-4">
         <h2 className="text-sm font-semibold text-zinc-100">{t('adminPayTitle')}</h2>
         <p className="mt-1 text-xs text-zinc-500">{t('adminPayHint')}</p>
-        <label className="mt-4 flex items-center gap-3 text-sm text-zinc-200">
-          <input
-            type="checkbox"
-            checked={testPayMode}
-            onChange={(e) => setTestPayMode(e.target.checked)}
-            className="h-4 w-4 accent-amber-400"
-          />
-          {t('adminTestPay')}
-        </label>
+        {/* Test payments: development builds only — never available in production. */}
+        {import.meta.env.DEV ? (
+          <label className="mt-4 flex items-center gap-3 text-sm text-zinc-200">
+            <input
+              type="checkbox"
+              checked={testPayMode}
+              onChange={(e) => setTestPayMode(e.target.checked)}
+              className="h-4 w-4 accent-amber-400"
+            />
+            {t('adminTestPay')}
+          </label>
+        ) : null}
       </section>
 
       <section className="rounded-2xl border border-white/10 bg-zinc-900/80 p-4">

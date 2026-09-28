@@ -2,7 +2,7 @@ import cors from 'cors'
 import dotenv from 'dotenv'
 import express from 'express'
 import { botIdentity, createStarsInvoiceLink, starsBotState, notifyPaymentClaimed, notifyPaymentConfirmed, notifyPaymentRejected, notifyTelegramUser, startBot } from './bot.js'
-import { archiveRaffleCards, findCardById, getUserCards, listAllCards, mergeUserCards, setCardStatusById, setUserCardStatus, upsertUserCard, type StoredCard } from './cardStore.js'
+import { activateCard, archiveRaffleCards, findCardById, findCardByTx, isSerialSold, issueVerifiedCard, getUserCards, listAllCards, mergeUserCards, setCardStatusById, setUserCardStatus, upsertUserCard, type StoredCard } from './cardStore.js'
 import { adminPassword, channelId, channelUrl, DATA_DIR, getTelegramSettings, maskToken, saveTelegramSettings } from './config.js'
 import { deleteNftFile, getNftFile, isNftRaffleId, listNftMeta, saveNftFile } from './nftStore.js'
 import { handleSupportUpdate, isSupportWebhookAuthorized, startSupportBot, type SupportTelegramUpdate } from './supportBot.js'
@@ -11,10 +11,11 @@ import { drawBonus, drawRaffle, publicRaffleSnapshot, refreshRafflePhase } from 
 import { hideDraw, hideKnownTestDraws, listDraws, listPublicDraws, setDrawWinnerPaid } from './drawStore.js'
 import { addBonusUser, isBonusUser, listBonusUsers, syncBonusUsersFromCards } from './bonusStore.js'
 import { setRafflePhase, setTestSold, startNextRaffleRound } from './raffleStore.js'
-import { RAFFLE_TOTALS } from './prizes.js'
+import { RAFFLE_PRICE_RUB, RAFFLE_TOTALS } from './prizes.js'
 import { isDataWriteError, WRITE_RETRY_MESSAGE } from './dataQueue.js'
 import { getChat } from './chatStore.js'
-import { getPayment, listPayments, setPaymentNotify, setPaymentStatus, upsertClaim } from './paymentStore.js'
+import { createPayment, getPayment, listPayments, setPaymentNotify, setPaymentSerial, setPaymentStatus, upsertClaim } from './paymentStore.js'
+import { bindTonTx, createTonQuote, finishTonOrder, findOrderTransfer, getTonOrder, serverTonRub } from './tonPayments.js'
 import { finishHuntAttempt, huntStatus, lastHuntAttempt, resetHuntCooldown, startHuntAttempt } from './huntStore.js'
 import {
   consumeGameplayReset,
@@ -111,12 +112,14 @@ app.get('/', (_req, res) => {
   res.json({ ok: true })
 })
 
-function resolveTelegramUser(body: { initData?: string; telegramId?: number; telegramUsername?: string }) {
+/**
+ * The Telegram user of a request — ONLY from server-verified initData (signature + age).
+ * A telegramId / username sent by the client is never used: no valid initData → no user (401).
+ */
+function resolveTelegramUser(body: { initData?: unknown }) {
   const { token } = getTelegramSettings()
-  const verified = typeof body.initData === 'string' ? verifyInitData(body.initData, token) : null
-  const telegramId = verified?.id ?? (typeof body.telegramId === 'number' ? body.telegramId : undefined)
-  const telegramUsername = verified?.username ?? (typeof body.telegramUsername === 'string' ? body.telegramUsername : undefined)
-  return { telegramId, telegramUsername }
+  const verified = typeof body.initData === 'string' && body.initData ? verifyInitData(body.initData, token, 7 * 86_400) : null
+  return { telegramId: verified?.id, telegramUsername: verified?.username }
 }
 
 function asStoredCard(raw: Partial<StoredCard>, telegramId?: number): StoredCard | null {
@@ -314,8 +317,8 @@ app.post('/api/admin/player/reset', (req, res) => {
 
 app.post('/api/heist/gameplay-reset/pending', (req, res) => {
   const { telegramId } = resolveTelegramUser(req.body ?? {})
-  if (!telegramId || !Number.isFinite(telegramId) || telegramId <= 0) {
-    res.status(400).json({ error: 'invalid_telegram_id' })
+  if (!telegramId) {
+    res.status(401).json({ error: 'invalid_init_data' })
     return
   }
   res.json({ pending: hasPendingGameplayReset(telegramId), telegramId })
@@ -323,8 +326,8 @@ app.post('/api/heist/gameplay-reset/pending', (req, res) => {
 
 app.post('/api/heist/gameplay-reset/consume', (req, res) => {
   const { telegramId } = resolveTelegramUser(req.body ?? {})
-  if (!telegramId || !Number.isFinite(telegramId) || telegramId <= 0) {
-    res.status(400).json({ error: 'invalid_telegram_id' })
+  if (!telegramId) {
+    res.status(401).json({ error: 'invalid_init_data' })
     return
   }
   try {
@@ -1086,7 +1089,7 @@ app.post('/api/me/cards', async (req, res) => {
         .filter((card): card is StoredCard => Boolean(card))
         .map((card) => ({ ...card, telegramUsername: card.telegramUsername ?? telegramUsername })),
     )
-    res.json({ ok: true, count: cards.length, telegramId, cards })
+    res.json({ ok: true, count: cards.length, telegramId, cards, rejected: (cards as StoredCard[] & { rejected?: string[] }).rejected ?? [] })
   } catch (err) {
     if (isDataWriteError(err)) {
       replyWriteFailed(res)
@@ -1107,9 +1110,19 @@ app.post('/api/me/cards/fetch', (req, res) => {
 
 app.post('/api/payments/claim', async (req, res) => {
   const { telegramId, telegramUsername } = resolveTelegramUser(req.body ?? {})
+  if (!telegramId) {
+    res.status(401).json({ error: 'invalid_init_data' })
+    return
+  }
   const card = asStoredCard(req.body?.card ?? {}, telegramId)
   if (!card) {
     res.status(400).json({ error: 'invalid_card' })
+    return
+  }
+  // A claim is only ever a request for admin review; a number already sold cannot be claimed.
+  card.status = 'pending'
+  if (!findCardById(card.id) && isSerialSold(card.raffleId, card.serial)) {
+    res.status(409).json({ error: 'serial_taken' })
     return
   }
   try {
@@ -1142,6 +1155,124 @@ app.post('/api/payments/claim', async (req, res) => {
     replyWriteFailed(res)
   }
 })
+
+// ---------- NFT Drop: TON payments verified on-chain by the server ----------
+/** Fix the amount, receiving wallet and a unique comment for one card purchase. */
+app.post('/api/payments/ton/quote', async (req, res) => {
+  const { telegramId, telegramUsername } = resolveTelegramUser(req.body ?? {})
+  if (!telegramId) {
+    res.status(401).json({ error: 'invalid_init_data' })
+    return
+  }
+  const raffleId = String(req.body?.raffleId ?? '')
+  const total = RAFFLE_TOTALS[raffleId]
+  const priceRub = RAFFLE_PRICE_RUB[raffleId]
+  if (!total || !priceRub) {
+    res.status(400).json({ error: 'unknown_raffle' })
+    return
+  }
+  const snap = publicRaffleSnapshot()[raffleId as keyof ReturnType<typeof publicRaffleSnapshot>] as { status?: string; sold?: number } | undefined
+  if (snap?.status && snap.status !== 'running') {
+    res.status(409).json({ error: 'stopped' })
+    return
+  }
+  if ((snap?.sold ?? 0) >= total) {
+    res.status(409).json({ error: 'sold_out' })
+    return
+  }
+  const merchant = getPayWallets().tonAddress
+  if (!merchant || !isTonPayAddress(merchant)) {
+    res.status(503).json({ error: 'no_merchant' })
+    return
+  }
+  try {
+    const tonRub = await serverTonRub()
+    const o = await createTonQuote({ telegramId, telegramUsername, raffleId, priceRub, tonRub, merchant })
+    res.json({ orderId: o.id, amountTon: o.amountTon, merchant: o.merchant, comment: o.comment, expiresAt: o.expiresAt })
+  } catch (err) {
+    console.error('[ton-pay] quote failed', err instanceof Error ? err.message : err)
+    res.status(503).json({ error: 'ton_rate' })
+  }
+})
+
+/**
+ * Check the blockchain for this order's transfer. A client tx hash is ignored; a timeout or a
+ * transfer the server cannot find is NOT a payment — the card is issued only for a verified one.
+ */
+app.post('/api/payments/ton/confirm', async (req, res) => {
+  const { telegramId } = resolveTelegramUser(req.body ?? {})
+  if (!telegramId) {
+    res.status(401).json({ error: 'invalid_init_data' })
+    return
+  }
+  const order = getTonOrder(String(req.body?.orderId ?? ''))
+  if (!order || order.telegramId !== telegramId) {
+    res.status(404).json({ error: 'not_found' })
+    return
+  }
+  const cardOf = (id?: string) => (id ? findCardById(id) : null)
+  if (order.status === 'paid') {
+    res.json({ status: 'paid', card: cardOf(order.cardId) })
+    return
+  }
+  if (order.status === 'paid_unissued') {
+    res.json({ status: 'paid_unissued', error: order.error })
+    return
+  }
+  try {
+    let txHash = order.txHash
+    if (!txHash) {
+      const tx = await findOrderTransfer(order)
+      if (!tx) {
+        res.json({ status: 'pending', expiresAt: order.expiresAt })
+        return
+      }
+      txHash = tx.hash
+    }
+    const bound = await bindTonTx(order.id, txHash)
+    if ('error' in bound) {
+      res.status(409).json({ error: bound.error })
+      return
+    }
+    if (bound.state === 'done') {
+      res.json({ status: bound.order.status, card: cardOf(bound.order.cardId) })
+      return
+    }
+    // Issue once: after a crash between steps the card is found by its tx hash.
+    let card = findCardByTx(txHash)
+    if (!card) {
+      try {
+        card = await issueVerifiedCard({ telegramId, telegramUsername: order.telegramUsername, raffleId: order.raffleId, paidWith: 'TON', txHash, payCode: order.comment })
+      } catch (err) {
+        const code = err instanceof Error ? err.message : 'issue_failed'
+        await finishTonOrder(order.id, { error: code })
+        res.json({ status: 'paid_unissued', error: code })
+        return
+      }
+    }
+    await finishTonOrder(order.id, { cardId: card.id })
+    await afterCardActivated({ id: card.id, payCode: card.payCode, raffleId: card.raffleId, serial: card.serial, telegramId, telegramUsername: order.telegramUsername, createdAt: card.purchasedAt, paidWith: 'TON' })
+    res.json({ status: 'paid', card })
+  } catch (err) {
+    console.error('[ton-pay] confirm failed', err instanceof Error ? err.message : err)
+    res.status(503).json({ error: 'chain_unavailable' })
+  }
+})
+
+/** A verified TON card: record it as a confirmed payment, notify, enroll in the bonus draw. */
+async function afterCardActivated(p: { id: string; payCode: string; raffleId: string; serial: number; telegramId: number; telegramUsername?: string; createdAt: number; paidWith: string }) {
+  try {
+    await createPayment(p)
+    const payment = (await setPaymentStatus(p.id, 'confirmed')) ?? getPayment(p.id)
+    if (!payment) return
+    const notifyStatus = await notifyPaymentConfirmed(payment).catch(() => 'failed' as const)
+    await setPaymentNotify(payment.id, notifyStatus)
+    refreshRafflePhase(p.raffleId)
+    addBonusUser(p.telegramId, p.telegramUsername)
+  } catch (err) {
+    console.error('[ton-pay] after activation', err)
+  }
+}
 
 app.get('/api/admin/payments', (req, res) => {
   if (!requireAdmin(req, res)) return
@@ -1191,11 +1322,10 @@ async function confirmPayment(req: express.Request, res: express.Response) {
     const payment = (await setPaymentStatus(before.id, 'confirmed')) ?? before
     if (changed) {
       const stored = findCardById(payment.id)
-      if (stored?.status !== 'past') {
-        await setCardStatusById(payment.id, 'active')
-        if (payment.telegramId) {
-          await setUserCardStatus(payment.telegramId, payment.id, 'active')
-        }
+      if (stored && stored.status !== 'past') {
+        // Server activation: the serial must be free in the round (else the server picks one).
+        const active = await activateCard(payment.id, 'admin')
+        if (active && active.serial !== payment.serial) await setPaymentSerial(payment.id, active.serial)
       }
       try {
         const notifyStatus = await notifyPaymentConfirmed(payment)
@@ -1366,7 +1496,7 @@ app.post('/api/admin/draws/:drawId/paid', (req, res) => {
 app.post('/api/me/bonus', (req, res) => {
   const { telegramId } = resolveTelegramUser(req.body ?? {})
   if (!telegramId) {
-    res.json({ participating: false })
+    res.status(401).json({ error: 'invalid_init_data' })
     return
   }
   syncBonusUsersFromCards()

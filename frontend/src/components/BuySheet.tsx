@@ -15,10 +15,11 @@ import {
   estimateTonAmount,
   estimateUsdtAmount,
   fetchTonRubRate,
-  paymentComment,
-  waitForTonTransaction,
 } from '../ton/pay'
-import { claimUsdtPayment } from '../telegram/syncCards'
+import { claimUsdtPayment, forgetTonOrder, rememberTonOrder, tonConfirm, tonQuote } from '../telegram/syncCards'
+
+/** Test payments exist only in a development build; a production build can never skip paying. */
+const TEST_PAY_ALLOWED = import.meta.env.DEV
 
 type Step = 'choose' | 'trc20' | 'success' | 'claimed'
 
@@ -52,14 +53,17 @@ function payErrorMessage(code: string, t: (key: MessageKey) => string) {
   if (code === 'wallet') return t('payWalletRequired')
   if (code === 'ton_rate' || code === 'usdt_rate') return t('payRateError')
   if (code === 'trc20_timeout') return t('payTrc20Timeout')
+  if (code === 'serial_taken') return t('paySerialTaken')
+  if (code === 'invalid_init_data') return t('payNeedTelegram')
   if (/reject|cancel|abort/i.test(code)) return t('payCancelled')
   return t('payFailed')
 }
 
 export function BuySheet({ open, onClose }: BuySheetProps) {
   const { t, lang } = useI18n()
-  const { mintCard, createPendingUsdt, raffleId, remaining } = useCards()
-  const { testPayMode, merchantWallet, usdtTrc20Address, refreshPayWallets } = useAdmin()
+  const { mintCard, createPendingUsdt, addServerCard, raffleId, remaining } = useCards()
+  const { testPayMode: testPaySetting, merchantWallet, usdtTrc20Address, refreshPayWallets } = useAdmin()
+  const testPayMode = TEST_PAY_ALLOWED && testPaySetting
   const raffle = getRaffle(raffleId)
   const payTonWallet = merchantWallet.trim()
   const payUsdtWallet = usdtTrc20Address.trim()
@@ -74,6 +78,8 @@ export function BuySheet({ open, onClose }: BuySheetProps) {
   const [tonRub, setTonRub] = useState<number | null>(null)
   const [copied, setCopied] = useState<'address' | 'code' | null>(null)
   const [pendingCard, setPendingCard] = useState<OwnedCard | null>(null)
+  /** A TON order sent to the wallet whose transfer the server has not confirmed yet. */
+  const [tonOrder, setTonOrder] = useState<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const swipeStartY = useRef<number | null>(null)
   const autoTrc20Ref = useRef(false)
@@ -99,6 +105,7 @@ export function BuySheet({ open, onClose }: BuySheetProps) {
       setError(null)
       setCopied(null)
       setPendingCard(null)
+      setTonOrder(null)
       return
     }
     console.log('[DuckJackpot] USDT TRC-20 address:', payUsdtWallet)
@@ -180,20 +187,51 @@ export function BuySheet({ open, onClose }: BuySheetProps) {
         return
       }
 
-      if (!isTonPayAddress(payTonWallet)) throw new Error('no_merchant')
-      if (!tonAmount) throw new Error('ton_rate')
+      await ensureWallet()
+      // The server fixes amount, receiving wallet and a unique comment for this order…
+      const quote = await tonQuote(raffleId)
+      rememberTonOrder(quote.orderId)
+      setTonOrder(quote.orderId)
+      const tx = buildTonTransaction({ merchant: quote.merchant, tonAmount: quote.amountTon, comment: quote.comment })
+      await tonConnectUI.sendTransaction(tx)
+      // …and only its own on-chain check issues the card. A timeout is NOT a payment.
+      await checkTon(quote.orderId)
+    } catch (err) {
+      const code = err instanceof Error ? err.message : String(err)
+      setError(payErrorMessage(code, t))
+    } finally {
+      setBusy(false)
+    }
+  }
 
-      const connected = await ensureWallet()
-      const comment = paymentComment(raffleId, connected.account.address.slice(-6))
-      const tx = buildTonTransaction({
-        merchant: payTonWallet,
-        tonAmount,
-        comment,
-      })
-      const bocRaw = await tonConnectUI.sendTransaction(tx)
-      const boc = typeof bocRaw === 'string' ? bocRaw : bocRaw.boc
-      const txHash = await waitForTonTransaction(boc)
-      finishMint('TON', txHash)
+  /** Ask the server (it reads the blockchain) whether this order was paid; the card comes from the server. */
+  const checkTon = async (orderId: string, tries = 20) => {
+    for (let i = 0; i < tries; i += 1) {
+      const r = await tonConfirm(orderId)
+      if (r.status === 'paid' && r.card) {
+        forgetTonOrder(orderId)
+        setTonOrder(null)
+        setBought(addServerCard(r.card))
+        setStep('success')
+        return
+      }
+      if (r.status === 'paid_unissued') {
+        forgetTonOrder(orderId)
+        setTonOrder(null)
+        setError(t('payTonUnissued'))
+        return
+      }
+      await new Promise((resolve) => setTimeout(resolve, 4000))
+    }
+    setError(t('payTonPending'))
+  }
+
+  const recheckTon = async () => {
+    if (!tonOrder || busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      await checkTon(tonOrder, 3)
     } catch (err) {
       const code = err instanceof Error ? err.message : String(err)
       setError(payErrorMessage(code, t))
@@ -484,6 +522,15 @@ export function BuySheet({ open, onClose }: BuySheetProps) {
 
             {busy ? (
               <p className="mt-4 text-center text-sm font-semibold text-amber-200">{t('payProcessing')}</p>
+            ) : null}
+            {tonOrder && !busy ? (
+              <button
+                type="button"
+                onClick={() => void recheckTon()}
+                className="ton-recheck mt-3 w-full rounded-2xl border border-amber-400/40 px-4 py-3 text-sm font-bold text-amber-100"
+              >
+                {t('payTonCheckAgain')}
+              </button>
             ) : null}
             {error ? <p className="mt-4 text-center text-sm text-orange-400">{error}</p> : null}
             <button

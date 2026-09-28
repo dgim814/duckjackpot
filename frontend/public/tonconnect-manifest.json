@@ -1,7 +1,7 @@
 {
-  "url": "https://your-domain.com",
+  "url": "https://duckjackpot.vercel.app",
   "name": "DuckJackpot",
-  "iconUrl": "https://your-domain.com/duck-jackpot.jpg",
-  "termsOfUseUrl": "https://your-domain.com/terms",
-  "privacyPolicyUrl": "https://your-domain.com/privacy"
+  "iconUrl": "https://duckjackpot.vercel.app/tonconnect-icon.png",
+  "termsOfUseUrl": "https://duckjackpot.vercel.app/#/legal/user-agreement",
+  "privacyPolicyUrl": "https://duckjackpot.vercel.app/#/legal/privacy"
 }
