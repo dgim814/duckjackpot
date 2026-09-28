@@ -23,8 +23,8 @@ import {
   queueGameplayReset,
 } from './playerResetStore.js'
 import { verifyInitData } from './verifyInitData.js'
-import { allOrders, createOrder, ordersOf, saveOrder, STARS_PRODUCTS, type StarsOrder } from './starsStore.js'
-import { analyticsSummary, recordEvents, userKey, type AnalyticsRange, type IncomingEvent } from './analyticsStore.js'
+import { allOrders, createOrder, createSupportOrder, isSupportOrder, ordersOf, saveOrder, STARS_PRODUCTS, SUPPORT_PACKS, supportAdmin, supportOf, type StarsOrder } from './starsStore.js'
+import { analyticsSummary, recordEvents, supportSummary, userKey, type AnalyticsRange, type IncomingEvent } from './analyticsStore.js'
 import { claimDaily, dailyStatus, dailyUsers, isNonce } from './dailyRewardStore.js'
 import {
   backfillOnce,
@@ -397,8 +397,8 @@ app.get('/api/admin/analytics', (req, res) => {
   const r = String(req.query.range ?? '7d')
   const range: AnalyticsRange = r === 'today' || r === '7d' || r === '30d' || r === 'all' ? r : '7d'
   try {
-    const sum = analyticsSummary(range, Date.now(), allOrders())
-    res.json({ ...sum, referrals: referralSummary(sum.from, sum.notifications.linksCreated) })
+    const sum = analyticsSummary(range, Date.now(), gearOrders())
+    res.json({ ...sum, referrals: referralSummary(sum.from, sum.notifications.linksCreated), support: supportSummary(range, allOrders().filter(isSupportOrder)) })
   } catch (err) {
     console.error('[analytics] summary failed', err)
     res.status(500).json({ error: 'server_error' })
@@ -862,7 +862,7 @@ app.get('/api/admin/retention', async (req, res) => {
   if (!requireAdmin(req, res)) return
   const r = String(req.query.range ?? 'all')
   const range: AnalyticsRange = r === 'today' || r === '7d' || r === '30d' || r === 'all' ? r : 'all'
-  const sum = analyticsSummary(range, Date.now(), allOrders())
+  const sum = analyticsSummary(range, Date.now(), gearOrders())
   res.json({ referrals: referralSummary(sum.from, sum.notifications.linksCreated), notifications: { ...sum.notifications, ...notifyLog() }, channel: await channelHealth(), leaderboard: leaderboard(dailyCoinsMap()).slice(0, 20) })
 })
 
@@ -907,6 +907,75 @@ app.post('/api/admin/notifications/tick', async (req, res) => {
   if (!requireAdmin(req, res)) return
   const now = Number(req.body?.now) || Date.now()
   res.json(await notifyTick(now))
+})
+
+// ---------- 💎 Supporter Packs (voluntary support through the same Telegram Stars flow) ----------
+/** Existing Stars upgrade analytics keep counting only gear orders. */
+const gearOrders = () => allOrders().filter((o) => !isSupportOrder(o))
+
+app.get('/api/support/packs', (_req, res) => {
+  const bot = starsBotState()
+  res.json({ enabled: bot.configured && bot.polling, packs: Object.values(SUPPORT_PACKS).map((p) => ({ id: p.id, stars: p.stars, rank: p.rank, badge: p.badge, title: p.title })) })
+})
+
+/** A Telegram Stars invoice for one pack. The price is the server's; a client amount that differs is refused. */
+app.post('/api/support/create-invoice', async (req, res) => {
+  const u = verifyInitData(req.header('x-telegram-init-data') ?? '', getTelegramSettings().token)
+  if (!u) {
+    res.status(401).json({ error: 'unauthorized' })
+    return
+  }
+  const packId = String(req.body?.packId ?? '')
+  const pack = SUPPORT_PACKS[packId]
+  if (!pack) {
+    res.status(400).json({ error: 'unknown_pack' })
+    return
+  }
+  if (req.body?.starsAmount !== undefined && req.body.starsAmount !== pack.stars) {
+    res.status(400).json({ error: 'amount_mismatch' })
+    return
+  }
+  if (!starsBotState().configured) {
+    res.status(503).json({ error: 'bot_not_configured' })
+    return
+  }
+  const made = createSupportOrder(u.id, packId, req.body?.lang === 'en' ? 'en' : 'ru', { username: u.username, name: u.firstName })
+  if ('error' in made) {
+    res.status(400).json({ error: made.error })
+    return
+  }
+  const order = made.order
+  try {
+    await saveOrder(order)
+    const invoiceUrl = await createStarsInvoiceLink(order)
+    order.status = 'invoice_created'
+    order.invoiceCreatedAt = Date.now()
+    await saveOrder(order)
+    recordEvents(`tg:${u.id}`, 'server', [{ name: 'support_invoice_created', props: { productId: order.productId, starsAmount: order.starsAmount, orderId: order.id } }])
+    res.json({ orderId: order.id, invoiceUrl, packId: order.productId, starsAmount: order.starsAmount })
+  } catch (err) {
+    console.error('[support] create invoice failed', { order: order.id, err: err instanceof Error ? err.message : String(err) })
+    order.status = 'failed'
+    order.failReason = 'invoice_failed'
+    await saveOrder(order).catch(() => undefined)
+    res.status(502).json({ error: 'invoice_failed' })
+  }
+})
+
+/** The player's supporter status, purchases and open orders (verified user only). */
+app.get('/api/support/me', (req, res) => {
+  const u = verifyInitData(req.header('x-telegram-init-data') ?? '', getTelegramSettings().token)
+  if (!u) {
+    res.status(401).json({ error: 'unauthorized' })
+    return
+  }
+  res.json(supportOf(u.id))
+})
+
+/** Admin: 💎 SUPPORTERS (no charge ids or payment secrets). */
+app.get('/api/admin/supporters', (req, res) => {
+  if (!requireAdmin(req, res)) return
+  res.json(supportAdmin())
 })
 
 app.get('/api/nft', (_req, res) => {

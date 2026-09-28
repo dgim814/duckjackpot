@@ -76,14 +76,20 @@ export const STARS_PRODUCTS: Record<string, StarsProduct> = {
 
 export const MAX_TIER = 3
 
-export type OrderStatus = 'created' | 'invoice_created' | 'paid' | 'delivered' | 'cancelled' | 'failed'
+export type OrderStatus = 'created' | 'invoice_created' | 'paid' | 'delivered' | 'cancelled' | 'failed' | 'refunded'
 
 export type StarsOrder = {
   id: string
   telegramUserId: number
   productId: string
-  stat: StarsStat
+  /** gear orders only; a support pack has no stat */
+  stat?: StarsStat
   tier: number
+  /** 'support' = a Supporter Pack (status only, no gameplay); missing = a gear upgrade */
+  kind?: 'gear' | 'support'
+  usernameSnapshot?: string | null
+  displayNameSnapshot?: string | null
+  refundedAt?: number
   starsAmount: number
   status: OrderStatus
   payload: string
@@ -176,6 +182,15 @@ export function saveOrder(order: StarsOrder) {
 }
 
 export function invoiceTexts(order: StarsOrder) {
+  const pack = order.kind === 'support' ? SUPPORT_PACKS[order.productId] : undefined
+  if (pack) {
+    const l = order.lang
+    return {
+      title: `${pack.title[l]}`.slice(0, 32),
+      description: (l === 'ru' ? `Поддержка DuckJackpot: статус ${pack.title.ru}. Без игровых преимуществ.` : `Support DuckJackpot: ${pack.title.en} status. No gameplay advantage.`).slice(0, 255),
+      label: `${pack.title[l]}`.slice(0, 32),
+    }
+  }
   const p = STARS_PRODUCTS[order.productId]
   const l = order.lang
   const lvl = l === 'ru' ? `уровень ${order.tier + 1}` : `level ${order.tier + 1}`
@@ -199,7 +214,7 @@ export function checkPreCheckout(q: PreCheckout, now = Date.now()): { ok: true }
   if (q.total_amount !== o.starsAmount) return { ok: false, error: 'Сумма счёта не совпадает.' }
   if (o.status !== 'invoice_created') return { ok: false, error: o.status === 'delivered' ? 'Этот заказ уже оплачен.' : 'Счёт больше не действителен. Создайте новый.' }
   if (now - (o.invoiceCreatedAt ?? o.createdAt) > INVOICE_TTL_MS) return { ok: false, error: 'Счёт устарел. Создайте новый в игре.' }
-  if (!STARS_PRODUCTS[o.productId]) return { ok: false, error: 'Товар больше не продаётся.' }
+  if (!STARS_PRODUCTS[o.productId] && !(o.kind === 'support' && SUPPORT_PACKS[o.productId])) return { ok: false, error: 'Товар больше не продаётся.' }
   return { ok: true }
 }
 
@@ -274,4 +289,98 @@ export function ordersOf(telegramUserId: number) {
 
 export function allOrders() {
   return Object.values(read().orders).sort((a, b) => b.createdAt - a.createdAt)
+}
+
+// ---------- 💎 Supporter Packs: voluntary support, status only (no DUCK COIN, no NFT, no advantage) ----------
+
+export type SupportPack = { id: string; stars: number; rank: number; badge: string; title: { ru: string; en: string } }
+
+/** Prices live only here; the client never decides an amount. */
+export const SUPPORT_PACKS: Record<string, SupportPack> = {
+  support_rookie: { id: 'support_rookie', stars: 50, rank: 1, badge: '🦆', title: { ru: 'ROOKIE SUPPORTER', en: 'ROOKIE SUPPORTER' } },
+  support_heist: { id: 'support_heist', stars: 100, rank: 2, badge: '💰', title: { ru: 'HEIST SUPPORTER', en: 'HEIST SUPPORTER' } },
+  support_gold: { id: 'support_gold', stars: 250, rank: 3, badge: '🥇', title: { ru: 'GOLD SUPPORTER', en: 'GOLD SUPPORTER' } },
+  support_master: { id: 'support_master', stars: 500, rank: 4, badge: '👑', title: { ru: 'MASTER SUPPORTER', en: 'MASTER SUPPORTER' } },
+  support_legend: { id: 'support_legend', stars: 1000, rank: 5, badge: '💎', title: { ru: 'DUCKJACKPOT LEGEND', en: 'DUCKJACKPOT LEGEND' } },
+}
+
+export const isSupportOrder = (o: StarsOrder) => o.kind === 'support'
+
+/** A support order for one pack at the server price (the payload format is the same as gear orders). */
+export function createSupportOrder(telegramUserId: number, packId: string, lang: 'ru' | 'en', who: { username?: string; name?: string }) {
+  const pack = SUPPORT_PACKS[packId]
+  if (!pack) return { error: 'unknown_pack' as const }
+  const id = randomBytes(12).toString('hex')
+  const order: StarsOrder = {
+    id,
+    telegramUserId,
+    productId: pack.id,
+    kind: 'support',
+    tier: 1,
+    starsAmount: pack.stars,
+    status: 'created',
+    payload: payloadFor(id, pack.id),
+    lang,
+    createdAt: Date.now(),
+    usernameSnapshot: who.username ?? null,
+    displayNameSnapshot: who.name ?? null,
+  }
+  return { order, pack }
+}
+
+export type SupportPurchase = { orderId: string; packId: string; stars: number; status: 'PAID' | 'REFUNDED'; purchasedAt: number }
+
+/** One player's support: every paid pack (PAID / REFUNDED), and the status = the highest PAID pack. */
+export function supportOf(telegramUserId: number) {
+  const orders = Object.values(read().orders).filter((o) => o.telegramUserId === telegramUserId && isSupportOrder(o))
+  const purchases: SupportPurchase[] = orders
+    .filter((o) => o.status === 'delivered' || o.status === 'refunded')
+    .map((o) => ({ orderId: o.id, packId: o.productId, stars: o.starsAmount, status: o.status === 'refunded' ? ('REFUNDED' as const) : ('PAID' as const), purchasedAt: o.deliveredAt ?? o.paidAt ?? o.createdAt }))
+    .sort((a, b) => a.purchasedAt - b.purchasedAt)
+  const paid = purchases.filter((p) => p.status === 'PAID')
+  const top = paid.map((p) => SUPPORT_PACKS[p.packId]).filter(Boolean).sort((a, b) => b.rank - a.rank)[0] ?? null
+  return {
+    status: top ? { packId: top.id, rank: top.rank } : null,
+    totalStars: paid.reduce((a, p) => a + p.stars, 0),
+    memberSince: paid[0]?.purchasedAt ?? null,
+    purchases,
+    /** open/finished orders, so the client can follow its own invoice */
+    orders: orders.map((o) => ({ orderId: o.id, packId: o.productId, status: o.status })),
+  }
+}
+
+/**
+ * Telegram's refunded_payment for a SUPPORT order → REFUNDED (the status is taken back).
+ * Gear orders are left exactly as before.
+ */
+export function applySupportRefund(charge: string, now = Date.now()) {
+  return enqueueDataOp('stars:refund', charge, () => {
+    const s = read()
+    const id = s.charges[charge]
+    const o = id ? s.orders[id] : undefined
+    if (!o || !isSupportOrder(o) || o.status !== 'delivered') return null
+    o.status = 'refunded'
+    o.refundedAt = now
+    write(s)
+    return o
+  })
+}
+
+/** Admin: support purchases (no charge ids, no payment secrets). */
+export function supportAdmin() {
+  const orders = Object.values(read().orders).filter((o) => isSupportOrder(o) && (o.status === 'delivered' || o.status === 'refunded'))
+  const paid = orders.filter((o) => o.status === 'delivered')
+  const stars = paid.reduce((a, o) => a + o.starsAmount, 0)
+  const supporters = new Set(paid.map((o) => o.telegramUserId))
+  return {
+    totalStars: stars,
+    purchases: paid.length,
+    uniqueSupporters: supporters.size,
+    avgPurchase: paid.length ? Math.round((stars / paid.length) * 10) / 10 : 0,
+    refunded: orders.length - paid.length,
+    last: orders
+      .sort((a, b) => (b.deliveredAt ?? 0) - (a.deliveredAt ?? 0))
+      .slice(0, 20)
+      .map((o) => ({ orderId: o.id, telegramId: o.telegramUserId, username: o.usernameSnapshot ?? null, name: o.displayNameSnapshot ?? null, packId: o.productId, stars: o.starsAmount, date: o.deliveredAt ?? o.paidAt ?? o.createdAt, status: o.status === 'refunded' ? 'REFUNDED' : 'PAID' })),
+  }
 }

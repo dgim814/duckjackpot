@@ -3,7 +3,7 @@ import { getUserCards, type StoredCard } from './cardStore.js'
 import { channelId, channelUrl, getTelegramSettings } from './config.js'
 import { recordEvents } from './analyticsStore.js'
 import { markWelcome, MISSION_COINS, touchSession } from './retentionStore.js'
-import { applySuccessfulPayment, checkPreCheckout, invoiceTexts, STARS_PRODUCTS, type PreCheckout, type StarsOrder, type SuccessfulPayment } from './starsStore.js'
+import { applySuccessfulPayment, applySupportRefund, checkPreCheckout, invoiceTexts, isSupportOrder, STARS_PRODUCTS, SUPPORT_PACKS, type PreCheckout, type StarsOrder, type SuccessfulPayment } from './starsStore.js'
 
 type TelegramUser = {
   id: number
@@ -19,6 +19,8 @@ type TelegramMessage = {
   chat: { id: number }
   text?: string
   successful_payment?: SuccessfulPayment
+  /** Telegram's refund of a Stars payment */
+  refunded_payment?: { currency: string; total_amount: number; invoice_payload: string; telegram_payment_charge_id: string }
 }
 
 type TelegramUpdate = {
@@ -94,7 +96,24 @@ async function handleSuccessfulPayment(token: string, message: TelegramMessage) 
   const outcome = await applySuccessfulPayment(message.from?.id, p)
   const o = outcome.order
   console.log('[stars] successful_payment', { result: outcome.result, order: o?.id, product: o?.productId, reason: outcome.result === 'rejected' ? outcome.reason : undefined })
-  if (outcome.result === 'delivered' && o) {
+  if (outcome.result === 'delivered' && o && isSupportOrder(o)) {
+    // 💎 Supporter Pack: a status only. Its own events; the gear Stars funnel stays as it was.
+    const pack = SUPPORT_PACKS[o.productId]
+    try {
+      recordEvents(`tg:${o.telegramUserId}`, 'bot', [
+        { name: 'support_payment_success', props: { productId: o.productId, starsAmount: o.starsAmount, orderId: o.id } },
+        { name: 'supporter_status_granted', props: { productId: o.productId, starsAmount: o.starsAmount, orderId: o.id } },
+      ])
+    } catch (err) {
+      console.error('[support] analytics failed', err)
+    }
+    const title = pack?.title[o.lang] ?? o.productId
+    const text =
+      o.lang === 'ru'
+        ? `🎉 Спасибо за поддержку DuckJackpot!\n\nТвой статус:\n${pack?.badge ?? '💎'} ${title}`
+        : `🎉 Thank you for supporting DuckJackpot!\n\nYour status:\n${pack?.badge ?? '💎'} ${title}`
+    await sendMessage(token, message.chat.id, text, '/').catch((err) => console.error('[support] notify failed', err))
+  } else if (outcome.result === 'delivered' && o) {
     try {
       recordEvents(`tg:${o.telegramUserId}`, 'bot', [
         {
@@ -119,6 +138,11 @@ async function handleSuccessfulPayment(token: string, message: TelegramMessage) 
 async function handleMessage(token: string, message: TelegramMessage) {
   if (message.successful_payment) {
     await handleSuccessfulPayment(token, message)
+    return
+  }
+  if (message.refunded_payment) {
+    const o = await applySupportRefund(message.refunded_payment.telegram_payment_charge_id)
+    console.log('[support] refunded_payment', { order: o?.id ?? null })
     return
   }
   if (message.from?.id && !message.from.is_bot) {

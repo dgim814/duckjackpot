@@ -37,6 +37,11 @@ export type AnalyticsEvent =
   | 'leaderboard_opened'
   | 'notification_permission_requested'
   | 'notification_action_clicked'
+  | 'support_store_open'
+  | 'support_package_view'
+  | 'support_payment_started'
+  | 'support_payment_cancelled'
+  | 'support_payment_failed'
 
 export type AnalyticsProps = Partial<{
   level: string

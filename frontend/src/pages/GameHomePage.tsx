@@ -20,6 +20,7 @@ import { perfMark, perfMarkPainted } from '../perf/transition'
 import { inTelegram, launchNotification, onSession, patchSession, referralMe, type ReferralMe, type Session } from '../retention/api'
 import { claimGrants } from '../retention/grants'
 import { LeaderboardSheet, NotifyOptIn, ReferralCard, ReferralMissionCard } from '../retention/HubCards'
+import { SupportCard } from '../support/SupportStore'
 
 /** What the hub's one main button does: resume a parked raid, or play the current level. */
 function primaryAction(progress: PlayerProgress) {
@@ -242,6 +243,8 @@ export function GameHomePage() {
         />
       ) : null}
       {inTelegram() ? <ReferralCard friends={friends} progress={session?.starsProgress} onProgress={(p) => patchSession({ starsProgress: p })} rewards={session?.rewards ?? { inviterCoins: 300, inviteeCoins: 150, stars: { available: true, manual: true, perFriend: 5, payout: 50, inviter: 5, invitee: 0 }, missionCoins: 650 }} /> : null}
+      {/* 💎 voluntary support: a secondary block under the referral card, never the main action */}
+      {inTelegram() ? <SupportCard /> : null}
 
       {/* SECONDARY: short labels only; details live in their own screens */}
       <div className="mt-3 grid grid-cols-3 gap-2">

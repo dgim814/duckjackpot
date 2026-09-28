@@ -3,6 +3,7 @@ import { api, formatApiError } from '../../api/client'
 import { useI18n } from '../../i18n/LanguageProvider'
 import { RetentionBlocks } from './RetentionBlocks'
 import { StarsPayouts } from './StarsPayouts'
+import { SupportersBlock } from './SupportersBlock'
 
 type Range = 'today' | '7d' | '30d' | 'all'
 
@@ -427,6 +428,7 @@ export function AnalyticsPage() {
           </section>
           <RetentionBlocks range={range} lang={lang} />
           <StarsPayouts lang={lang} />
+          <SupportersBlock stats={(data as unknown as { support?: Parameters<typeof SupportersBlock>[0]['stats'] }).support} lang={lang} />
           <section className="rounded-2xl border border-amber-400/30 bg-zinc-900/80 p-4">
             <h3 className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-amber-200">{tx.stars.title}</h3>
             {orders ? (

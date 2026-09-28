@@ -70,6 +70,14 @@ export const ANALYTICS_EVENTS = [
   'referral_payout_paid',
   'referral_payout_cancelled',
   'referral_first_50_reached',
+  'support_store_open',
+  'support_package_view',
+  'support_invoice_created',
+  'support_payment_started',
+  'support_payment_success',
+  'support_payment_cancelled',
+  'support_payment_failed',
+  'supporter_status_granted',
 ] as const
 export type AnalyticsEventName = (typeof ANALYTICS_EVENTS)[number]
 
@@ -144,7 +152,7 @@ export function userKey(telegramId: number | null, anonId: unknown) {
 }
 
 /** Only the server may record these (invoice made, payment confirmed by Telegram, server errors). */
-const SERVER_ONLY = new Set<string>(['stars_invoice_created', 'stars_payment_success', 'daily_reward_available', 'daily_reward_claimed', 'referral_link_created', 'referral_opened', 'referral_registered', 'referral_channel_verified', 'referral_first_raid', 'referral_first_exit', 'referral_reward_pending', 'referral_reward_success', 'referral_reward_failed', 'notification_sent', 'daily_reward_notification_sent', 'referral_notification_sent', 'overtaken_notification_sent', 'raid_return_notification_sent', 'leaderboard_position_changed', 'notification_opened', 'stars_reward_pending', 'stars_reward_paid', 'stars_reward_cancelled', 'successful_referral', 'referral_stars_earned', 'referral_payout_ready', 'referral_payout_requested', 'referral_payout_paid', 'referral_payout_cancelled', 'referral_first_50_reached'])
+const SERVER_ONLY = new Set<string>(['stars_invoice_created', 'stars_payment_success', 'daily_reward_available', 'daily_reward_claimed', 'referral_link_created', 'referral_opened', 'referral_registered', 'referral_channel_verified', 'referral_first_raid', 'referral_first_exit', 'referral_reward_pending', 'referral_reward_success', 'referral_reward_failed', 'notification_sent', 'daily_reward_notification_sent', 'referral_notification_sent', 'overtaken_notification_sent', 'raid_return_notification_sent', 'leaderboard_position_changed', 'notification_opened', 'stars_reward_pending', 'stars_reward_paid', 'stars_reward_cancelled', 'successful_referral', 'referral_stars_earned', 'referral_payout_ready', 'referral_payout_requested', 'referral_payout_paid', 'referral_payout_cancelled', 'referral_first_50_reached', 'support_invoice_created', 'support_payment_success', 'supporter_status_granted'])
 
 /** Validate and append a batch. Returns how many events were stored. */
 export function recordEvents(user: string, sessionId: unknown, events: IncomingEvent[], now = Date.now(), fromClient = false) {
@@ -385,5 +393,29 @@ export function analyticsSummary(range: AnalyticsRange, now = Date.now(), orders
         .sort((a, b) => b[1] - a[1])
         .map(([level, raids]) => ({ level, raids })),
     },
+  }
+}
+
+/** 💎 Supporter Packs in a range, from the Stars orders (source of truth; refunded ones excluded). */
+export type SupportOrderLike = { telegramUserId: number; productId: string; starsAmount: number; status: string; deliveredAt?: number }
+export function supportSummary(range: AnalyticsRange, orders: SupportOrderLike[], now = Date.now()) {
+  const from = rangeStart(range, now)
+  const paid = orders.filter((o) => o.status === 'delivered' && (o.deliveredAt ?? 0) >= from)
+  const stars = paid.reduce((a, o) => a + o.starsAmount, 0)
+  const byAmount: Record<string, number> = { '50': 0, '100': 0, '250': 0, '500': 0, '1000': 0 }
+  for (const o of paid) byAmount[String(o.starsAmount)] = (byAmount[String(o.starsAmount)] ?? 0) + 1
+  const top = Object.entries(byAmount).sort((a, b) => b[1] - a[1] || Number(b[0]) - Number(a[0]))[0]
+  const events = readAll().filter((e) => e.t >= from)
+  const users = (n: AnalyticsEventName) => new Set(events.filter((e) => e.e === n).map((e) => e.u)).size
+  return {
+    purchases: paid.length,
+    stars,
+    uniqueSupporters: new Set(paid.map((o) => o.telegramUserId)).size,
+    avgPurchase: paid.length ? round(stars / paid.length) : 0,
+    packages: byAmount,
+    topPackage: top && top[1] > 0 ? Number(top[0]) : null,
+    storeOpens: users('support_store_open'),
+    invoices: events.filter((e) => e.e === 'support_invoice_created').length,
+    cancelled: events.filter((e) => e.e === 'support_payment_cancelled').length,
   }
 }

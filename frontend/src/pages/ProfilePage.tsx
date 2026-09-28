@@ -5,6 +5,7 @@ import WebApp from '@twa-dev/sdk'
 import { User } from 'lucide-react'
 import { api } from '../api/client'
 import { ScreenHeader } from '../components/ScreenHeader'
+import { ProfileSupporter } from '../support/SupportStore'
 import { SupportBlock } from '../components/SupportBlock'
 import { useAgreement } from '../i18n/AgreementProvider'
 import { useI18n } from '../i18n/LanguageProvider'
@@ -34,6 +35,7 @@ export function ProfilePage() {
   return (
     <section className="px-4 pb-6">
       <ScreenHeader title={t('profileTitle')} />
+      <ProfileSupporter />
 
       <div className="mt-5 rounded-2xl border border-white/8 bg-[#141218] p-5">
         <div className="flex items-center gap-3">
