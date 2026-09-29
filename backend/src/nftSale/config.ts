@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 /**
  * 🖼 NFT SALE — Phase 1 configuration and safety gates (TESTNET ONLY, no real money).
  *
@@ -7,7 +8,9 @@
  */
 
 export const NFT_SUPPLY = 2000
-export const COLLECTION_NAME = 'DuckJackpot HEIST'
+export const COLLECTION_NAME = 'DUCKJACKPOT HEIST'
+export const COLLECTION_SYMBOL = 'HEIST'
+export const PLACEHOLDER_NOTICE = 'TESTNET PLACEHOLDER — NOT FINAL ART'
 
 /** Phase 1 knows ONE network. Mainnet is not implemented — not just switched off. */
 export type NftNetwork = 'testnet'
@@ -52,6 +55,16 @@ export function nftNetwork(): NftNetwork {
   return 'testnet'
 }
 
+/**
+ * Hard start guard (Phase 2): in production a mainnet configuration without the explicit
+ * NFT_MAINNET_APPROVED=true makes the whole NFT Sale subsystem refuse to start (no routes, no worker).
+ * Even when approved, mainnet stays unimplemented (nftNetwork() refuses it) until a later phase.
+ */
+export function subsystemRefusal(): string | null {
+  if (isProduction() && env('NFT_NETWORK') === 'mainnet' && env('NFT_MAINNET_APPROVED') !== 'true') return 'mainnet_not_approved'
+  return null
+}
+
 /** sandbox = emulated TVM inside this process (the official @ton/sandbox): never in production. */
 export function chainMode(): ChainMode {
   const v = env('NFT_CHAIN') || 'toncenter'
@@ -73,7 +86,17 @@ export const TESTNET_EXPLORER = 'https://testnet.tonviewer.com'
 
 /** 24-word mnemonic of the testnet minter wallet. Railway secret only — never logged, never sent. */
 export function minterMnemonic(): string[] | null {
-  const words = env('NFT_TESTNET_MINTER_MNEMONIC').split(/\s+/).filter(Boolean)
+  let raw = env('NFT_TESTNET_MINTER_MNEMONIC')
+  // local runs only: a private 0600 file (from npm run nft:testnet-wallet) instead of an env value
+  const file = env('NFT_TESTNET_MINTER_MNEMONIC_FILE')
+  if (!raw && file && !isProduction()) {
+    try {
+      raw = readFileSync(file, 'utf8').trim()
+    } catch {
+      raw = ''
+    }
+  }
+  const words = raw.split(/\s+/).filter(Boolean)
   return words.length === 24 ? words : null
 }
 
@@ -81,6 +104,9 @@ export function minterMnemonic(): string[] | null {
 export function collectionAddressOverride() {
   return env('NFT_COLLECTION_ADDRESS') || null
 }
+
+/** Stable TEP-64 metadata path on this backend (collection.json and one URL per edition). */
+export const METADATA_PATH = '/api/nft-sale/testnet/metadata/'
 
 /** Public base URL of this backend: TEP-64 metadata and the placeholder art are served from here. */
 export function metadataBaseUrl() {
@@ -120,6 +146,32 @@ export function testPaymentsAllowed() {
 
 /** Phase 1 test price: no real price is shown or charged. */
 export const TEST_PRICE = { amount: 0, currency: 'TEST' as const }
+
+/**
+ * Payment provider for new orders. Phase 2: "ton_testnet" (real TESTNET TON transfer, verified
+ * on-chain by the server — default) or "test" (simulated). Both are refused in production.
+ */
+export function paymentProviderId() {
+  const v = env('NFT_PAYMENT_PROVIDER') || 'ton_testnet'
+  return v === 'test' ? 'test' : 'ton_testnet'
+}
+
+/** Price of one TESTNET NFT in testnet TON (no value). */
+export function testnetPriceTon() {
+  const v = Number(env('NFT_TESTNET_PRICE_TON') || '0.05')
+  return Number.isFinite(v) && v >= 0.01 && v <= 5 ? v : 0.05
+}
+
+/** Optional separate testnet merchant address (default: the minter wallet receives testnet payments). */
+export function merchantAddressOverride() {
+  return env('NFT_TESTNET_MERCHANT_ADDRESS') || null
+}
+
+/** A submitted mint that is not visible after this long is FAILED (before that it stays MINTING). */
+export function mintHardTimeoutMs() {
+  const s = Number(env('NFT_MINT_HARD_TIMEOUT_S'))
+  return (Number.isFinite(s) && s >= 1 ? s : 1800) * 1000
+}
 
 /** Value attached to one mint (collection → new item); the reference item keeps ≥ 0.05 TON for storage. */
 export const MINT_ITEM_VALUE_TON = '0.06'

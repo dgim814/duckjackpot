@@ -1,11 +1,11 @@
 import express from 'express'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { proofDomains, saleEnabled, testPaymentsAllowed } from './config.js'
+import { chainMode, isProduction, proofDomains, saleEnabled, subsystemRefusal, testPaymentsAllowed } from './config.js'
 import { collectionMetadata, itemMetadata, parseItemFile } from './metadata.js'
-import { deployTestnetCollection } from './chainService.js'
+import { deployTestnetCollection, getChain } from './chainService.js'
 import { PaymentProviderError } from './payments/provider.js'
-import { adminOverview, adminRefund, adminRetry, createOrder, handlePaymentUpdate, myNftSale, publicConfig, SaleError, simulateTestPayment, userOrderView } from './sale.js'
+import { adminOverview, adminRefund, adminRetry, adminVerifyCollection, adminVerifyNft, createOrder, handlePaymentUpdate, myNftSale, publicConfig, SaleError, simulateTestPayment, userCheckPayment, userOrderView } from './sale.js'
 import { getOrder, removeWallet, setWallet } from './store.js'
 import { consumeNonce, issueNonce, verifyTonProof, type ProofInput } from './walletProof.js'
 import { recordEvents } from '../analyticsStore.js'
@@ -34,6 +34,16 @@ function sendError(res: express.Response, err: unknown) {
 export function nftSaleRouter(deps: Deps) {
   const r = express.Router()
 
+  // Hard guard: production + mainnet without NFT_MAINNET_APPROVED=true → the subsystem does not start.
+  const refusal = subsystemRefusal()
+  if (refusal) {
+    console.error(`[nft-sale] REFUSING TO START: ${refusal}`)
+    r.all(/^\/api\/(admin\/)?nft-sale(\/|$)/, (_req, res) => {
+      res.status(503).json({ error: refusal })
+    })
+    return r
+  }
+
   /** user guard: sale on + verified Telegram user */
   const user = (req: express.Request, res: express.Response) => {
     if (!saleEnabled()) {
@@ -57,6 +67,20 @@ export function nftSaleRouter(deps: Deps) {
   })
 
   // ---- TEP-64 metadata + placeholder art (public, read-only) ----
+  // Phase 2: the stable per-edition URLs the testnet collection points to
+  r.get('/api/nft-sale/testnet/metadata/collection.json', (_req, res) => {
+    res.setHeader('Cache-Control', 'public, max-age=300')
+    res.json(collectionMetadata())
+  })
+  r.get('/api/nft-sale/testnet/metadata/:file', (req, res) => {
+    const n = parseItemFile(String(req.params.file))
+    if (!n) {
+      res.status(404).json({ error: 'not_found' })
+      return
+    }
+    res.setHeader('Cache-Control', 'public, max-age=300')
+    res.json(itemMetadata(n))
+  })
   r.get('/api/nft-sale/metadata/collection.json', (_req, res) => {
     res.json(collectionMetadata())
   })
@@ -126,7 +150,10 @@ export function nftSaleRouter(deps: Deps) {
         verifiedAt: Date.now(),
       })
       try {
-        recordEvents(`tg:${id}`, undefined, [{ name: 'nft_wallet_connected', props: { kind: v.wallet } }])
+        recordEvents(`tg:${id}`, undefined, [
+          { name: 'nft_sale_testnet_proof_verified', props: { kind: v.wallet } },
+          { name: 'nft_sale_testnet_wallet_connected', props: { kind: v.wallet } },
+        ])
       } catch {
         /* analytics never breaks the flow */
       }
@@ -168,6 +195,18 @@ export function nftSaleRouter(deps: Deps) {
       return
     }
     res.json({ order: await userOrderView(o) })
+  })
+
+  /** "I sent the testnet payment": the SERVER checks the chain. Body tx hash / status are ignored. */
+  r.post('/api/nft-sale/orders/check-payment', async (req, res) => {
+    const id = user(req, res)
+    if (!id) return
+    try {
+      const o = await userCheckPayment(id, String(req.body?.orderId ?? ''))
+      res.json({ order: await userOrderView(o) })
+    } catch (err) {
+      sendError(res, err)
+    }
   })
 
   /** TEST PAYMENT — dev/test environments only; refused in production. */
@@ -218,8 +257,24 @@ export function nftSaleRouter(deps: Deps) {
   r.post('/api/admin/nft-sale/collection/deploy', async (req, res) => {
     if (!deps.requireAdmin(req, res)) return
     try {
-      const address = await deployTestnetCollection()
-      res.json({ ok: true, collection: address.toString({ testOnly: true }) })
+      const { address, created } = await deployTestnetCollection()
+      res.json({ ok: true, created, collection: address.toString({ testOnly: true }) })
+    } catch (err) {
+      sendError(res, err)
+    }
+  })
+  r.post('/api/admin/nft-sale/verify/collection', async (req, res) => {
+    if (!deps.requireAdmin(req, res)) return
+    try {
+      res.json(await adminVerifyCollection())
+    } catch (err) {
+      sendError(res, err)
+    }
+  })
+  r.post('/api/admin/nft-sale/verify/nft', async (req, res) => {
+    if (!deps.requireAdmin(req, res)) return
+    try {
+      res.json(await adminVerifyNft(typeof req.body?.orderId === 'string' && req.body.orderId ? req.body.orderId : undefined))
     } catch (err) {
       sendError(res, err)
     }
@@ -239,6 +294,49 @@ export function nftSaleRouter(deps: Deps) {
     } catch (err) {
       sendError(res, err)
     }
+  })
+
+  // ---- dev only: the in-memory sandbox chain (NFT_CHAIN=sandbox, never production) ----
+  // Lets a local UI E2E fund a test wallet and broadcast that wallet's OWN signed message,
+  // exactly what a wallet app does on the real network. No keys ever reach the server.
+  const sandboxOnly = (res: express.Response) => {
+    let ok = false
+    try {
+      ok = !isProduction() && chainMode() === 'sandbox'
+    } catch {
+      ok = false
+    }
+    if (!ok) res.status(404).json({ error: 'not_found' })
+    return ok
+  }
+  r.post('/api/nft-sale/dev/sandbox/fund', async (req, res) => {
+    if (!sandboxOnly(res)) return
+    const chain = await getChain()
+    const backend = chain.backend as unknown as { fund?: (a: import('@ton/core').Address, ton: string) => Promise<void> }
+    const { Address } = await import('@ton/core')
+    await backend.fund?.(Address.parse(String(req.body?.address)), String(req.body?.ton ?? '5'))
+    res.json({ ok: true })
+  })
+  r.post('/api/nft-sale/dev/sandbox/seqno', async (req, res) => {
+    if (!sandboxOnly(res)) return
+    const chain = await getChain()
+    const { Address } = await import('@ton/core')
+    const p = chain.backend.provider(Address.parse(String(req.body?.address)))
+    const st = await p.getState()
+    if (st.state.type !== 'active') {
+      res.json({ seqno: 0, deployed: false })
+      return
+    }
+    const { stack } = await p.get('seqno', [])
+    res.json({ seqno: stack.readNumber(), deployed: true })
+  })
+  r.post('/api/nft-sale/dev/sandbox/external', async (req, res) => {
+    if (!sandboxOnly(res)) return
+    const chain = await getChain()
+    const { Address, Cell, loadStateInit } = await import('@ton/core')
+    const init = req.body?.stateInit ? loadStateInit(Cell.fromBase64(String(req.body.stateInit)).beginParse()) : null
+    await chain.backend.provider(Address.parse(String(req.body?.address)), init).external(Cell.fromBase64(String(req.body?.body)))
+    res.json({ ok: true })
   })
 
   return r

@@ -10,7 +10,8 @@
     "test:nft-sale": "node --import tsx --test test/nftSale/*.test.ts",
     "typecheck:test": "tsc -p tsconfig.test.json",
     "nft:check-contracts": "node scripts/nft-reference-compile.mjs",
-    "nft:testnet-wallet": "node scripts/nft-testnet-wallet.mjs"
+    "nft:testnet-wallet": "node scripts/nft-testnet-wallet.mjs",
+    "nft:testnet-deploy-collection": "tsx scripts/nft-testnet-deploy-collection.ts"
   },
   "engines": {
     "node": ">=20"

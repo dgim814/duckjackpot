@@ -16,12 +16,12 @@ const SALE_FILE = join(DIR, 'sale.json')
 const WALLETS_FILE = join(DIR, 'wallets.json')
 const STATE_FILE = join(DIR, 'state.json')
 
-export type OrderStatus = 'PENDING' | 'RESERVED' | 'PAYMENT_PENDING' | 'PAID' | 'MINTING' | 'DELIVERING' | 'DELIVERED' | 'FAILED' | 'REFUNDED'
+export type OrderStatus = 'PENDING' | 'RESERVED' | 'PAYMENT_PENDING' | 'PAID' | 'MINTING' | 'DELIVERING' | 'OWNER_VERIFIED' | 'DELIVERED' | 'FAILED' | 'REFUNDED'
 export type PaymentStatus = 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED'
 /** AVAILABLE is "no entry". */
 export type ItemStatus = 'RESERVED' | 'MINTING' | 'DELIVERED' | 'FAILED'
 
-export const OPEN_STATUSES: OrderStatus[] = ['PENDING', 'RESERVED', 'PAYMENT_PENDING', 'PAID', 'MINTING', 'DELIVERING']
+export const OPEN_STATUSES: OrderStatus[] = ['PENDING', 'RESERVED', 'PAYMENT_PENDING', 'PAID', 'MINTING', 'DELIVERING', 'OWNER_VERIFIED']
 
 export type NftOrder = {
   id: string
@@ -43,11 +43,24 @@ export type NftOrder = {
   updatedAt: number
   reservedUntil: number
   paidAt?: number
+  /** what the buyer must send (on-chain providers) — chosen by the server */
+  paymentInstructions?: { network: 'testnet'; recipient: string; amountNano: string; amountTon: number; comment: string; validUntil: number }
+  /** the testnet payment transaction the server credited (hash hex) and its sender */
+  paymentTxHash?: string
+  paymentFrom?: string
   mintStartedAt?: number
   mintSeqno?: number
   mintSubmittedAt?: number
+  mintValidUntil?: number
+  /** minter-wallet transaction that sent the mint */
+  mintTxHash?: string
+  /** submitted but not visible on-chain yet (still MINTING, never delivered) */
+  mintWarning?: string
+  ownerVerifiedAt?: number
   deliveredAt?: number
   itemAddress?: string
+  /** the item's deployment transaction (the buyer becomes owner here) */
+  itemTxHash?: string
   txHash?: string
   error?: string
   attempts: number

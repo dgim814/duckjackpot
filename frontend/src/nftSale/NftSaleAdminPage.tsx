@@ -17,18 +17,26 @@ type AdminOrder = {
   deliveredAt?: number
   itemAddress?: string
   txHash?: string
+  paymentTxHash?: string
+  mintTxHash?: string
+  itemTxHash?: string
+  mintWarning?: string
   error?: string
   attempts: number
   history: { status: string; at: number; note?: string }[]
 }
+type Links = { item: string | null; collection: string | null; paymentTx: string | null; mintTx: string | null; itemTx: string | null }
 type Overview = {
   enabled: boolean
   network: string
   environment: string
   testPayments: boolean
   chain: { ready: boolean; mode: string; reason?: string }
-  minter: { address: string; balance: string; seqno: number } | null
+  minter: { address: string; balance: string; seqno: number; explorerUrl: string | null } | null
   collection: string | null
+  collectionUrl: string | null
+  lastTestMint: { orderId: string; edition: number; owner: string; deliveredAt: number | null; itemAddress: string | null; links: Links } | null
+  lastTransaction: { orderId: string; hash: string; links: Links } | null
   inventory: { supply: number; available: number; reserved: number; minting: number; delivered: number; failed: number }
   orders: { total: number; byStatus: Record<string, number> }
   revenue: { note: string }
@@ -39,7 +47,7 @@ type Overview = {
 const FILTERS = ['ALL', 'PENDING', 'PAID', 'MINTING', 'DELIVERED', 'FAILED'] as const
 /** PENDING in the admin = everything still waiting for payment. */
 const matches = (f: (typeof FILTERS)[number], s: string) =>
-  f === 'ALL' || (f === 'PENDING' ? ['PENDING', 'RESERVED', 'PAYMENT_PENDING'].includes(s) : f === 'MINTING' ? ['MINTING', 'DELIVERING'].includes(s) : s === f)
+  f === 'ALL' || (f === 'PENDING' ? ['PENDING', 'RESERVED', 'PAYMENT_PENDING'].includes(s) : f === 'MINTING' ? ['MINTING', 'DELIVERING', 'OWNER_VERIFIED'].includes(s) : s === f)
 const time = (t?: number) => (t ? new Date(t).toLocaleString() : '—')
 
 /** 🖼 NFT SALE ADMIN (testnet). Read + retry delivery (idempotent) + test refund. */
@@ -49,6 +57,7 @@ export function NftSaleAdminPage() {
   const [openId, setOpenId] = useState<string | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [verify, setVerify] = useState<{ title: string; body: unknown } | null>(null)
 
   const load = useCallback(async () => {
     try {
@@ -79,6 +88,29 @@ export function NftSaleAdminPage() {
     }
   }
 
+  const runVerify = async (path: string, title: string) => {
+    setBusy(true)
+    setVerify({ title, body: 'Проверяем блокчейн…' })
+    try {
+      const { data: v } = await api.post(path, {})
+      setVerify({ title, body: v })
+    } catch (err) {
+      const e = err as { response?: { data?: { error?: string } } }
+      setVerify({ title, body: { error: e.response?.data?.error ?? 'error' } })
+    } finally {
+      setBusy(false)
+    }
+  }
+  const linkRow = (l?: Links | null) =>
+    l ? (
+      <span className="flex flex-wrap gap-x-3">
+        {l.item ? <a href={l.item} target="_blank" rel="noreferrer" className="text-amber-300 underline">NFT ↗</a> : null}
+        {l.paymentTx ? <a href={l.paymentTx} target="_blank" rel="noreferrer" className="text-amber-300 underline">payment tx ↗</a> : null}
+        {l.mintTx ? <a href={l.mintTx} target="_blank" rel="noreferrer" className="text-amber-300 underline">mint tx ↗</a> : null}
+        {l.itemTx ? <a href={l.itemTx} target="_blank" rel="noreferrer" className="text-amber-300 underline">transfer tx ↗</a> : null}
+      </span>
+    ) : null
+
   if (!data) return <p className="text-sm text-zinc-400">{msg ?? 'Загрузка…'}</p>
   const inv = data.inventory
   const stat = (label: string, v: number | string) => (
@@ -104,10 +136,35 @@ export function NftSaleAdminPage() {
         </p>
         {data.minter ? (
           <p className="break-all font-mono text-[11px] text-zinc-500">
-            Minter {data.minter.address} · {data.minter.balance} TON (testnet) · seqno {data.minter.seqno}
+            Minter {data.minter.address} · {data.minter.balance} TON (testnet) · seqno {data.minter.seqno}{' '}
+            {data.minter.explorerUrl ? <a href={data.minter.explorerUrl} target="_blank" rel="noreferrer" className="text-amber-300 underline">explorer ↗</a> : null}
           </p>
         ) : null}
-        <p className="break-all font-mono text-[11px] text-zinc-500">Collection {data.collection ?? '—'}</p>
+        <p className="break-all font-mono text-[11px] text-zinc-500">
+          Collection {data.collection ?? '—'} {data.collectionUrl ? <a href={data.collectionUrl} target="_blank" rel="noreferrer" className="text-amber-300 underline">explorer ↗</a> : null}
+        </p>
+        {data.lastTestMint ? (
+          <p className="break-all text-[11px] text-zinc-400">
+            Last test mint: #{data.lastTestMint.edition} → {data.lastTestMint.owner} · {time(data.lastTestMint.deliveredAt ?? undefined)} {linkRow(data.lastTestMint.links)}
+          </p>
+        ) : null}
+        {data.lastTransaction ? (
+          <p className="break-all font-mono text-[11px] text-zinc-500">Last transaction: {data.lastTransaction.hash}</p>
+        ) : null}
+        <div className="mt-2 flex flex-wrap gap-2">
+          <button type="button" disabled={busy || !data.collection} onClick={() => runVerify('/admin/nft-sale/verify/collection', 'VERIFY TESTNET COLLECTION')} className="nfts-verify-collection rounded-xl border border-amber-400/50 px-3 py-2 text-xs font-black text-amber-100 disabled:opacity-50">
+            VERIFY TESTNET COLLECTION
+          </button>
+          <button type="button" disabled={busy || !data.orders.total} onClick={() => runVerify('/admin/nft-sale/verify/nft', 'VERIFY TEST NFT')} className="nfts-verify-nft rounded-xl border border-amber-400/50 px-3 py-2 text-xs font-black text-amber-100 disabled:opacity-50">
+            VERIFY TEST NFT
+          </button>
+        </div>
+        {verify ? (
+          <div className="nfts-verify-result mt-2 rounded-xl border border-white/10 bg-black/40 p-2">
+            <p className="text-[11px] font-black text-amber-200">{verify.title}</p>
+            <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-all text-[10px] text-zinc-300">{typeof verify.body === 'string' ? verify.body : JSON.stringify(verify.body, null, 2)}</pre>
+          </div>
+        ) : null}
         {data.chain.reason === 'collection_not_deployed' ? (
           <button type="button" disabled={busy} onClick={() => act('/admin/nft-sale/collection/deploy', 'Deploy collection')} className="mt-2 rounded-xl bg-amber-400 px-3 py-2 text-xs font-black text-zinc-950 disabled:opacity-60">
             Deploy testnet collection
@@ -160,7 +217,10 @@ export function NftSaleAdminPage() {
               <p>Wallet: <span className="font-mono">{o.walletFriendly}</span></p>
               <p>NFT: #{o.nftId} / 2000</p>
               <p>Payment: {o.provider} · {o.paymentId ?? '—'} · {o.paymentStatus ?? '—'}</p>
-              <p>Tx hash: <span className="font-mono">{o.txHash ?? '—'}</span></p>
+              <p>Payment tx: <span className="font-mono">{o.paymentTxHash ?? '—'}</span></p>
+              <p>Mint tx: <span className="font-mono">{o.mintTxHash ?? '—'}</span></p>
+              <p>Tx hash: <span className="font-mono">{o.itemTxHash ?? o.txHash ?? '—'}</span></p>
+              {o.mintWarning ? <p className="text-amber-300">Mint: {o.mintWarning} (не доставлен)</p> : null}
               <p>Item: <span className="font-mono">{o.itemAddress ?? '—'}</span></p>
               <p>Created {time(o.createdAt)} · Paid {time(o.paidAt)} · Delivered {time(o.deliveredAt)} · attempts {o.attempts}</p>
               {o.error ? <p className="text-orange-300">Error: {o.error}</p> : null}

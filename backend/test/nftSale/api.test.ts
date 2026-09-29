@@ -28,6 +28,7 @@ async function startServer(port: number, env: Record<string, string>) {
       PORT: String(port),
       NFT_SANDBOX_DELAY_MS: '150',
       NFT_WORKER_INTERVAL_MS: '400',
+      NFT_PAYMENT_PROVIDER: 'test',
       ...env,
     },
     stdio: 'ignore',
@@ -196,10 +197,12 @@ describe('sale ON (testnet sandbox)', () => {
     assert.equal(ov.minter.seqno - seq0, 1, 'one mint for one paid order')
     assert.equal(ov.inventory.delivered, 1)
     assert.equal(ov.revenue.real, 0)
-    assert.ok(ov.funnel.nft_delivery_success >= 1)
-    const meta = await call(base, `/api/nft-sale/metadata/${order.nftId}.json`)
+    assert.ok(ov.funnel.nft_sale_testnet_delivered >= 1)
+    assert.ok(ov.funnel.nft_sale_testnet_owner_verified >= 1)
+    const meta = await call(base, `/api/nft-sale/testnet/metadata/${order.nftId}`)
     assert.equal(meta.body.name, `DuckJackpot HEIST #${order.nftId}`)
-    assert.deepEqual(meta.body.attributes.slice(0, 2), [{ trait_type: 'Collection', value: 'HEIST' }, { trait_type: 'Edition', value: `${order.nftId}/2000` }])
+    assert.match(meta.body.description, /TESTNET PLACEHOLDER — NOT FINAL ART/)
+    assert.deepEqual(meta.body.attributes.slice(0, 3), [{ trait_type: 'Collection', value: 'HEIST' }, { trait_type: 'Edition', value: `${order.nftId} of 2000` }, { trait_type: 'Network', value: 'TON TESTNET' }])
   })
 
   test('admin endpoints need the password; retry of a non-failed order is refused', async () => {
@@ -212,7 +215,7 @@ describe('sale ON (testnet sandbox)', () => {
   })
 
   test('client-only analytics cannot fake server events', async () => {
-    const r = await call(base, '/api/analytics/events', { initData: initData(51), events: [{ name: 'nft_delivery_success' }, { name: 'nft_payment_confirmed' }, { name: 'nft_sale_open' }] })
+    const r = await call(base, '/api/analytics/events', { initData: initData(51), events: [{ name: 'nft_sale_testnet_delivered' }, { name: 'nft_sale_testnet_payment_verified' }, { name: 'nft_sale_testnet_owner_verified' }, { name: 'nft_sale_open' }] })
     assert.equal(r.body.stored, 1)
   })
 })
@@ -260,5 +263,90 @@ describe('mainnet requested', () => {
     await linkWallet(base, 81)
     const o = await call(base, '/api/nft-sale/orders', { initData: initData(81) })
     assert.deepEqual([o.status, o.body.error], [503, 'chain_not_ready'])
+  })
+})
+
+describe('Phase 2: on-chain TESTNET payment provider over HTTP', () => {
+  let base = ''
+  before(async () => {
+    base = await startServer(3415, { NFT_SALE_ENABLED: 'true', NFT_CHAIN: 'sandbox', NFT_PAYMENT_PROVIDER: 'ton_testnet' })
+    await until(() => call(base, '/api/nft-sale/config'), (r) => r.body.chainReady === true)
+  })
+
+  test('config: provider ton_testnet, TON TESTNET, placeholder art notice', async () => {
+    const { body } = await call(base, '/api/nft-sale/config')
+    assert.equal(body.provider, 'ton_testnet')
+    assert.equal(body.networkLabel, 'TON TESTNET')
+    assert.equal(body.artNotice, 'TESTNET PLACEHOLDER — NOT FINAL ART')
+  })
+
+  test('G/J/K/I/H. fake tx hash, PAID, DELIVERED, owner, NFT number from the client → ignored', async () => {
+    const w = await linkWallet(base, 91)
+    const attacker = await makeWallet()
+    const o = (await call(base, '/api/nft-sale/orders', { initData: initData(91), nftId: 1500, owner: attacker.address.toRawString() })).body.order
+    assert.notEqual(o.nftId, 1500)
+    assert.equal(o.wallet, w.address.toString({ testOnly: true, bounceable: false }))
+    assert.equal(o.paymentInstructions.amountTon, 0.05)
+    assert.match(o.paymentInstructions.comment, /^DJH-/)
+    const fake = await call(base, '/api/nft-sale/orders/check-payment', {
+      initData: initData(91),
+      orderId: o.id,
+      txHash: 'ab'.repeat(32),
+      status: 'PAID',
+      paymentStatus: 'PAID',
+      delivered: true,
+      owner: attacker.address.toRawString(),
+      nftId: 1,
+    })
+    assert.equal(fake.status, 200)
+    assert.equal(fake.body.order.status, 'PAYMENT_PENDING')
+    assert.equal(fake.body.order.paymentTxHash, null)
+    assert.equal(fake.body.order.wallet, w.address.toString({ testOnly: true, bounceable: false }))
+    assert.equal((await call(base, '/api/nft-sale/orders/check-payment', { initData: initData(92), orderId: o.id })).status, 404, "someone else's order")
+    assert.equal((await call(base, '/api/nft-sale/orders/test-pay', { initData: initData(91), orderId: o.id })).status, 409, 'the simulator cannot pay an on-chain order')
+    assert.equal((await call(base, '/api/nft-sale/payments/ton_testnet/webhook', { providerOrderId: 'x', status: 'PAID' })).status, 404)
+  })
+
+  test('metadata: stable per-edition URLs over real HTTP', async () => {
+    const c = await call(base, '/api/nft-sale/testnet/metadata/collection.json')
+    assert.equal(c.body.name, 'DUCKJACKPOT HEIST')
+    assert.equal(c.body.symbol, 'HEIST')
+    assert.match(c.body.description, /TESTNET COLLECTION — NOT MAINNET/)
+    for (const n of [1, 137, 2000]) {
+      const m = await call(base, `/api/nft-sale/testnet/metadata/${n}`)
+      assert.equal(m.status, 200)
+      assert.equal(m.body.name, `DuckJackpot HEIST #${n}`)
+      assert.match(m.body.image, /heist-testnet-placeholder\.png$/)
+    }
+    assert.equal((await call(base, '/api/nft-sale/testnet/metadata/2001')).status, 404)
+    assert.equal((await call(base, '/api/nft-sale/testnet/metadata/0')).status, 404)
+    const img = await fetch(`${base}/api/nft-sale/art/heist-testnet-placeholder.png`)
+    assert.equal(img.headers.get('content-type'), 'image/png')
+  })
+
+  test('admin VERIFY TESTNET COLLECTION reads the chain + metadata HTTP', async () => {
+    const r = await call(base, '/api/admin/nft-sale/verify/collection', {}, { 'x-admin-password': ADMIN })
+    assert.equal(r.body.checks.deployed, true)
+    assert.equal(r.body.checks.referenceCode, true)
+    assert.equal(r.body.checks.ownerIsMinter, true)
+    assert.equal(r.body.checks.nextItemIndex, '2000')
+    assert.equal(r.body.checks.contentUrlMatches, true)
+    assert.equal(r.body.checks.metadataHttp200, true)
+    assert.equal(r.body.checks.metadataName, 'DUCKJACKPOT HEIST')
+  })
+})
+
+describe('Phase 2 hard guard: production + mainnet without approval', () => {
+  let base = ''
+  before(async () => {
+    base = await startServer(3416, { NODE_ENV: 'production', NFT_NETWORK: 'mainnet', NFT_SALE_ENABLED: 'true' })
+  })
+  test('the NFT Sale subsystem refuses to start; the rest of the app runs', async () => {
+    for (const path of ['/api/nft-sale/config', '/api/nft-sale/testnet/metadata/1', '/api/admin/nft-sale/overview']) {
+      const r = await call(base, path)
+      assert.deepEqual([r.status, r.body.error], [503, 'mainnet_not_approved'], path)
+    }
+    assert.equal((await call(base, '/api/nft-sale/orders', { initData: initData(99) })).status, 503)
+    assert.equal((await fetch(`${base}/api/health`)).status, 200)
   })
 })

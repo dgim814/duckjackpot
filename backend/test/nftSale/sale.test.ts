@@ -9,6 +9,7 @@ process.env.DATA_DIR = mkdtempSync(join(tmpdir(), 'nft-sale-'))
 process.env.NFT_CHAIN = 'sandbox'
 process.env.NFT_SANDBOX_DELAY_MS = '150'
 process.env.NFT_SALE_ENABLED = 'true'
+process.env.NFT_PAYMENT_PROVIDER = 'test'
 process.env.NFT_MINT_CONFIRM_TIMEOUT_S = '2'
 delete process.env.NODE_ENV
 
@@ -85,14 +86,14 @@ test('TEST PAYMENT paid → PAID → MINTING → DELIVERED, owner verified on-ch
   const u = await buyer()
   const { order } = await sale.createOrder(u.id)
   const paid = await pay(u.id, order.id)
-  assert.ok(['PAID', 'MINTING', 'DELIVERING', 'DELIVERED'].includes(paid.status))
+  assert.ok(['PAID', 'MINTING', 'DELIVERING', 'OWNER_VERIFIED', 'DELIVERED'].includes(paid.status))
   await sale.kickDelivery()
   const o = store.getOrder(order.id)!
   assert.equal(o.status, 'DELIVERED')
   assert.equal(store.itemStatus(o.nftId), 'DELIVERED')
   assert.match(o.txHash ?? '', /^[0-9a-f]{64}$/)
   assert.equal(await chain.verifyOwnership(o.nftId, u.wallet), true)
-  assert.deepEqual(o.history.map((h) => h.status), ['PENDING', 'RESERVED', 'PAYMENT_PENDING', 'PAID', 'MINTING', 'DELIVERING', 'DELIVERED'])
+  assert.deepEqual(o.history.map((h) => h.status), ['PENDING', 'RESERVED', 'PAYMENT_PENDING', 'PAID', 'MINTING', 'DELIVERING', 'OWNER_VERIFIED', 'DELIVERED'])
 })
 
 test('duplicate webhook / parallel workers → exactly one mint', async () => {

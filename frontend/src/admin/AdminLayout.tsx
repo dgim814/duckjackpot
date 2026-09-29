@@ -145,7 +145,7 @@ export function AdminLayout() {
       <nav className="mb-5 flex gap-1 overflow-x-auto pb-1">
         {NAV.map((item) => {
           const { to, icon: Icon, end } = item
-          const active = end ? location.pathname === to : location.pathname.startsWith(to)
+          const active = end ? location.pathname === to : location.pathname === to || location.pathname.startsWith(`${to}/`)
           return (
             <Link
               key={to}

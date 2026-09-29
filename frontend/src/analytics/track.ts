@@ -46,6 +46,7 @@ export type AnalyticsEvent =
   | 'nft_wallet_connect_started'
   | 'nft_product_view'
   | 'nft_payment_started'
+  | 'nft_sale_testnet_payment_sent'
 
 export type AnalyticsProps = Partial<{
   level: string

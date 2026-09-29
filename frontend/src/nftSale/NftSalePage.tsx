@@ -1,12 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useTonConnectUI } from '@tonconnect/ui-react'
+import { CHAIN, useTonConnectUI } from '@tonconnect/ui-react'
+import { Address, beginCell } from '@ton/core'
 import { track, trackScreen } from '../analytics/track'
 import { ScreenHeader } from '../components/ScreenHeader'
-import { createOrder, orderStatus, saleConfig, saleMe, SaleApiError, shortAddress, testPay, verifyWallet, walletNonce, type SaleConfig, type SaleMe, type SaleOrder } from './api'
+import { checkPayment, createOrder, orderStatus, saleConfig, saleMe, SaleApiError, shortAddress, testPay, verifyWallet, walletNonce, type SaleConfig, type SaleMe, type SaleOrder } from './api'
 import { useSaleText } from './i18n'
 import { NftCard, NftViewerOverlay } from './NftViewer'
 
-const OPEN: SaleOrder['status'][] = ['PENDING', 'RESERVED', 'PAYMENT_PENDING', 'PAID', 'MINTING', 'DELIVERING']
+const OPEN: SaleOrder['status'][] = ['PENDING', 'RESERVED', 'PAYMENT_PENDING', 'PAID', 'MINTING', 'DELIVERING', 'OWNER_VERIFIED']
+const sameWallet = (a?: string, b?: string) => {
+  try {
+    return Boolean(a && b && Address.parse(a).equals(Address.parse(b)))
+  } catch {
+    return false
+  }
+}
 const errCode = (e: unknown) => (e instanceof SaleApiError ? e.message : 'default')
 
 function useCountdown(until: number | null) {
@@ -25,7 +33,7 @@ function useCountdown(until: number | null) {
 function OrderSteps({ order }: { order: SaleOrder }) {
   const { d } = useSaleText()
   // how many steps are complete; the next one pulses while the server works on it
-  const doneCount: Record<SaleOrder['status'], number> = { PENDING: 0, RESERVED: 1, PAYMENT_PENDING: 1, PAID: 2, MINTING: 2, DELIVERING: 3, DELIVERED: 4, FAILED: 0, REFUNDED: 0 }
+  const doneCount: Record<SaleOrder['status'], number> = { PENDING: 0, RESERVED: 1, PAYMENT_PENDING: 1, PAID: 2, MINTING: 2, DELIVERING: 3, OWNER_VERIFIED: 4, DELIVERED: 4, FAILED: 0, REFUNDED: 0 }
   const n = doneCount[order.status]
   const working = order.status === 'PAID' || order.status === 'MINTING' || order.status === 'DELIVERING'
   const steps = [d.stepReserved, d.stepPaid, d.stepMint, d.stepOwner]
@@ -54,6 +62,7 @@ export function NftSalePage() {
   const [busy, setBusy] = useState<'connect' | 'buy' | 'pay' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [viewer, setViewer] = useState<SaleOrder | null>(null)
+  const [sent, setSent] = useState<string | null>(null)
   const awaitingProof = useRef(false)
   const left = useCountdown(order && (order.status === 'RESERVED' || order.status === 'PAYMENT_PENDING') ? order.reservedUntil : null)
 
@@ -161,6 +170,55 @@ export function NftSalePage() {
     }
   }
 
+  /** Real TESTNET payment: the wallet signs the transfer the SERVER specified; the server checks the chain. */
+  const payTon = async () => {
+    const ins = order?.paymentInstructions
+    if (!order || !ins) return
+    setError(null)
+    if (!tonConnectUI.connected || !sameWallet(tonConnectUI.account?.address, me?.wallet?.address)) {
+      setError('wallet_reconnect')
+      return
+    }
+    setBusy('pay')
+    try {
+      const payload = beginCell().storeUint(0, 32).storeStringTail(ins.comment).endCell().toBoc().toString('base64')
+      await tonConnectUI.sendTransaction({
+        validUntil: Math.floor(Math.min(ins.validUntil, Date.now() + 5 * 60_000) / 1000),
+        network: CHAIN.TESTNET,
+        messages: [{ address: ins.recipient, amount: ins.amountNano, payload }],
+      })
+      track('nft_sale_testnet_payment_sent', { orderId: order.id, edition: order.nftId })
+      setSent(order.id)
+    } catch {
+      setError('payment_cancelled')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  // after sending: ask the server to look at the chain until it sees (or not) the payment
+  useEffect(() => {
+    if (!order || order.status !== 'PAYMENT_PENDING' || order.provider !== 'ton_testnet' || sent !== order.id) return
+    const id = window.setInterval(() => {
+      void checkPayment(order.id)
+        .then((r) => setOrder(r.order))
+        .catch(() => undefined)
+    }, 4000)
+    return () => window.clearInterval(id)
+  }, [order, sent])
+
+  const recheck = async () => {
+    if (!order) return
+    setError(null)
+    try {
+      const r = await checkPayment(order.id)
+      setOrder(r.order)
+      if (r.order.status === 'PAYMENT_PENDING') setError('payment_not_found_yet')
+    } catch (e) {
+      setError(errCode(e))
+    }
+  }
+
   // follow the order on the server until it is final
   useEffect(() => {
     if (!order || !OPEN.includes(order.status) || order.status === 'PAYMENT_PENDING' || order.status === 'RESERVED') return
@@ -200,6 +258,7 @@ export function NftSalePage() {
 
       <div className="mx-auto mt-4 max-w-[22rem]">
         <NftCard edition={showEdition ?? null} supply={config.supply} onOpen={order?.status === 'DELIVERED' ? () => setViewer(order) : undefined} />
+        <p className="nfts-art-notice mt-2 text-center text-[10px] font-extrabold tracking-[0.14em] text-red-300/90">{d.artNotice}</p>
       </div>
 
       <div className="mt-4 flex items-center justify-between rounded-2xl border border-white/10 bg-[#141218] px-4 py-3">
@@ -258,7 +317,24 @@ export function NftSalePage() {
           {left ? <p className="text-[12px] text-zinc-400">{fmt(d.reservedFor, { time: left })}</p> : null}
           {order.status !== 'FAILED' && order.status !== 'REFUNDED' ? <OrderSteps order={order} /> : null}
 
-          {order.status === 'PAYMENT_PENDING' ? (
+          {order.status === 'PAYMENT_PENDING' && order.provider === 'ton_testnet' && order.paymentInstructions ? (
+            <div className="nfts-pay mt-3 rounded-xl border border-dashed border-amber-300/40 p-3">
+              <p className="text-[10px] font-extrabold tracking-[0.2em] text-amber-300">{d.payTitle}</p>
+              <p className="mt-1 font-display text-lg font-black text-amber-50">{order.paymentInstructions.amountTon} TON <span className="text-[11px] text-amber-300">TESTNET</span></p>
+              <p className="mt-1 break-all text-[11px] text-zinc-400">
+                → <span className="font-mono">{shortAddress(order.paymentInstructions.recipient)}</span> · {d.comment}: <span className="font-mono text-amber-100">{order.paymentInstructions.comment}</span>
+              </p>
+              <p className="mt-1 text-[11px] text-zinc-500">{d.payHint}</p>
+              <button type="button" disabled={busy !== null} onClick={payTon} className="buy-btn nfts-paywallet mt-2 min-h-11 w-full rounded-xl px-2 font-display text-[13px] font-black tracking-[0.06em] text-zinc-950 disabled:opacity-60">
+                {busy === 'pay' ? d.connecting : d.payWithWallet}
+              </button>
+              <button type="button" onClick={recheck} className="nfts-recheck mt-2 w-full text-center text-[12px] font-bold text-amber-300 underline">
+                {sent === order.id ? d.checkingPayment : d.checkPayment}
+              </button>
+            </div>
+          ) : null}
+
+          {order.status === 'PAYMENT_PENDING' && order.provider === 'test' ? (
             <div className="mt-3 rounded-xl border border-dashed border-amber-300/40 p-3">
               <p className="text-[10px] font-extrabold tracking-[0.2em] text-amber-300">{d.testPayTitle}</p>
               {config.testPayments ? (
@@ -280,18 +356,37 @@ export function NftSalePage() {
           ) : null}
 
           {order.status === 'DELIVERED' ? (
-            <div className="mt-3">
-              <p className="font-display text-base font-black text-emerald-300">✓ {d.delivered}</p>
-              <p className="mt-1 break-all font-mono text-[11px] text-zinc-400">
-                {d.owner}: {shortAddress(order.wallet)}
-              </p>
-              {order.explorerUrl ? (
-                <a href={order.explorerUrl} target="_blank" rel="noreferrer" className="mt-2 inline-block text-[12px] font-bold text-amber-300 underline">
-                  {d.viewOnTon} ↗
-                </a>
-              ) : null}
+            <div className="nfts-delivered mt-3">
+              <p className="font-display text-base font-black text-emerald-300">✓ NFT DELIVERED</p>
+              <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 text-[12px] text-zinc-400">
+                <dt>{d.owner}:</dt>
+                <dd className="font-mono text-amber-100">{shortAddress(order.wallet)}</dd>
+                <dt>NFT:</dt>
+                <dd className="text-amber-100">HEIST #{order.nftId}</dd>
+                <dt>{d.collection}:</dt>
+                <dd className="text-amber-100">DUCKJACKPOT HEIST</dd>
+                <dt>{d.network}:</dt>
+                <dd className="text-amber-100">TON TESTNET</dd>
+              </dl>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <button type="button" onClick={() => setViewer(order)} className="nfts-view min-h-11 rounded-xl border border-amber-400/40 px-2 font-display text-[12px] font-black text-amber-100">
+                  VIEW NFT
+                </button>
+                {order.links?.item ? (
+                  <a href={order.links.item} target="_blank" rel="noreferrer" className="buy-btn nfts-explorer flex min-h-11 items-center justify-center rounded-xl px-2 font-display text-[12px] font-black text-zinc-950">
+                    OPEN ON EXPLORER
+                  </a>
+                ) : null}
+              </div>
+              <div className="mt-2 flex flex-wrap gap-x-3 text-[11px] font-bold text-amber-300/90">
+                {order.links?.collection ? <a href={order.links.collection} target="_blank" rel="noreferrer" className="underline">{d.collection} ↗</a> : null}
+                {order.links?.paymentTx ? <a href={order.links.paymentTx} target="_blank" rel="noreferrer" className="underline">{d.txPayment} ↗</a> : null}
+                {order.links?.mintTx ? <a href={order.links.mintTx} target="_blank" rel="noreferrer" className="underline">{d.txMint} ↗</a> : null}
+                {order.links?.itemTx ? <a href={order.links.itemTx} target="_blank" rel="noreferrer" className="underline">{d.txItem} ↗</a> : null}
+              </div>
             </div>
           ) : null}
+          {order.mintWarning === 'confirmation_delayed' && order.status === 'MINTING' ? <p className="mt-2 text-[12px] text-amber-200">{d.mintDelayed}</p> : null}
           {order.status === 'FAILED' ? (
             <p className="mt-2 text-[12px] text-orange-300">
               {d.failed}: {order.error ?? '—'}. {d.retryLater}

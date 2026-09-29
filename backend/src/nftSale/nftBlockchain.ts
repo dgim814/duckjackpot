@@ -1,11 +1,13 @@
-import { Address, external, internal, SendMode, toNano, type ContractProvider, type StateInit } from '@ton/core'
+import { Address, beginCell, Cell, external, internal, SendMode, toNano, type ContractProvider, type StateInit, type Transaction } from '@ton/core'
 import { WalletContractV4 } from '@ton/ton'
-import { NFT_SUPPLY, TESTNET_EXPLORER, MINT_ITEM_VALUE_TON, MINT_MESSAGE_VALUE_TON } from './config.js'
+import { METADATA_PATH, NFT_SUPPLY, TESTNET_EXPLORER, MINT_ITEM_VALUE_TON, MINT_MESSAGE_VALUE_TON } from './config.js'
 import {
   collectionAddress,
   collectionStateInit,
   getCollectionData,
   getNftData,
+  collectionCode,
+  itemCode,
   itemAddress,
   mintBody,
   transferBody,
@@ -69,8 +71,8 @@ export class NftBlockchain {
   collectionConfig(metadataBase: string): CollectionConfig {
     return {
       owner: this.wallet.address,
-      collectionContentUrl: `${metadataBase}/api/nft-sale/metadata/collection.json`,
-      commonContentUrl: `${metadataBase}/api/nft-sale/metadata/`,
+      collectionContentUrl: `${metadataBase}${METADATA_PATH}collection.json`,
+      commonContentUrl: `${metadataBase}${METADATA_PATH}`,
       nextItemIndex: BigInt(NFT_SUPPLY),
       royalty: { factor: 0, base: 1000, address: this.wallet.address },
     }
@@ -159,7 +161,7 @@ export class NftBlockchain {
           to: collection,
           value: toNano(MINT_MESSAGE_VALUE_TON),
           bounce: true,
-          body: mintBody({ index: editionToIndex(edition), owner, itemContentSuffix: `${edition}.json`, itemValue: toNano(MINT_ITEM_VALUE_TON), queryId: BigInt(Date.now()) }),
+          body: mintBody({ index: editionToIndex(edition), owner, itemContentSuffix: String(edition), itemValue: toNano(MINT_ITEM_VALUE_TON), queryId: BigInt(Date.now()) }),
         }),
       ],
     })
@@ -178,6 +180,95 @@ export class NftBlockchain {
       messages: [internal({ to: this.itemAddress(edition), value: toNano('0.05'), bounce: true, body: transferBody({ newOwner: to, responseTo: this.wallet.address }) })],
     })
     return { seqno }
+  }
+
+  /** Latest transactions of an account, newest first (works on TON Center and the sandbox). */
+  async transactions(address: Address, limit = 30): Promise<Transaction[]> {
+    const p = this.backend.provider(address)
+    const state = await p.getState()
+    if (!state.last) return []
+    return p.getTransactions(address, state.last.lt, Buffer.from(state.last.hash), limit)
+  }
+
+  /** The minter-wallet transaction that sent the mint of edition #n (external in → op 1 to the collection). */
+  async findMintTx(edition: number) {
+    const collection = this.requireCollection()
+    for (const tx of await this.transactions(this.wallet.address, 40)) {
+      if (tx.inMessage?.info.type !== 'external-in') continue
+      for (const out of tx.outMessages.values()) {
+        if (out.info.type !== 'internal' || !out.info.dest.equals(collection)) continue
+        try {
+          const b = out.body.beginParse()
+          if (b.loadUint(32) === 1) {
+            b.loadUintBig(64)
+            if (b.loadUintBig(64) === editionToIndex(edition)) return { hash: tx.hash().toString('hex'), lt: tx.lt.toString(), at: tx.now }
+          }
+        } catch {
+          /* not a mint */
+        }
+      }
+    }
+    return null
+  }
+
+  /** The item's first transaction: its deployment by the collection, which sets the buyer as owner. */
+  async itemDeployTx(edition: number) {
+    const txs = await this.transactions(this.itemAddress(edition), 20)
+    const first = txs[txs.length - 1]
+    return first ? { hash: first.hash().toString('hex'), lt: first.lt.toString(), at: first.now } : null
+  }
+
+  /** On-chain collection content URL (TEP-64 off-chain: 0x01 + URL). */
+  async collectionContentUrl() {
+    const { stack } = await this.backend.provider(this.requireCollection()).get('get_collection_data', [])
+    stack.readBigNumber()
+    const cs = stack.readCell().beginParse()
+    if (cs.loadUint(8) !== 1) return null
+    return cs.loadStringTail()
+  }
+
+  /** Full metadata URL of edition #n as the chain composes it (get_nft_content of the collection). */
+  async itemContentUrl(edition: number) {
+    const item = this.backend.provider(this.itemAddress(edition))
+    const { stack } = await item.get('get_nft_data', [])
+    stack.readBigNumber()
+    stack.readBigNumber()
+    stack.readAddress()
+    stack.readAddressOpt()
+    const individual = stack.readCell()
+    const r = await this.backend.provider(this.requireCollection()).get('get_nft_content', [
+      { type: 'int', value: editionToIndex(edition) },
+      { type: 'cell', cell: individual },
+    ])
+    const cs = r.stack.readCell().beginParse()
+    if (cs.loadUint(8) !== 1) return null
+    return cs.loadStringTail()
+  }
+
+  /** Code hashes deployed on-chain (to prove they are the reference contracts). */
+  async codeHash(address: Address) {
+    const st = await this.backend.provider(address).getState()
+    return st.state.type === 'active' && st.state.code ? Cell.fromBoc(st.state.code)[0].hash().toString('hex') : null
+  }
+
+  referenceHashes() {
+    return { collection: collectionCode().hash().toString('hex'), item: itemCode().hash().toString('hex') }
+  }
+
+  /** Plain TON transfer with a text comment from the minter wallet (testnet refunds). */
+  async sendTon(to: Address, amountNano: bigint, comment: string) {
+    const { seqno } = await this.minterState()
+    await this.wallet.sendTransfer(this.walletProvider(), {
+      seqno,
+      secretKey: this.keys.secretKey,
+      sendMode: SendMode.PAY_GAS_SEPARATELY + SendMode.IGNORE_ERRORS,
+      messages: [internal({ to, value: amountNano, bounce: false, body: beginCell().storeUint(0, 32).storeStringTail(comment).endCell() })],
+    })
+    return { seqno }
+  }
+
+  txExplorerUrl(hash: string) {
+    return this.backend.kind === 'toncenter' ? `${TESTNET_EXPLORER}/transaction/${hash}` : null
   }
 
   /** Waits until the wallet has processed the message with `seqno` (so the next one may be sent). */
@@ -284,6 +375,17 @@ export async function sandboxBackend(delayMs: number) {
                   console.warn('[nft-sale] sandbox dropped an external message:', err instanceof Error ? err.message.split('\n')[0] : err)
                 })
               }, delayMs)
+            }
+          }
+          if (prop === 'getTransactions') {
+            // @ton/sandbox 0.45 compares tx hashes with === (Buffers) and so never finds lt+hash:
+            // list the account's transactions and page by lt ourselves (newest first, like TON Center)
+            return async (a: Address, lt: bigint, _hash: Buffer, limit?: number) => {
+              const all = await chain.getTransactions(a)
+              return [...all]
+                .filter((t) => t.lt <= lt)
+                .sort((x, y) => (x.lt < y.lt ? 1 : x.lt > y.lt ? -1 : 0))
+                .slice(0, limit ?? 20)
             }
           }
           const v = Reflect.get(target, prop, receiver)
